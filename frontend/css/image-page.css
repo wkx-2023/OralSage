@@ -1,0 +1,155 @@
+.image-page {
+  overflow: hidden;
+}
+
+.image-shell,
+.image-pane {
+  height: 100%;
+}
+
+.image-workspace {
+  padding-top: 14px;
+  overflow: hidden;
+}
+
+.image-board {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1.18fr 0.82fr;
+  gap: 12px;
+}
+
+.image-left,
+.image-right-pane {
+  background: #faf9ff;
+  border-radius: 14px;
+  padding: 12px;
+  min-height: 0;
+}
+
+.upload-stage {
+  width: 100%;
+  border: 1px dashed #c9c1ef;
+  border-radius: 12px;
+  background: #ffffff;
+  min-height: 420px;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.upload-stage:hover {
+  border-color: #9d8edf;
+  background: #fcfbff;
+}
+
+#image-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: none;
+  background: #ffffff;
+}
+
+#image-preview.ready {
+  display: block;
+}
+
+.image-empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  background: #ffffff;
+}
+
+.image-empty-state.hidden {
+  display: none;
+}
+
+.empty-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #f1edff;
+  border: 1px solid #d8d0f7;
+  position: relative;
+}
+
+.empty-icon::before,
+.empty-icon::after {
+  content: "";
+  position: absolute;
+  background: #ffffff;
+  border-radius: 10px;
+}
+
+.empty-icon::before {
+  width: 22px;
+  height: 2px;
+  left: 17px;
+  top: 27px;
+}
+
+.empty-icon::after {
+  width: 2px;
+  height: 22px;
+  left: 27px;
+  top: 17px;
+}
+
+.empty-title {
+  margin: 0;
+  color: #5144a9;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.image-left .field-label {
+  margin-top: 12px;
+}
+
+.image-left .line-input {
+  border: 0;
+  border-bottom: 1px solid #bcb4e7;
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 2px;
+}
+
+.image-left .line-input:focus {
+  border-bottom-color: #7b69d2;
+}
+
+.image-right-pane {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: auto;
+}
+
+#image-output {
+  min-height: 0;
+  overflow: auto;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+@media (max-width: 1180px) {
+  .image-board {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .upload-stage {
+    min-height: 340px;
+  }
+
+  .image-page {
+    overflow: auto;
+  }
+}

@@ -1,0 +1,31 @@
+vision_sft:
+  dataset_root: data/processed/vision_sft
+  base_model: Qwen/Qwen2.5-VL-7B-Instruct
+  adapter_output: models/oralpath_lora
+
+datasets:
+  noaug:
+    root: data/processed/vision_sft/noaug
+    train_mixed: data/processed/vision_sft/noaug/train_mixed.jsonl
+    valid_mixed: data/processed/vision_sft/noaug/valid_mixed.jsonl
+    test_mixed: data/processed/vision_sft/noaug/test_mixed.jsonl
+  all:
+    root: data/processed/vision_sft/all
+    train_mixed: data/processed/vision_sft/all/train_mixed.jsonl
+    valid_mixed: data/processed/vision_sft/all/valid_mixed.jsonl
+    test_mixed: data/processed/vision_sft/all/test_mixed.jsonl
+
+tasks:
+  - detection_json
+  - summary_zh
+  - rare_focus_json
+  - mixed
+
+training_plan:
+  main_stage_dataset: noaug
+  robustness_stage_dataset: all
+  rare_focus_task: rare_focus_json
+
+evaluation:
+  copied_results: data/processed/eval/oralpath_results
+  copied_runs: data/processed/eval/oralpath_runs

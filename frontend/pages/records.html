@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>&#30149;&#21382;&#29983;&#25104; - &#21475;&#33108;&#22810;&#27169;&#22359;&#24037;&#20316;&#21488;</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/records-page.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="rail">
+      <nav id="module-nav" class="module-nav"></nav>
+    </aside>
+
+    <section class="main-pane">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title" class="page-title"></h1>
+          <p id="page-subtitle" class="page-subtitle"></p>
+        </div>
+      </header>
+
+      <main class="workspace records-workspace">
+        <section class="records-grid">
+          <section class="records-input-panel">
+            <textarea
+              id="records-conversation"
+              placeholder="&#36755;&#20837;&#19968;&#27573;&#38382;&#35786;&#25991;&#23383;&#65292;&#25110;&#31896;&#36148;&#35821;&#38899;&#36716;&#20889;&#20869;&#23481;&#12290;&#21487;&#36873;&#19978;&#20256;&#19968;&#24352;&#24433;&#20687;&#20316;&#20026;&#30149;&#21382;&#34917;&#20805;&#20449;&#24687;&#12290;"
+            ></textarea>
+
+            <div class="records-tool-row">
+              <input id="records-image-file" type="file" accept="image/*" hidden>
+              <button type="button" id="records-image-trigger" class="btn ghost">&#19978;&#20256;&#22270;&#29255;</button>
+              <button type="button" id="records-image-clear" class="btn ghost hidden">&#31227;&#38500;&#22270;&#29255;</button>
+              <button type="button" id="records-clear" class="btn ghost">&#28165;&#31354;</button>
+            </div>
+
+            <section class="records-image-box">
+              <img id="records-image-preview" alt="&#30149;&#21382;&#34917;&#20805;&#24433;&#20687;&#39044;&#35272;">
+              <div id="records-image-empty" class="records-image-empty">&#21487;&#36873;&#19978;&#20256;&#24433;&#20687;&#65292;&#29992;&#20110;&#26032;&#23454;&#29616;&#20013;&#34917;&#20805;&#35786;&#26029;&#20449;&#24687;&#12290;</div>
+            </section>
+
+            <div class="records-action-row">
+              <button type="button" id="records-generate" class="btn">&#29983;&#25104;&#30149;&#21382;</button>
+            </div>
+
+            <details class="records-debug-box">
+              <summary>&#26597;&#30475;&#22788;&#29702;&#20013;&#38388;&#32467;&#26524;</summary>
+              <div class="records-debug-grid">
+                <article class="records-debug-card">
+                  <div class="records-debug-label">&#35821;&#38899;&#32416;&#38169;</div>
+                  <pre id="records-corrected" class="stream empty">&#31561;&#24453;&#25191;&#34892;...</pre>
+                </article>
+                <article class="records-debug-card">
+                  <div class="records-debug-label">&#23383;&#27573;&#25277;&#21462;</div>
+                  <pre id="records-fields" class="stream empty">&#31561;&#24453;&#25191;&#34892;...</pre>
+                </article>
+                <article class="records-debug-card">
+                  <div class="records-debug-label">&#24433;&#20687;&#34917;&#20805;</div>
+                  <pre id="records-image-analysis" class="stream empty">&#26410;&#19978;&#20256;&#22270;&#29255;</pre>
+                </article>
+              </div>
+            </details>
+          </section>
+
+          <section class="records-preview-panel">
+            <div class="records-meta-row">
+              <span id="records-name">&#24453;&#35782;&#21035;</span>
+              <span id="records-sex">&#24453;&#35782;&#21035;</span>
+              <span id="records-age">&#24453;&#35782;&#21035;</span>
+              <span id="records-visit-date">&#24453;&#29983;&#25104;</span>
+            </div>
+
+            <section id="records-preview" class="records-preview">
+              <div class="record-preview-empty">&#31561;&#24453;&#29983;&#25104;&#30149;&#21382;</div>
+            </section>
+
+            <div class="records-preview-actions">
+              <button type="button" id="records-copy" class="btn ghost">&#22797;&#21046;&#20869;&#23481;</button>
+            </div>
+
+            <details class="records-markdown-box">
+              <summary>&#26597;&#30475;&#21407;&#22987; Markdown</summary>
+              <pre id="records-markdown" class="stream empty">&#31561;&#24453;&#25191;&#34892;...</pre>
+            </details>
+          </section>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/records.js"></script>
+</body>
+</html>

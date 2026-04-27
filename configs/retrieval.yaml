@@ -1,0 +1,37 @@
+retrieval:
+  backend: local
+  use_nexent: false
+  chunk_store: data/processed/knowledge_base
+  vector_index: data/indexes/chroma
+  sparse_index: data/indexes/bm25
+
+embedding:
+  model_name: BAAI/bge-m3
+  local_path: models/embeddings/bge-m3
+  normalize: true
+
+chunking:
+  target_chars: 900
+  overlap_chars: 120
+  preserve_headings: true
+  min_chars: 120
+
+sources:
+  - name: clinical_cases
+    path: data/processed/knowledge_base/clinical_cases.jsonl
+    source_type: clinical_case
+  - name: clinical_norms
+    path: data/processed/knowledge_base/clinical_norms.jsonl
+    source_type: guideline
+  - name: oral_textbooks
+    path: data/processed/knowledge_base/oral_textbooks.jsonl
+    source_type: textbook
+  - name: merck_manual
+    path: data/processed/knowledge_base/merck_manual.jsonl
+    source_type: general_reference
+
+ranking:
+  top_k_dense: 20
+  top_k_sparse: 20
+  final_top_k: 8
+  reranker: optional

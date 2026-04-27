@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>&#24433;&#20687;&#35782;&#21035; - &#21475;&#33108;&#22810;&#27169;&#22359;&#24037;&#20316;&#21488;</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/image-page.css">
+</head>
+<body class="image-page">
+  <div class="app-shell image-shell">
+    <aside class="rail">
+      <nav id="module-nav" class="module-nav"></nav>
+    </aside>
+
+    <section class="main-pane image-pane">
+      <header class="topbar image-topbar">
+        <div>
+          <h1 id="page-title" class="page-title"></h1>
+          <p id="page-subtitle" class="page-subtitle"></p>
+        </div>
+      </header>
+
+      <main class="workspace image-workspace">
+        <section class="image-board">
+          <section class="image-left">
+            <input id="image-file" type="file" accept="image/*" hidden>
+            <button id="image-upload-trigger" type="button" class="upload-stage">
+              <img id="image-preview" alt="image preview">
+              <div id="image-empty" class="image-empty-state">
+                <div class="empty-icon" aria-hidden="true"></div>
+                <p class="empty-title">&#19978;&#20256;&#24433;&#20687;</p>
+              </div>
+            </button>
+
+            <label class="field-label" for="image-query">&#34917;&#20805;&#35828;&#26126;</label>
+            <input id="image-query" class="line-input" type="text" placeholder="&#20363;&#22914;&#65306;&#20851;&#27880;&#21491;&#19979;&#21518;&#29273;&#21306;&#65292;&#21028;&#26029;&#26159;&#21542;&#23384;&#22312;&#26681;&#23574;&#21608;&#30149;&#21464;&#25110;&#38459;&#29983;&#29273;&#34920;&#29616;">
+
+            <div class="action-row">
+              <button type="button" id="image-run" class="btn strong">&#24320;&#22987;&#35782;&#21035;</button>
+            </div>
+          </section>
+
+          <aside class="image-right-pane">
+            <h2 class="panel-title">&#35782;&#21035;&#32467;&#26524;</h2>
+            <pre id="image-output" class="stream empty">&#31561;&#24453;&#20998;&#26512;...</pre>
+          </aside>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <script src="/js/common.js"></script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>决策辅助 - 口腔多模块工作台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/base.css?v=20260427h">
+  <link rel="stylesheet" href="/css/decision-page.css?v=20260427h">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="rail">
+      <nav id="module-nav" class="module-nav"></nav>
+    </aside>
+
+    <section class="main-pane">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title" class="page-title"></h1>
+          <p id="page-subtitle" class="page-subtitle"></p>
+        </div>
+        
+      </header>
+
+      <main class="workspace decision-workspace">
+        <section class="decision-grid">
+          <aside class="case-panel">
+            <h2 class="panel-title">病例概览</h2>
+
+            <div class="field-block compact">
+              <label class="field-label" for="decision-gender">患者性别</label>
+              <select id="decision-gender">
+                <option value="">未填写</option>
+                <option value="男">男</option>
+                <option value="女">女</option>
+              </select>
+            </div>
+
+            <div class="field-block compact">
+              <label class="field-label" for="decision-age">年龄</label>
+              <input id="decision-age" type="number" min="1" max="120" placeholder="32">
+            </div>
+
+            <div class="field-block">
+              <label class="field-label" for="decision-chief">主诉</label>
+              <input id="decision-chief" class="line-input" type="text" placeholder="例如：右上后牙冷热敏感 1 周">
+            </div>
+
+            <div class="field-block">
+              <label class="field-label" for="decision-history">病史</label>
+              <input id="decision-history" class="line-input" type="text" placeholder="输入现病史、既往史、过敏史等">
+            </div>
+
+            <div class="field-block">
+              <label class="field-label" for="decision-exam">检查结果</label>
+              <input id="decision-exam" class="line-input" type="text" placeholder="输入口内检查、探诊、动度、叩诊等">
+            </div>
+
+            <div class="field-block">
+              <label class="field-label" for="decision-imaging">影像发现</label>
+              <input id="decision-imaging" class="line-input" type="text" placeholder="输入 X 线/CBCT 要点">
+            </div>
+
+            <div class="field-block">
+              <label class="field-label" for="decision-current">目前处理</label>
+              <input id="decision-current" class="line-input" type="text" placeholder="输入已经采取的处理措施">
+            </div>
+
+            <div class="action-row">
+              <button type="button" id="decision-run" class="btn strong">生成临床建议</button>
+            </div>
+          </aside>
+
+          <section class="plan-panel">
+            <h2 class="panel-title">临床建议</h2>
+            <div id="decision-answer" class="decision-answer-card empty">等待执行...</div>
+            <h3 class="sub-title">引用依据</h3>
+            <div id="decision-citations" class="result-list"></div>
+          </section>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <script src="/js/common.js?v=20260427h"></script>
+  <script src="/js/decision.js?v=20260428a"></script>
+</body>
+</html>
+

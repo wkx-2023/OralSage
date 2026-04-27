@@ -1,0 +1,54 @@
+project_root: D:/craic
+
+policy:
+  use_webpath: false
+  use_nexent: false
+  keep_raw_files_immutable: true
+
+raw:
+  clinical_cases:
+    path: data/raw/clinical_cases
+    source: 知识库/门诊信息
+    expected_role: deidentified outpatient EMR source data
+    privacy_level: sensitive_deidentified
+  guidelines:
+    path: data/raw/guidelines
+    source: 知识库/专家共识和诊疗指南
+    expected_role: clinical guideline and expert consensus documents
+  textbooks:
+    path: data/raw/textbooks
+    source: 知识库/口腔医学教材上传文件
+    expected_role: authoritative oral medicine textbooks
+  merck_manual:
+    path: data/raw/merck_manual
+    source: 知识库/默沙东诊疗手册
+    expected_role: general medical reference layer
+  dental_xray_yolo:
+    path: data/raw/dental_xray_yolo
+    source: not included in current bundle
+    expected_role: original Dental31 images and YOLO labels
+    status: reserved_empty
+
+interim:
+  clinical_cases_soap: data/interim/clinical_cases_soap
+  documents_text: data/interim/documents_text
+  document_chunks: data/interim/document_chunks
+  dental_annotations: data/interim/dental_annotations
+
+processed:
+  knowledge_base: data/processed/knowledge_base
+  vision_sft: data/processed/vision_sft
+  eval: data/processed/eval
+
+indexes:
+  chroma: data/indexes/chroma
+  bm25: data/indexes/bm25
+
+models:
+  oralpath_lora: models/oralpath_lora
+  embeddings: models/embeddings
+  rerankers: models/rerankers
+
+scripts:
+  model_training: scripts/model_training
+  data_pipeline: scripts/data_pipeline

@@ -1,0 +1,84 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>前沿文献 - 口腔多模块工作台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/literature-page.css">
+</head>
+<body class="literature-page">
+  <div class="app-shell">
+    <aside class="rail">
+      <nav id="module-nav" class="module-nav"></nav>
+    </aside>
+
+    <section class="main-pane">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title" class="page-title"></h1>
+          <p id="page-subtitle" class="page-subtitle"></p>
+        </div>
+        
+      </header>
+
+      <main class="workspace literature-workspace">
+        <section class="literature-grid">
+          <section class="literature-left">
+            <section class="literature-search-panel">
+              <div class="literature-search-row">
+                <input id="lit-query" class="search-input" placeholder="搜索文献标题、关键词、作者或期刊">
+                <select id="lit-months">
+                  <option value="1">近 1 个月</option>
+                  <option value="3">近 3 个月</option>
+                  <option value="6" selected>近 6 个月</option>
+                  <option value="12">近 12 个月</option>
+                  <option value="24">近 24 个月</option>
+                  <option value="36">近 3 年</option>
+                  <option value="60">近 5 年</option>
+                  <option value="120">近 10 年</option>
+                </select>
+                <select id="lit-limit">
+                  <option value="3">3 篇</option>
+                  <option value="5" selected>5 篇</option>
+                  <option value="10">10 篇</option>
+                  <option value="15">15 篇</option>
+                  <option value="20">20 篇</option>
+                  <option value="30">30 篇</option>
+                </select>
+                <button type="button" id="lit-run" class="btn">检索</button>
+              </div>
+            </section>
+
+            <section class="literature-results-panel">
+              <div class="lit-index-tabs" role="tablist" aria-label="文献索引">
+                <button type="button" id="lit-tab-list" class="lit-index-tab active" data-view="list">文献列表</button>
+                <button type="button" id="lit-tab-review" class="lit-index-tab" data-view="review">文献综述</button>
+              </div>
+              <div class="literature-result-meta">
+                <div id="lit-query-label">尚未检索</div>
+                <div id="lit-result-count">等待检索</div>
+              </div>
+              <div id="lit-bookmarks" class="lit-bookmarks"></div>
+              <div id="lit-review" class="lit-review-panel hidden">等待检索后生成综述...</div>
+            </section>
+          </section>
+
+          <section class="literature-right">
+            <article id="lit-active-paper" class="lit-active-paper">
+              <p class="lit-empty">等待检索文献详情...</p>
+            </article>
+          </section>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/literature.js"></script>
+</body>
+</html>
+

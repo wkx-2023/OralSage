@@ -1,0 +1,69 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智能问答 - 口腔多模块工作台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/base.css?v=20260427h">
+  <link rel="stylesheet" href="/css/master-chat.css?v=20260427h">
+</head>
+<body class="chat-product-page">
+  <div class="app-shell chat-product-shell">
+    <aside class="rail chat-history-panel">
+      <div class="history-head">
+        <button type="button" id="new-session" class="history-new">+ &#26032;&#24314;&#23545;&#35805;</button>
+      </div>
+      <div id="history-list" class="history-list"></div>
+    </aside>
+
+    <main class="main-pane chat-main-area">
+      <header class="topbar chat-topbar">
+        <div>
+          <h1 id="page-title" class="page-title"></h1>
+          <p id="page-subtitle" class="page-subtitle"></p>
+        </div>
+        
+      </header>
+
+      <section class="chat-stage">
+        <div id="chat-welcome" class="chat-welcome">
+          <div class="welcome-mark">&#9671;</div>
+          <div class="welcome-title">&#25105;&#21487;&#20197;&#24110;&#20320;&#22788;&#29702;&#20160;&#20040;&#21475;&#33108;&#38382;&#39064;&#65311;</div>
+          <div class="welcome-copy">&#36755;&#20837;&#38382;&#39064;&#21518;&#65292;&#31995;&#32479;&#20250;&#20808;&#21028;&#26029;&#38382;&#39064;&#31867;&#22411;&#65292;&#20877;&#35843;&#29992;&#23545;&#24212;&#30340;&#21475;&#33108;&#26234;&#33021;&#20307;&#36827;&#34892;&#22238;&#31572;&#12290;</div>
+          <div class="welcome-chips">
+            <button type="button" class="chip" data-prompt="&#20160;&#20040;&#26159;&#38459;&#29983;&#40831;">&#20160;&#20040;&#26159;&#38459;&#29983;&#40831;</button>
+            <button type="button" class="chip" data-prompt="&#35831;&#32473;&#19968;&#20010;&#38459;&#29983;&#40831;&#38376;&#35786;&#22788;&#29702;&#24314;&#35758;">&#38376;&#35786;&#22788;&#29702;&#24314;&#35758;</button>
+            <button type="button" class="chip" data-prompt="&#24110;&#25105;&#25552;&#21462;&#36825;&#27573;&#21307;&#24739;&#23545;&#35805;&#20013;&#30340;&#30149;&#21382;&#23383;&#27573;">&#30149;&#21382;&#23383;&#27573;&#25277;&#21462;</button>
+            <button type="button" class="chip" data-prompt="&#36817;&#21322;&#24180;&#38459;&#29983;&#40831;&#30740;&#31350;&#36827;&#23637;">&#25991;&#29486;&#32508;&#36848;</button>
+          </div>
+        </div>
+
+        <div class="chat-thread-shell">
+          <div id="agent-chat-log" class="chat-thread" aria-live="polite"></div>
+        </div>
+
+        <div class="chat-composer-shell">
+          <div class="chat-composer-card">
+            <div class="composer-input-wrap">
+              <textarea id="agent-message" rows="1" placeholder="&#36755;&#20837;&#20320;&#30340;&#38382;&#39064;&#65292;Enter &#21457;&#36865;&#65292;Shift + Enter &#25442;&#34892;"></textarea>
+            </div>
+            <div class="composer-footer">
+              <div class="composer-hint"></div>
+              <div class="composer-actions">
+                <button id="agent-clear" class="btn ghost" type="button">&#28165;&#31354;&#24403;&#21069;</button>
+                <button id="agent-send" class="btn strong" type="button">&#21457;&#36865;</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/js/common.js?v=20260427h"></script>
+</body>
+</html>
+

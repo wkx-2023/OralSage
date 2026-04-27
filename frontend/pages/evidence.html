@@ -1,0 +1,94 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>知识依据查看 - 口腔多模块工作台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/base.css?v=20260427h">
+  <link rel="stylesheet" href="/css/evidence-page.css?v=20260427h">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="rail">
+      <nav id="module-nav" class="module-nav"></nav>
+    </aside>
+
+    <section class="main-pane">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title" class="page-title"></h1>
+          <p id="page-subtitle" class="page-subtitle"></p>
+        </div>
+        
+      </header>
+
+      <main class="workspace evidence-workspace">
+        <section class="evidence-toolbar">
+          <div class="search-strip">
+            <input id="evidence-query" class="search-input" placeholder="输入要查证的问题，例如：阻生齿有哪些治疗手段？">
+            <button id="evidence-run" class="btn strong" type="button">搜索</button>
+          </div>
+        </section>
+
+        <section class="evidence-grid">
+          <section class="evidence-left">
+            <div class="tab-row">
+              <button type="button" class="tab-btn active" data-tab="list">依据列表</button>
+              <button type="button" class="tab-btn" data-tab="strategy">来源概况</button>
+            </div>
+
+            <div class="filter-row">
+              <div id="evidence-count" class="evidence-count">共找到 0 条依据</div>
+              <select id="evidence-filter-type" class="line-select">
+                <option value="all">全部类型</option>
+                <option value="high">高相关</option>
+                <option value="mid">中相关</option>
+                <option value="low">低相关</option>
+              </select>
+              <select id="evidence-filter-sort" class="line-select">
+                <option value="score_desc">按相关性</option>
+                <option value="score_asc">按相关性升序</option>
+                <option value="index_asc">按检索顺序</option>
+              </select>
+              <input id="evidence-topk" class="line-number" type="number" min="1" max="20" value="10" title="检索条数">
+            </div>
+
+            <div id="evidence-results" class="evidence-results tab-pane"></div>
+            <div id="evidence-strategy" class="evidence-strategy tab-pane hidden"></div>
+          </section>
+
+          <section class="evidence-right">
+            <div class="explain-headline">
+              <h2 class="panel-title">依据解读</h2>
+              <button id="evidence-copy" type="button" class="btn ghost mini-btn">复制解释</button>
+            </div>
+
+            <section class="explain-card">
+              <div class="explain-note">基于当前命中的依据，系统会整理出更便于阅读的说明。</div>
+              <div id="evidence-answer" class="evidence-answer-card empty">等待执行...</div>
+            </section>
+
+            <section class="clinical-tip">
+              <h3 class="panel-subtitle">临床提示</h3>
+              <p id="evidence-tip">请结合患者实际情况与医生诊断进行综合判断。</p>
+            </section>
+          </section>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <script src="/js/common.js?v=20260427h"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+

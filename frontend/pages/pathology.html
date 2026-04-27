@@ -1,0 +1,89 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>病理问答 - 口腔多模块工作台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/pathology-page.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="rail">
+      <nav id="module-nav" class="module-nav"></nav>
+    </aside>
+
+    <section class="main-pane">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title" class="page-title"></h1>
+          <p id="page-subtitle" class="page-subtitle"></p>
+        </div>
+        
+      </header>
+
+      <main class="workspace pathology-workspace">
+        <section class="pathology-layout">
+          <section class="pathology-main">
+            <div class="chat-stream">
+              <section id="pathology-empty-state" class="pathology-empty-state">
+                <h2 class="panel-title">输入问题后开始检索</h2>
+                <p>系统会优先检索本地知识库，再返回病理解释和证据依据。</p>
+              </section>
+
+              <article id="pathology-user-row" class="dialog-row user-row" hidden>
+                <div class="avatar user-avatar">我</div>
+                <div class="bubble user-bubble">
+                  <div id="pathology-last-question" class="bubble-text">请输入病理问题后发送</div>
+                  <div id="pathology-question-time" class="bubble-time">--:--</div>
+                </div>
+              </article>
+
+              <article id="pathology-ai-row" class="dialog-row ai-row" hidden>
+                <div class="avatar ai-avatar">AI</div>
+                <div class="bubble ai-bubble">
+                  <h2 class="panel-title">智能回答</h2>
+                  <div id="pathology-answer" class="stream empty assistant-markdown">等待执行...</div>
+
+                  <h3 class="panel-subtitle">证据时间线</h3>
+                  <div id="pathology-citations" class="evidence-timeline"></div>
+                </div>
+              </article>
+            </div>
+
+            <section class="composer">
+              <input id="pathology-question" class="composer-input" placeholder="请输入病理问题，例如：阻生牙相关囊肿的病理机制、危险信号和临床处理要点">
+              <button id="pathology-run" class="btn strong composer-send" type="button">发送</button>
+            </section>
+          </section>
+
+          <aside class="pathology-side">
+            <section class="side-section">
+              <h3 class="panel-subtitle">参考资料</h3>
+              <div id="pathology-ref-list" class="ref-list"></div>
+            </section>
+
+            <section class="side-section tip-block">
+              <h3 class="panel-subtitle">智能提示</h3>
+              <p>病理问答会优先用本地知识库作答。若引用教材 OCR 片段，请优先看核心结论与依据解读，不要直接把原始片段当最终诊断意见。</p>
+            </section>
+          </aside>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <script src="/js/common.js"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
