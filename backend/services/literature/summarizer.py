@@ -11,7 +11,7 @@ from .config import load_literature_env
 
 load_literature_env()
 
-DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_LLM_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_LLM_MODEL = "qwen-plus"
 MAX_REVIEW_ARTICLES = 12
 
@@ -25,17 +25,10 @@ def _env(*names: str) -> str | None:
 
 
 def _llm_settings() -> tuple[str | None, str, str]:
-    literature_key = os.getenv("LITERATURE_LLM_API_KEY")
-    if literature_key:
-        return (
-            literature_key,
-            (os.getenv("LITERATURE_LLM_BASE_URL") or DEFAULT_LLM_BASE_URL).rstrip("/"),
-            os.getenv("LITERATURE_LLM_MODEL") or DEFAULT_LLM_MODEL,
-        )
     return (
-        _env("QWEN_API_KEY", "DASHSCOPE_API_KEY"),
-        (_env("QWEN_BASE_URL", "DASHSCOPE_BASE_URL") or DEFAULT_LLM_BASE_URL).rstrip("/"),
-        _env("QWEN_MODEL", "DASHSCOPE_MODEL") or DEFAULT_LLM_MODEL,
+        _env("LITERATURE_LLM_API_KEY", "QWEN_API_KEY", "DASHSCOPE_API_KEY"),
+        (_env("LITERATURE_LLM_BASE_URL", "QWEN_BASE_URL", "DASHSCOPE_BASE_URL") or DEFAULT_LLM_BASE_URL).rstrip("/"),
+        _env("LITERATURE_LLM_MODEL", "QWEN_MODEL", "DASHSCOPE_MODEL") or DEFAULT_LLM_MODEL,
     )
 
 

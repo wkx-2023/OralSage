@@ -32,6 +32,16 @@ def _env(*names: str) -> str | None:
     return None
 
 
+def _timeout_seconds() -> int:
+    value = _env("LLM_REQUEST_TIMEOUT_SECONDS", "QWEN_TIMEOUT_SECONDS", "DASHSCOPE_TIMEOUT_SECONDS")
+    if not value:
+        return 180
+    try:
+        return max(30, min(int(value), 300))
+    except ValueError:
+        return 180
+
+
 def is_llm_configured(*api_key_names: str) -> bool:
     names = api_key_names or ("DECISION_LLM_API_KEY", "QWEN_API_KEY", "DASHSCOPE_API_KEY")
     return bool(_env(*names))
@@ -70,7 +80,7 @@ def chat_completion(
         method="POST",
     )
     try:
-        with urlopen(request, timeout=90) as response:
+        with urlopen(request, timeout=_timeout_seconds()) as response:
             data = json.loads(response.read().decode("utf-8", errors="replace"))
     except (HTTPError, URLError, TimeoutError) as exc:
         raise LLMRequestError(str(exc)) from exc

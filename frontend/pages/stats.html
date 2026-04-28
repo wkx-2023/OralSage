@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/base.css">
-  <link rel="stylesheet" href="/css/stats-page.css">
+  <link rel="stylesheet" href="/css/stats-page.css?v=20260429-compact-gradient">
 </head>
 <body>
   <div class="app-shell">
@@ -31,26 +31,17 @@
             <input id="stats-query" class="search-input" placeholder="请输入统计请求，例如：2025年阻生牙治疗方式分布">
             <button type="button" id="stats-run" class="btn strong">执行统计</button>
           </div>
-          <div id="stats-context-note" class="stats-context-note"></div>
         </section>
 
         <section class="stats-visual-zone">
-          <h2 id="stats-chart-title" class="panel-title">统计图表</h2>
-          <div class="chart-box">
-            <svg id="stats-chart-main" class="chart-svg" viewBox="0 0 980 360" preserveAspectRatio="xMidYMid meet"></svg>
-          </div>
           <div id="stats-chart-grid" class="stats-chart-grid"></div>
-        </section>
-
-        <section class="stats-list-zone">
-          <h2 class="panel-title">统计明细</h2>
-          <div id="stats-result-list" class="stats-result-list"></div>
         </section>
       </main>
     </section>
   </div>
 
   <script src="/js/common.js"></script>
+  <script src="/js/stats.js?v=20260429-compact-gradient"></script>
 </body>
 </html>
 

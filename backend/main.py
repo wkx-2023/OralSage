@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import Any
 import json
 
+from .services.env_loader import load_project_env
+
+load_project_env()
+
 from fastapi import FastAPI, File, Form, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -28,6 +32,7 @@ from .schemas import (
 from .services.decision import run_decision_assist, run_evidence_search
 from .services.literature import run_article_translation, run_literature_search, run_terms
 from .services.record_workflow import correct_asr, extract_fields, generate_record, run_workflow
+from .services.stats import run_stats_query
 
 
 app = FastAPI(title="OralPath API Interfaces", version="0.1.0")
@@ -78,6 +83,7 @@ def capabilities() -> dict[str, Any]:
             "decision_assistant",
             "evidence_search",
             "frontier_literature",
+            "clinic_stats",
         ],
         "modules": [
             "pathology_qa",
@@ -157,7 +163,7 @@ async def literature_translate(req: LiteratureTranslateRequest) -> JSONResponse:
 
 @app.post("/api/stats/query")
 async def stats_query(req: StatsRequest) -> JSONResponse:
-    return _stub("clinic_stats", req.model_dump())
+    return JSONResponse(run_stats_query(req.query, req.top_k))
 
 
 @app.post("/api/records/asr-correct")
@@ -323,6 +329,10 @@ async def invoke_agent(agent_name: str, req: GenericAgentRequest, response: Resp
     if agent_name in {"oral_cases_assistant", "decision_assistant"}:
         case_text = req.case_text or req.query or req.question or req.message or req.text or ""
         result = await run_decision_assist(case_text, req.top_k or 8, True if req.allow_web is None else req.allow_web)
+        return GenericAgentResponse(agent=agent_name, ok=result.get("ok", True), result=result)
+    if agent_name in {"clinic_case_stats_assistant", "clinic_stats"}:
+        query = req.query or req.task or req.question or req.message or req.text or ""
+        result = run_stats_query(query, req.top_k or 10)
         return GenericAgentResponse(agent=agent_name, ok=result.get("ok", True), result=result)
 
     response.status_code = 501

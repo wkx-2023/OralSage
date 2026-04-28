@@ -20,11 +20,15 @@ OCR_TEXTBOOK_DIR = PROJECT_ROOT / "data" / "processed" / "ocr_textbooks"
 def normalize_text(text: str) -> str:
     text = (text or "").replace("\x00", " ")
     text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"(?m)^\s*(学|习|笔|记)\s*$", "", text)
+    text = re.sub(r"(?m)^\s*关注微信公众号[:：]?.*$", "", text)
+    text = re.sub(r"(?m)^\s*获取更多医学资料\s*$", "", text)
     text = text.replace("本俗料", "本资料").replace("本咨料", "本资料")
     text = text.replace("口照", "口腔").replace("口配", "口腔")
     text = text.replace("教料", "教材").replace("救材", "教材")
     text = text.replace("医字", "医学").replace("上生", "卫生")
     text = text.replace("用十", "用于").replace("用干", "用于")
+    text = re.sub(r"(学\s+习\s+笔\s+记|学习笔记)", "", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 

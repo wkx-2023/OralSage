@@ -17,10 +17,20 @@ SOURCE_PRIORITIES = {
 }
 
 MEDICAL_HINTS = (
-    "阻生", "第三磨牙", "智齿", "拔除", "根管", "牙髓", "根尖", "牙周", "龋", "牙槽骨",
-    "CBCT", "影像", "叩诊", "探诊", "冷热", "松动", "肿胀", "疼痛", "种植", "修复",
-    "黏膜", "颞下颌", "正畸", "儿童", "乳牙", "恒牙", "下牙槽神经",
+    "阻生", "阻生齿", "阻生牙", "阻生智齿", "第三磨牙", "智齿", "冠周炎", "智齿冠周炎",
+    "拔除", "下牙槽神经", "上颌窦", "CBCT", "曲面断层", "全景片",
+    "根管", "牙髓", "牙髓炎", "根尖", "根尖周炎", "冷热", "冷热敏感", "自发痛", "夜间痛",
+    "牙周", "牙周炎", "牙周袋", "牙槽骨", "探诊", "叩诊", "龋", "龋齿",
+    "松动", "肿胀", "疼痛", "种植", "修复", "黏膜", "白斑", "颞下颌", "正畸",
+    "儿童", "乳牙", "恒牙",
 )
+
+GENERIC_ANCHORS = {
+    "口腔", "临床", "决策", "诊疗", "诊疗指南", "指南", "共识", "规范", "检查",
+    "治疗", "治疗方案", "适应证", "禁忌证", "鉴别诊断", "建议", "处理",
+}
+
+CORE_HINTS = tuple(hint for hint in MEDICAL_HINTS if hint not in GENERIC_ANCHORS)
 
 
 def _tokenize(text: str) -> list[str]:
@@ -52,6 +62,12 @@ def _query_anchors(query: str) -> list[str]:
     return list(dict.fromkeys(anchors))[:24]
 
 
+def _core_anchors(query: str) -> list[str]:
+    query_lower = (query or "").lower()
+    cores = [hint.lower() for hint in CORE_HINTS if hint.lower() in query_lower]
+    return list(dict.fromkeys(cores))
+
+
 def _candidate_chunks(
     query: str,
     chunks: tuple[EvidenceChunk, ...],
@@ -59,6 +75,7 @@ def _candidate_chunks(
     limit: int = 900,
 ) -> list[EvidenceChunk]:
     anchors = _query_anchors(query)
+    core_anchors = _core_anchors(query)
     if not anchors:
         return list(chunks[:limit])
 
@@ -68,12 +85,20 @@ def _candidate_chunks(
             continue
         title = (chunk.title or "").lower()
         text = (chunk.text or "").lower()
+        if core_anchors and not any(anchor in title or anchor in text for anchor in core_anchors):
+            continue
         score = 0.0
         for anchor in anchors:
+            if anchor in GENERIC_ANCHORS:
+                weight = 0.25
+            elif anchor in core_anchors:
+                weight = 3.2
+            else:
+                weight = 1.0
             if anchor in title:
-                score += 3.0
+                score += 3.0 * weight
             if anchor in text:
-                score += 1.0
+                score += 1.0 * weight
         if score:
             score *= SOURCE_PRIORITIES.get(chunk.source_type, 1.0)
             scored.append((score, chunk))
@@ -127,6 +152,23 @@ def _keyword_boost(query: str, chunk: EvidenceChunk) -> float:
     return boost
 
 
+def explain_relevance(query: str, chunk: EvidenceChunk) -> str:
+    haystack = f"{chunk.title}\n{chunk.text}".lower()
+    matched = []
+    for anchor in _query_anchors(query):
+        if anchor in GENERIC_ANCHORS:
+            continue
+        if anchor in haystack and anchor not in matched:
+            matched.append(anchor)
+    if matched:
+        return "命中核心词：" + "、".join(matched[:6])
+    if chunk.source_type == "guideline":
+        return "来自指南/共识库，可作为规范性依据候选，但需结合原文判断相关性。"
+    if chunk.source_type == "textbook":
+        return "来自教材库，可作为基础理论或临床解释依据候选。"
+    return "与检索问题存在词项匹配，需结合上下文复核。"
+
+
 def _quality_weight(chunk: EvidenceChunk) -> float:
     quality = (chunk.metadata or {}).get("ocr_quality")
     if not isinstance(quality, dict):
@@ -153,4 +195,30 @@ def search_knowledge_base(query: str, top_k: int = 8, source_types: set[str] | N
         ranked.append(chunk)
 
     ranked.sort(key=lambda item: item.score, reverse=True)
-    return ranked[: max(1, min(int(top_k or 8), 20))]
+    target = max(1, min(int(top_k or 8), 50))
+    diversified: list[EvidenceChunk] = []
+    source_counts: Counter[str] = Counter()
+    type_counts: Counter[str] = Counter()
+    for chunk in ranked:
+        source_key = chunk.source or chunk.source_type
+        if source_counts[source_key] >= 2:
+            continue
+        if chunk.source_type == "general_reference" and type_counts[chunk.source_type] >= 1:
+            continue
+        if chunk.source_type == "clinical_case" and type_counts[chunk.source_type] >= 2:
+            continue
+        diversified.append(chunk)
+        source_counts[source_key] += 1
+        type_counts[chunk.source_type] += 1
+        if len(diversified) >= target:
+            break
+
+    if len(diversified) < target:
+        seen = {chunk.id for chunk in diversified}
+        for chunk in ranked:
+            if chunk.id not in seen:
+                diversified.append(chunk)
+                seen.add(chunk.id)
+                if len(diversified) >= target:
+                    break
+    return diversified
