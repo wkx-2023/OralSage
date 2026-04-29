@@ -313,6 +313,52 @@
   display: none;
 }
 
+.route-card {
+  margin-top: 10px;
+  border: 1px solid rgba(96, 82, 181, 0.12);
+  border-radius: 12px;
+  background: #f8f6ff;
+  overflow: hidden;
+}
+
+.route-card summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  color: #5a4eac;
+  font-size: 12px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.route-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.route-pill {
+  display: inline-flex;
+  max-width: calc(100% - 28px);
+  margin: 0 14px 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #ebe6ff;
+  color: #423895;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.route-meta,
+.route-reason,
+.route-errors {
+  margin: 0 14px 10px;
+  color: #716b9c;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.route-errors {
+  color: #9b4260;
+}
+
 .source-list {
   display: grid;
 }
@@ -453,6 +499,12 @@
 .composer-actions .btn {
   min-width: 96px;
   border-radius: 10px;
+}
+
+.composer-actions .btn:disabled,
+.chat-composer-card textarea:disabled {
+  opacity: 0.62;
+  cursor: wait;
 }
 
 .thinking-dots span {

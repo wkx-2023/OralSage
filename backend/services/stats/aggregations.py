@@ -71,6 +71,18 @@ def _in_time(case: ClinicCase, intent: StatsIntent) -> bool:
 def _matches(case: ClinicCase, intent: StatsIntent) -> bool:
     if not _in_time(case, intent):
         return False
+    if intent.filter_mode == "none" or not intent.target_matched:
+        return False
+    if intent.matched_values:
+        values = set(intent.matched_values)
+        if intent.filter_mode == "diagnosis":
+            return (case.diagnosis_name or "").strip() in values
+        if intent.filter_mode == "operation":
+            return (case.operation_name or "").strip() in values
+        if intent.filter_mode == "department":
+            return (case.department or "").strip() in values
+        if intent.filter_mode == "register_type":
+            return (case.register_type or "").strip() in values
     if not intent.keyword:
         return True
 
@@ -211,7 +223,7 @@ def build_stats(intent: StatsIntent, cases: list[ClinicCase]) -> dict[str, Any]:
     matched, denominator = filter_cases(cases, intent)
     total = len(matched)
     denom_total = len(denominator)
-    keyword_label = intent.keyword or "全部门诊记录"
+    keyword_label = intent.disease_group or intent.keyword or "全部门诊记录"
     scope = _scope_label(intent)
 
     tables: list[dict[str, Any]] = [
@@ -226,10 +238,42 @@ def build_stats(intent: StatsIntent, cases: list[ClinicCase]) -> dict[str, Any]:
                 ["同时间范围总记录数", denom_total],
                 ["占比", _pct(total, denom_total)],
                 ["意图解析来源", intent.source],
+                ["用户原始统计对象", intent.target_user_term or "未指定"],
+                ["本地匹配字段", intent.target_field or "未匹配"],
+                ["字段匹配置信度", f"{intent.target_confidence:.2f}"],
+                ["匹配类型", intent.match_type],
+                ["匹配诊断/字段值", "、".join(intent.matched_values) if intent.matched_values else "全部"],
             ],
         )
     ]
     charts: list[dict[str, Any]] = []
+
+    if not intent.target_matched:
+        diagnosis_rows = _top_counter(Counter(_clean(case.diagnosis_name) for case in denominator), denom_total)
+        operation_rows = _top_counter(Counter(_clean(case.operation_name) for case in denominator), denom_total)
+        _add_table_once(tables, "当前时间范围内高频诊断示例", ["诊断", "例数", "占比"], diagnosis_rows[:8])
+        _add_table_once(tables, "当前时间范围内高频操作示例", ["操作", "例数", "占比"], operation_rows[:8])
+        return {
+            "summary": (
+                f"本地门诊病例统计数据中未找到与“{intent.target_user_term or keyword_label}”可靠匹配的"
+                f"诊断、操作、科室或挂号类别字段，时间范围为 {scope}。"
+                "这表示当前统计表无可计算记录，不代表临床上不存在该疾病。"
+            ),
+            "tables": tables,
+            "charts": charts,
+            "matched_count": 0,
+            "denominator_count": denom_total,
+            "target_resolution": {
+                "matched": False,
+                "user_term": intent.target_user_term,
+                "canonical_term": "",
+                "field": "",
+                "confidence": intent.target_confidence,
+                "reason": intent.target_reason,
+                "match_type": intent.match_type,
+                "diagnosis_names": [],
+            },
+        }
 
     if total == 0:
         return {
@@ -238,6 +282,17 @@ def build_stats(intent: StatsIntent, cases: list[ClinicCase]) -> dict[str, Any]:
             "charts": charts,
             "matched_count": total,
             "denominator_count": denom_total,
+            "target_resolution": {
+                "matched": True,
+                "user_term": intent.target_user_term,
+                "canonical_term": intent.keyword,
+                "field": intent.target_field,
+                "confidence": intent.target_confidence,
+                "reason": intent.target_reason,
+                "match_type": intent.match_type,
+                "disease_group": intent.disease_group,
+                "diagnosis_names": list(intent.matched_values),
+            },
         }
 
     op_rows = _top_counter(Counter(_clean(case.operation_name) for case in matched), total)
@@ -291,4 +346,15 @@ def build_stats(intent: StatsIntent, cases: list[ClinicCase]) -> dict[str, Any]:
         "matched_count": total,
         "denominator_count": denom_total,
         "sample_cases": [asdict(case) for case in matched[:5]],
+        "target_resolution": {
+            "matched": True,
+            "user_term": intent.target_user_term,
+            "canonical_term": intent.disease_group or intent.keyword,
+            "field": intent.target_field,
+            "confidence": intent.target_confidence,
+            "reason": intent.target_reason,
+            "match_type": intent.match_type,
+            "disease_group": intent.disease_group,
+            "diagnosis_names": list(intent.matched_values),
+        },
     }
