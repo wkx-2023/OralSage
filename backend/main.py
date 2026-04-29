@@ -31,6 +31,8 @@ from .schemas import (
 )
 from .services.decision import run_decision_assist, run_evidence_search
 from .services.literature import run_article_translation, run_literature_search, run_terms
+from .services.mcp_tools import invoke_local_mcp_tool
+from .services.pathology import run_pathology_ask
 from .services.record_workflow import correct_asr, extract_fields, generate_record, run_workflow
 from .services.stats import run_stats_query
 
@@ -84,6 +86,7 @@ def capabilities() -> dict[str, Any]:
             "evidence_search",
             "frontier_literature",
             "clinic_stats",
+            "pathology_qa",
         ],
         "modules": [
             "pathology_qa",
@@ -126,7 +129,7 @@ def capabilities() -> dict[str, Any]:
 
 @app.post("/api/pathology/ask")
 async def pathology_ask(req: PathologyRequest) -> JSONResponse:
-    return _stub("pathology_qa", req.model_dump())
+    return JSONResponse(await run_pathology_ask(req.question, req.top_k, req.allow_web))
 
 
 @app.post("/api/decision/assist")
@@ -322,6 +325,10 @@ async def image_analyze_upload(
 
 @app.post("/api/agents/{agent_name}/invoke", response_model=GenericAgentResponse)
 async def invoke_agent(agent_name: str, req: GenericAgentRequest, response: Response) -> GenericAgentResponse:
+    if agent_name in {"oral_pathology_assistant", "pathology_qa", "oral_pathology"}:
+        question = req.question or req.query or req.task or req.message or req.text or ""
+        result = await run_pathology_ask(question, req.top_k or 8, True if req.allow_web is None else req.allow_web)
+        return GenericAgentResponse(agent=agent_name, ok=result.get("ok", True), result=result)
     if agent_name in {"oral_medicine_search_assistant", "oral_frontier_learning_assistant", "frontier_literature"}:
         query = req.query or req.task or req.question or req.message or req.text or ""
         result = await run_literature_search(query, req.months, req.limit or 5)
@@ -369,7 +376,8 @@ async def legacy_chat(req: GenericAgentRequest, response: Response) -> GenericAg
 
 @app.post("/mcp/tools/{tool_name}")
 async def invoke_mcp_tool(tool_name: str, req: GenericAgentRequest) -> JSONResponse:
-    return _stub(f"mcp_tool:{tool_name}", req.model_dump())
+    result = await invoke_local_mcp_tool(tool_name, req)
+    return JSONResponse(result, status_code=200 if result.get("ok", False) else 404)
 
 
 @app.post("/mcp/agents/{agent_name}/stream")
