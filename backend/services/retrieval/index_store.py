@@ -1,0 +1,199 @@
+from __future__ import annotations
+
+import gzip
+import hashlib
+import json
+import math
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import yaml
+
+from .models import EvidenceChunk
+from .text_features import tokenize
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+CONFIG_PATH = PROJECT_ROOT / "configs" / "retrieval.yaml"
+
+
+def _config() -> dict[str, Any]:
+    if not CONFIG_PATH.exists():
+        return {}
+    with CONFIG_PATH.open("r", encoding="utf-8") as fh:
+        return yaml.safe_load(fh) or {}
+
+
+def _path_from_config(*keys: str, default: str) -> Path:
+    cfg = _config()
+    node: Any = cfg
+    for key in keys:
+        node = node.get(key, {}) if isinstance(node, dict) else {}
+    value = node if isinstance(node, str) else default
+    return PROJECT_ROOT / value
+
+
+def bm25_index_path() -> Path:
+    base = _path_from_config("retrieval", "sparse_index", default="data/indexes/bm25")
+    return base / "index.json.gz"
+
+
+def vector_index_dir() -> Path:
+    return _path_from_config("retrieval", "vector_index", default="data/indexes/vector")
+
+
+@lru_cache(maxsize=1)
+def load_bm25_index() -> dict[str, Any] | None:
+    path = bm25_index_path()
+    if not path.exists():
+        return None
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+@lru_cache(maxsize=1)
+def load_vector_index() -> tuple[dict[str, Any], np.ndarray] | None:
+    base = vector_index_dir()
+    manifest_path = base / "manifest.json"
+    vectors_path = base / "vectors.npy"
+    if not manifest_path.exists() or not vectors_path.exists():
+        return None
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    vectors = np.load(vectors_path, mmap_mode="r")
+    return manifest, vectors
+
+
+def bm25_scores_from_index(query: str, chunks_by_id: dict[str, EvidenceChunk], limit: int) -> list[tuple[float, EvidenceChunk]]:
+    index = load_bm25_index()
+    if not index:
+        return []
+    terms = list(dict.fromkeys(tokenize(query)))
+    if not terms:
+        return []
+
+    doc_ids: list[str] = index.get("doc_ids") or []
+    doc_lens: list[int] = index.get("doc_lens") or []
+    postings: dict[str, list[list[int | float]]] = index.get("postings") or {}
+    df: dict[str, int] = index.get("df") or {}
+    avgdl = float(index.get("avgdl") or 1.0)
+    total_docs = int(index.get("total_docs") or len(doc_ids) or 1)
+    k1 = float(index.get("k1") or 1.4)
+    b = float(index.get("b") or 0.72)
+
+    scores: dict[int, float] = {}
+    for term in terms:
+        term_postings = postings.get(term)
+        if not term_postings:
+            continue
+        term_df = int(df.get(term) or len(term_postings))
+        idf = math.log(1 + (total_docs - term_df + 0.5) / (term_df + 0.5))
+        for doc_idx, freq in term_postings:
+            idx = int(doc_idx)
+            if idx >= len(doc_lens):
+                continue
+            dl = max(float(doc_lens[idx]), 1.0)
+            tf = float(freq)
+            denom = tf + k1 * (1 - b + b * dl / max(avgdl, 1.0))
+            scores[idx] = scores.get(idx, 0.0) + idf * (tf * (k1 + 1)) / denom
+
+    ranked: list[tuple[float, EvidenceChunk]] = []
+    for idx, score in scores.items():
+        if idx >= len(doc_ids):
+            continue
+        chunk = chunks_by_id.get(doc_ids[idx])
+        if chunk:
+            ranked.append((float(score), chunk))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return ranked[:limit]
+
+
+def _hash_query_vector(query: str, dims: int) -> np.ndarray:
+    vector = np.zeros(dims, dtype=np.float32)
+    for token in tokenize(query):
+        digest = hashlib.blake2b(token.encode("utf-8", errors="ignore"), digest_size=8).digest()
+        value = int.from_bytes(digest, "little", signed=False)
+        bucket = value % dims
+        sign = 1.0 if (value >> 8) % 2 == 0 else -1.0
+        vector[bucket] += sign
+    norm = np.linalg.norm(vector)
+    if norm > 0:
+        vector /= norm
+    return vector
+
+
+@lru_cache(maxsize=1)
+def _sentence_transformer_model(model_ref: str):
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(model_ref)
+
+
+def _query_vector(query: str, manifest: dict[str, Any]) -> np.ndarray | None:
+    dims = int(manifest.get("dims") or 384)
+    provider = manifest.get("provider")
+    if provider == "onnxruntime":
+        model_ref = str(manifest.get("model_ref") or "")
+        if not model_ref:
+            return None
+        try:
+            import onnxruntime as ort
+            from transformers import AutoTokenizer
+
+            tokenizer = AutoTokenizer.from_pretrained(model_ref, local_files_only=True)
+            session = ort.InferenceSession(str(Path(model_ref) / "onnx" / "model.onnx"), providers=["CPUExecutionProvider"])
+            encoded = tokenizer([query], padding=True, truncation=True, max_length=512, return_tensors="np")
+            encoded = {key: value.astype(np.int64) for key, value in encoded.items()}
+            input_names = {item.name for item in session.get_inputs()}
+            feeds = {key: value for key, value in encoded.items() if key in input_names}
+            output = session.run(None, feeds)[0]
+            mask = encoded["attention_mask"].astype(np.float32)[..., None]
+            pooled = (output * mask).sum(axis=1) / np.clip(mask.sum(axis=1), 1e-9, None)
+            pooled = pooled / np.clip(np.linalg.norm(pooled, axis=1, keepdims=True), 1e-9, None)
+            return np.asarray(pooled[0], dtype=np.float32)
+        except Exception:
+            return None
+    if provider == "sentence_transformers":
+        model_ref = str(manifest.get("model_ref") or "")
+        if not model_ref:
+            return None
+        try:
+            model = _sentence_transformer_model(model_ref)
+            vector = model.encode([query], normalize_embeddings=True, show_progress_bar=False)[0]
+            return np.asarray(vector, dtype=np.float32)
+        except Exception:
+            return None
+    return _hash_query_vector(query, dims)
+
+
+def vector_scores_from_index(query: str, chunks_by_id: dict[str, EvidenceChunk], limit: int) -> list[tuple[float, EvidenceChunk]]:
+    loaded = load_vector_index()
+    if not loaded:
+        return []
+    manifest, vectors = loaded
+    query_vec = _query_vector(query, manifest)
+    if query_vec is None:
+        return []
+    doc_ids: list[str] = manifest.get("doc_ids") or []
+    if not doc_ids:
+        return []
+    scores = np.asarray(vectors @ query_vec, dtype=np.float32)
+    if scores.size == 0:
+        return []
+    top_n = min(max(int(limit or 1), 1), scores.size)
+    top_idx = np.argpartition(-scores, top_n - 1)[:top_n]
+    ordered = top_idx[np.argsort(-scores[top_idx])]
+    ranked: list[tuple[float, EvidenceChunk]] = []
+    for idx in ordered:
+        doc_id = doc_ids[int(idx)]
+        chunk = chunks_by_id.get(doc_id)
+        if chunk:
+            ranked.append((float(scores[int(idx)]), chunk))
+    return ranked
+
+
+def reset_index_caches() -> None:
+    load_bm25_index.cache_clear()
+    load_vector_index.cache_clear()
+    _sentence_transformer_model.cache_clear()

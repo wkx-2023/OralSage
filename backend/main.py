@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import base64
 import json
 
 from .services.env_loader import load_project_env
@@ -30,6 +31,8 @@ from .schemas import (
     WorkflowRequest,
 )
 from .services.decision import run_decision_assist, run_evidence_search
+from .services.image import run_image_analysis
+from .services.image.agent import image_size_limit_bytes
 from .services.literature import run_article_translation, run_literature_search, run_terms
 from .services.mcp_tools import invoke_local_mcp_tool
 from .services.pathology import run_pathology_ask
@@ -87,6 +90,7 @@ def capabilities() -> dict[str, Any]:
             "frontier_literature",
             "clinic_stats",
             "pathology_qa",
+            "image_analysis",
         ],
         "modules": [
             "pathology_qa",
@@ -301,9 +305,12 @@ async def record_workflow_upload(
 
 @app.post("/api/image/analyze")
 async def image_analyze(req: ImageRequest) -> JSONResponse:
-    payload = req.model_dump()
-    payload["image_base64"] = "[removed from stub echo]" if req.image_base64 else None
-    return _stub("image_analysis", payload)
+    result = await run_image_analysis(
+        image_base64=req.image_base64,
+        query=req.query,
+        allow_web=req.allow_web,
+    )
+    return JSONResponse(result, status_code=200 if result.get("ok", False) else 422)
 
 
 @app.post("/api/image/analyze-upload")
@@ -312,15 +319,27 @@ async def image_analyze_upload(
     query: str | None = Form(default=None),
     allow_web: bool = Form(default=True),
 ) -> JSONResponse:
-    return _stub(
-        "image_analysis_upload",
-        {
-            "filename": file.filename,
-            "content_type": file.content_type,
-            "query": query,
-            "allow_web": allow_web,
-        },
+    content = await file.read()
+    if len(content) > image_size_limit_bytes():
+        limit_mb = image_size_limit_bytes() // 1024 // 1024
+        return JSONResponse(
+            status_code=413,
+            content={
+                "ok": False,
+                "module": "image_analysis",
+                "message": f"Image is too large. Limit is {limit_mb} MB.",
+            },
+        )
+
+    image_base64 = base64.b64encode(content).decode("ascii")
+    result = await run_image_analysis(
+        image_base64=image_base64,
+        query=query,
+        allow_web=allow_web,
+        filename=file.filename,
+        content_type=file.content_type,
     )
+    return JSONResponse(result, status_code=200 if result.get("ok", False) else 422)
 
 
 @app.post("/api/agents/{agent_name}/invoke", response_model=GenericAgentResponse)
@@ -341,6 +360,23 @@ async def invoke_agent(agent_name: str, req: GenericAgentRequest, response: Resp
         query = req.query or req.task or req.question or req.message or req.text or ""
         result = run_stats_query(query, req.top_k or 10)
         return GenericAgentResponse(agent=agent_name, ok=result.get("ok", True), result=result)
+    if agent_name in {"oral_disease_image_recognition_assistant", "oral_image_assistant", "image_analysis"}:
+        image_base64 = req.image_base64 or req.data.get("image_base64") or ""
+        if not image_base64:
+            response.status_code = 422
+            return GenericAgentResponse(
+                agent=agent_name,
+                ok=False,
+                result={"message": "image_base64 is required for image analysis."},
+            )
+        query = req.query or req.question or req.task or req.message or req.text or ""
+        result = await run_image_analysis(
+            image_base64=image_base64,
+            query=query,
+            allow_web=True if req.allow_web is None else req.allow_web,
+        )
+        response.status_code = 200 if result.get("ok", False) else 422
+        return GenericAgentResponse(agent=agent_name, ok=result.get("ok", False), result=result)
 
     response.status_code = 501
     return GenericAgentResponse(

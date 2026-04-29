@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import math
-import re
 from collections import Counter, defaultdict
 
 from .chunk_store import load_chunks
+from .index_store import bm25_scores_from_index, vector_scores_from_index
 from .models import EvidenceChunk
+from .text_features import (
+    CORE_HINTS,
+    GENERIC_ANCHORS,
+    MEDICAL_HINTS,
+    core_anchors,
+    query_anchors,
+    tokenize,
+)
 
 
 SOURCE_PRIORITIES = {
@@ -16,56 +24,19 @@ SOURCE_PRIORITIES = {
     "general_reference": 0.92,
 }
 
-MEDICAL_HINTS = (
-    "阻生", "阻生齿", "阻生牙", "阻生智齿", "第三磨牙", "智齿", "冠周炎", "智齿冠周炎",
-    "拔除", "下牙槽神经", "上颌窦", "CBCT", "曲面断层", "全景片",
-    "根管", "牙髓", "牙髓炎", "根尖", "根尖周炎", "冷热", "冷热敏感", "自发痛", "夜间痛",
-    "牙周", "牙周炎", "牙周袋", "牙槽骨", "探诊", "叩诊", "龋", "龋齿",
-    "松动", "肿胀", "疼痛", "种植", "修复", "黏膜", "白斑", "颞下颌", "正畸",
-    "儿童", "乳牙", "恒牙",
-)
-
-GENERIC_ANCHORS = {
-    "口腔", "临床", "决策", "诊疗", "诊疗指南", "指南", "共识", "规范", "检查",
-    "治疗", "治疗方案", "适应证", "禁忌证", "鉴别诊断", "建议", "处理",
+CONTENT_TYPE_PRIORITIES = {
+    "definition": 1.04,
+    "etiology": 1.08,
+    "pathogenesis": 1.16,
+    "pathology": 1.14,
+    "clinical_feature": 1.08,
+    "diagnosis": 1.12,
+    "differential": 1.12,
+    "treatment": 1.05,
+    "prognosis": 1.04,
+    "risk": 1.06,
+    "contraindication": 1.08,
 }
-
-CORE_HINTS = tuple(hint for hint in MEDICAL_HINTS if hint not in GENERIC_ANCHORS)
-
-
-def _tokenize(text: str) -> list[str]:
-    text = (text or "").lower()
-    latin = re.findall(r"[a-z0-9][a-z0-9+\-]{1,}", text)
-    chinese = re.findall(r"[\u4e00-\u9fff]+", text)
-    tokens: list[str] = []
-    tokens.extend(latin)
-    for segment in chinese:
-        if len(segment) <= 2:
-            tokens.append(segment)
-            continue
-        tokens.extend(segment[i : i + 2] for i in range(len(segment) - 1))
-        tokens.extend(segment[i : i + 3] for i in range(len(segment) - 2))
-    for hint in MEDICAL_HINTS:
-        if hint.lower() in text:
-            tokens.append(hint.lower())
-    return [token for token in tokens if token.strip()]
-
-
-def _query_anchors(query: str) -> list[str]:
-    query_lower = (query or "").lower()
-    anchors: list[str] = []
-    for hint in MEDICAL_HINTS:
-        if hint.lower() in query_lower:
-            anchors.append(hint.lower())
-    anchors.extend(re.findall(r"[a-z0-9][a-z0-9+\-]{2,}", query_lower))
-    anchors.extend(term for term in re.findall(r"[\u4e00-\u9fff]{2,}", query_lower) if len(term) <= 8)
-    return list(dict.fromkeys(anchors))[:24]
-
-
-def _core_anchors(query: str) -> list[str]:
-    query_lower = (query or "").lower()
-    cores = [hint.lower() for hint in CORE_HINTS if hint.lower() in query_lower]
-    return list(dict.fromkeys(cores))
 
 
 def _candidate_chunks(
@@ -74,10 +45,10 @@ def _candidate_chunks(
     source_types: set[str] | None = None,
     limit: int = 900,
 ) -> list[EvidenceChunk]:
-    anchors = _query_anchors(query)
-    core_anchors = _core_anchors(query)
+    anchors = query_anchors(query)
+    cores = core_anchors(query)
     if not anchors:
-        return list(chunks[:limit])
+        return [chunk for chunk in chunks if not source_types or chunk.source_type in source_types][:limit]
 
     scored: list[tuple[float, EvidenceChunk]] = []
     for chunk in chunks:
@@ -85,13 +56,13 @@ def _candidate_chunks(
             continue
         title = (chunk.title or "").lower()
         text = (chunk.text or "").lower()
-        if core_anchors and not any(anchor in title or anchor in text for anchor in core_anchors):
+        if cores and not any(anchor in title or anchor in text for anchor in cores):
             continue
         score = 0.0
         for anchor in anchors:
             if anchor in GENERIC_ANCHORS:
                 weight = 0.25
-            elif anchor in core_anchors:
+            elif anchor in cores:
                 weight = 3.2
             else:
                 weight = 1.0
@@ -110,14 +81,14 @@ def _candidate_chunks(
 
 
 def _bm25_scores(query: str, chunks: list[EvidenceChunk]) -> dict[int, float]:
-    query_terms = list(dict.fromkeys(_tokenize(query)))
+    query_terms = list(dict.fromkeys(tokenize(query)))
     if not query_terms or not chunks:
         return {}
 
     doc_counts: list[Counter[str]] = []
     df: Counter[str] = Counter()
     for chunk in chunks:
-        counts = Counter(_tokenize(f"{chunk.title}\n{chunk.text}"))
+        counts = Counter(tokenize(f"{chunk.title}\n{chunk.text}"))
         doc_counts.append(counts)
         df.update(set(counts))
     avgdl = sum(sum(counts.values()) for counts in doc_counts) / max(len(doc_counts), 1)
@@ -152,50 +123,127 @@ def _keyword_boost(query: str, chunk: EvidenceChunk) -> float:
     return boost
 
 
+def _content_type_weight(query: str, chunk: EvidenceChunk) -> float:
+    content_types = (chunk.metadata or {}).get("content_type") or (chunk.metadata or {}).get("content_types") or []
+    if isinstance(content_types, str):
+        content_types = [content_types]
+    if not isinstance(content_types, list):
+        return 1.0
+    query_lower = (query or "").lower()
+    wanted: set[str] = set()
+    if any(term in query_lower for term in ("机制", "为什么", "病理机制", "形成")):
+        wanted.update({"pathogenesis", "etiology", "pathology"})
+    if any(term in query_lower for term in ("表现", "症状", "特征")):
+        wanted.add("clinical_feature")
+    if any(term in query_lower for term in ("鉴别", "区别")):
+        wanted.add("differential")
+    if any(term in query_lower for term in ("诊断", "检查")):
+        wanted.add("diagnosis")
+    if any(term in query_lower for term in ("治疗", "处理", "原则")):
+        wanted.add("treatment")
+    if any(term in query_lower for term in ("风险", "癌变", "并发症")):
+        wanted.update({"risk", "prognosis"})
+    if wanted and wanted.intersection(str(item) for item in content_types):
+        return 1.18
+    weight = 1.0
+    for item in content_types:
+        weight = max(weight, CONTENT_TYPE_PRIORITIES.get(str(item), 1.0))
+    return weight
+
+
 def explain_relevance(query: str, chunk: EvidenceChunk) -> str:
     haystack = f"{chunk.title}\n{chunk.text}".lower()
     matched = []
-    for anchor in _query_anchors(query):
+    for anchor in query_anchors(query):
         if anchor in GENERIC_ANCHORS:
             continue
         if anchor in haystack and anchor not in matched:
             matched.append(anchor)
+    content_types = (chunk.metadata or {}).get("content_type") or (chunk.metadata or {}).get("content_types")
+    suffix = ""
+    if content_types:
+        suffix = f"；内容标签：{content_types}"
     if matched:
-        return "命中核心词：" + "、".join(matched[:6])
+        return "命中核心词：" + "、".join(matched[:6]) + suffix
     if chunk.source_type == "guideline":
-        return "来自指南/共识库，可作为规范性依据候选，但需结合原文判断相关性。"
+        return "来自指南/共识库，可作为规范性依据候选，但需结合原文判断相关性。" + suffix
     if chunk.source_type == "textbook":
-        return "来自教材库，可作为基础理论或临床解释依据候选。"
-    return "与检索问题存在词项匹配，需结合上下文复核。"
+        return "来自教材库，可作为基础理论或临床解释依据候选。" + suffix
+    return "与检索问题存在词项或语义匹配，需结合上下文复核。" + suffix
 
 
 def _quality_weight(chunk: EvidenceChunk) -> float:
-    quality = (chunk.metadata or {}).get("ocr_quality")
-    if not isinstance(quality, dict):
-        return 1.0
+    metadata = chunk.metadata or {}
+    quality = metadata.get("ocr_quality")
+    if isinstance(quality, dict):
+        try:
+            score = float(quality.get("score", 1.0))
+        except (TypeError, ValueError):
+            score = 1.0
+        return max(0.45, min(1.0, score))
     try:
-        score = float(quality.get("score", 1.0))
+        return max(0.45, min(1.0, float(metadata.get("quality_score", 1.0))))
     except (TypeError, ValueError):
         return 1.0
-    return max(0.45, min(1.0, score))
 
 
-def search_knowledge_base(query: str, top_k: int = 8, source_types: set[str] | None = None) -> list[EvidenceChunk]:
-    all_chunks = load_chunks()
-    candidates = _candidate_chunks(query, all_chunks, source_types)
+def _fallback_lexical_search(
+    query: str,
+    all_chunks: tuple[EvidenceChunk, ...],
+    source_types: set[str] | None,
+    recall_k: int,
+) -> list[tuple[float, EvidenceChunk]]:
+    candidates = _candidate_chunks(query, all_chunks, source_types, recall_k * 4)
     if not candidates:
         return []
-
     scores = _bm25_scores(query, candidates)
-    ranked: list[EvidenceChunk] = []
-    for idx, score in scores.items():
-        chunk = candidates[idx]
-        priority = SOURCE_PRIORITIES.get(chunk.source_type, 1.0) * _quality_weight(chunk)
-        chunk.score = score * priority + _keyword_boost(query, chunk)
-        ranked.append(chunk)
+    ranked = [(score, candidates[idx]) for idx, score in scores.items()]
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return ranked[:recall_k]
 
+
+def _merge_ranked(
+    query: str,
+    sparse: list[tuple[float, EvidenceChunk]],
+    dense: list[tuple[float, EvidenceChunk]],
+    fallback: list[tuple[float, EvidenceChunk]],
+    source_types: set[str] | None,
+) -> list[EvidenceChunk]:
+    combined: dict[str, EvidenceChunk] = {}
+    scores: dict[str, float] = defaultdict(float)
+
+    def add(items: list[tuple[float, EvidenceChunk]], channel: str, channel_weight: float) -> None:
+        if not items:
+            return
+        max_score = max(abs(score) for score, _ in items) or 1.0
+        for rank, (score, chunk) in enumerate(items):
+            if source_types and chunk.source_type not in source_types:
+                continue
+            combined[chunk.id] = chunk
+            rank_bonus = 1.0 / max(rank + 1, 1)
+            normalized = max(float(score), 0.0) / max_score
+            scores[chunk.id] += channel_weight * normalized + rank_bonus * 0.06
+            chunk.metadata = dict(chunk.metadata or {})
+            channels = list(chunk.metadata.get("retrieval_channels") or [])
+            if channel not in channels:
+                channels.append(channel)
+            chunk.metadata["retrieval_channels"] = channels
+
+    add(sparse, "bm25_index", 0.54)
+    add(dense, "vector_index", 0.42)
+    add(fallback, "lexical_fallback", 0.34)
+
+    ranked: list[EvidenceChunk] = []
+    for chunk_id, chunk in combined.items():
+        priority = SOURCE_PRIORITIES.get(chunk.source_type, 1.0)
+        chunk.score = scores[chunk_id] * priority * _quality_weight(chunk) * _content_type_weight(query, chunk)
+        chunk.score += _keyword_boost(query, chunk)
+        ranked.append(chunk)
     ranked.sort(key=lambda item: item.score, reverse=True)
-    target = max(1, min(int(top_k or 8), 50))
+    return ranked
+
+
+def _diversify(ranked: list[EvidenceChunk], target: int) -> list[EvidenceChunk]:
     diversified: list[EvidenceChunk] = []
     source_counts: Counter[str] = Counter()
     type_counts: Counter[str] = Counter()
@@ -203,7 +251,7 @@ def search_knowledge_base(query: str, top_k: int = 8, source_types: set[str] | N
         source_key = chunk.source or chunk.source_type
         if source_counts[source_key] >= 2:
             continue
-        if chunk.source_type == "general_reference" and type_counts[chunk.source_type] >= 1:
+        if chunk.source_type == "general_reference" and type_counts[chunk.source_type] >= 2:
             continue
         if chunk.source_type == "clinical_case" and type_counts[chunk.source_type] >= 2:
             continue
@@ -222,3 +270,23 @@ def search_knowledge_base(query: str, top_k: int = 8, source_types: set[str] | N
                 if len(diversified) >= target:
                     break
     return diversified
+
+
+def search_knowledge_base(query: str, top_k: int = 8, source_types: set[str] | None = None) -> list[EvidenceChunk]:
+    all_chunks = load_chunks()
+    if not all_chunks:
+        return []
+    chunks_by_id = {chunk.id: chunk for chunk in all_chunks}
+    target = max(1, min(int(top_k or 8), 50))
+    recall_k = max(24, min(120, target * 8))
+
+    sparse = bm25_scores_from_index(query, chunks_by_id, recall_k)
+    dense = vector_scores_from_index(query, chunks_by_id, recall_k)
+    fallback = []
+    if not sparse and not dense:
+        fallback = _fallback_lexical_search(query, all_chunks, source_types, recall_k)
+
+    ranked = _merge_ranked(query, sparse, dense, fallback, source_types)
+    if not ranked:
+        return []
+    return _diversify(ranked, target)

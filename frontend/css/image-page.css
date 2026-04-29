@@ -36,6 +36,7 @@
   position: relative;
   overflow: hidden;
   cursor: pointer;
+  display: block;
   transition: border-color 0.2s ease, background 0.2s ease;
 }
 
@@ -50,6 +51,41 @@
   object-fit: contain;
   display: none;
   background: #ffffff;
+}
+
+.image-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.image-box {
+  position: absolute;
+  border: 2px solid #16a085;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 8px 18px rgba(22, 160, 133, 0.2);
+  background: rgba(22, 160, 133, 0.08);
+}
+
+.image-box-label {
+  position: absolute;
+  left: -2px;
+  top: -28px;
+  max-width: min(280px, 70vw);
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: #0f6f61;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 6px 14px rgba(15, 111, 97, 0.25);
+}
+
+.image-box:first-child .image-box-label {
+  top: 4px;
 }
 
 #image-preview.ready {

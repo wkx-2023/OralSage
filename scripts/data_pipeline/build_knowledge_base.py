@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+import sys
 from typing import Any, Iterable
 
 import pandas as pd
@@ -12,6 +13,11 @@ from pypdf import PdfReader
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.services.retrieval.text_features import extract_entities, infer_content_types
+
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 OUT_DIR = PROJECT_ROOT / "data" / "processed" / "knowledge_base"
 OCR_TEXTBOOK_DIR = PROJECT_ROOT / "data" / "processed" / "ocr_textbooks"
@@ -58,6 +64,87 @@ def stable_id(*parts: str) -> str:
     return digest[:16]
 
 
+def infer_section(text: str, title: str = "") -> str:
+    skip_patterns = (
+        r"^本资料",
+        r"^禁止用于",
+        r"^ICS\b",
+        r"^CCS\b",
+        r"^团体\s*标准$",
+        r"^中华口腔医学会",
+        r"^人民卫生出版社$",
+        r"^国家卫生健康委员会",
+    )
+    candidates = []
+    for line in (text or "").splitlines()[:8]:
+        value = line.strip(" \t-—:：")
+        if any(re.search(pattern, value, flags=re.IGNORECASE) for pattern in skip_patterns):
+            continue
+        if 4 <= len(value) <= 40 and not re.search(r"[。；;,.，]", value):
+            candidates.append(value)
+    return candidates[0] if candidates else title
+
+
+def infer_chapter(title: str, text: str = "") -> str:
+    haystack = f"{title}\n{text[:600]}"
+    match = re.search(r"第[一二三四五六七八九十百0-9]+[章节篇][^\n。；;]{0,40}", haystack)
+    return match.group(0).strip() if match else ""
+
+
+def page_from_title(title: str) -> int | None:
+    match = re.search(r"第\s*(\d+)\s*页", title or "")
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def enrich_record(record: dict[str, Any]) -> dict[str, Any]:
+    text = normalize_text(str(record.get("text") or ""))
+    title = str(record.get("title") or "")
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    metadata = dict(metadata)
+    page = record.get("page") or metadata.get("page") or page_from_title(title)
+    chapter = record.get("chapter") or metadata.get("chapter") or infer_chapter(title, text)
+    section = record.get("section") or metadata.get("section") or infer_section(text, title)
+    content_types = record.get("content_type") or metadata.get("content_type") or infer_content_types(text, title)
+    entities = record.get("entities") or metadata.get("entities") or extract_entities(text, title)
+    quality = metadata.get("ocr_quality") if isinstance(metadata.get("ocr_quality"), dict) else None
+    quality_score = record.get("quality_score") or metadata.get("quality_score")
+    if quality_score is None and quality:
+        quality_score = quality.get("score")
+    if quality_score is None:
+        quality_score = 1.0
+
+    metadata.update(
+        {
+            "page": page,
+            "chapter": chapter,
+            "section": section,
+            "content_type": content_types,
+            "entities": entities,
+            "quality_score": quality_score,
+        }
+    )
+    record["text"] = text
+    record["page"] = page
+    record["chapter"] = chapter
+    record["section"] = section
+    record["content_type"] = content_types
+    record["entities"] = entities
+    record["quality_score"] = quality_score
+    record["parent_id"] = record.get("parent_id") or stable_id(
+        str(record.get("source") or ""),
+        str(record.get("source_type") or ""),
+        str(chapter or ""),
+        str(section or title or ""),
+    )
+    record["metadata"] = metadata
+    return record
+
+
 def chunk_text(text: str, target_chars: int = 900, overlap_chars: int = 120) -> list[str]:
     text = normalize_text(text)
     if not text:
@@ -98,6 +185,7 @@ def write_jsonl(path: Path, records: Iterable[dict[str, Any]]) -> int:
             if len(text) < 40:
                 continue
             record["text"] = text
+            record = enrich_record(record)
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
             count += 1
     return count
@@ -167,7 +255,7 @@ def build_pdf_dir(dirname: str, output_name: str, source_type: str, max_pages: i
         for page, text in pages:
             heading = f"{title} 第{page}页"
             for chunk_index, chunk in enumerate(chunk_text(text)):
-                quality = text_quality(chunk)
+                quality = text_quality(chunk) if source_type == "textbook" else {"score": 1.0, "source": "pdf_text"}
                 records.append(
                     {
                         "id": stable_id(source_type, pdf.name, str(page), str(chunk_index)),

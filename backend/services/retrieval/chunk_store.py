@@ -50,6 +50,21 @@ def _record_to_chunk(record: dict[str, Any], fallback_source: str, fallback_type
     chunk_id = str(record.get("id") or record.get("chunk_id") or f"{fallback_source}:{index}")
     path = str(record.get("path") or record.get("file") or "")
     metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    metadata = dict(metadata)
+    for key in (
+        "page",
+        "chapter",
+        "section",
+        "subsection",
+        "content_type",
+        "content_types",
+        "entities",
+        "quality_score",
+        "parent_id",
+        "chunk_index",
+    ):
+        if key in record and key not in metadata:
+            metadata[key] = record.get(key)
     return EvidenceChunk(
         id=chunk_id,
         text=text,

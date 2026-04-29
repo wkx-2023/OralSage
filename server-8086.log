@@ -1,1 +1,11 @@
 INFO:     127.0.0.1:40762 - "GET /api/system/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4319 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4319 - "GET /css/base.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54827 - "GET /css/home.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51474 - "GET /assets/images/home-agent-concept.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40752 - "GET /js/common.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51474 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51474 - "GET /pages/pathology.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54827 - "GET /css/pathology-page.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51474 - "GET /js/pathology.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:25794 - "POST /api/pathology/ask HTTP/1.1" 200 OK

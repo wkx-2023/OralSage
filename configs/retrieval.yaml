@@ -2,13 +2,14 @@ retrieval:
   backend: local
   use_nexent: false
   chunk_store: data/processed/knowledge_base
-  vector_index: data/indexes/chroma
+  vector_index: data/indexes/vector
   sparse_index: data/indexes/bm25
 
 embedding:
   model_name: BAAI/bge-m3
   local_path: models/embeddings/bge-m3
   normalize: true
+  fallback: stable_hashing
 
 chunking:
   target_chars: 900
@@ -35,3 +36,23 @@ ranking:
   top_k_sparse: 20
   final_top_k: 8
   reranker: optional
+  source_weights:
+    guideline: 1.35
+    clinical_norm: 1.35
+    textbook: 1.18
+    clinical_case: 1.05
+    general_reference: 0.92
+
+metadata:
+  content_type_labels:
+    - definition
+    - etiology
+    - pathogenesis
+    - pathology
+    - clinical_feature
+    - diagnosis
+    - differential
+    - treatment
+    - prognosis
+    - risk
+    - contraindication
