@@ -8,6 +8,7 @@
     indexView: 'list',
     terms: null,
     reviewSource: '',
+    historyPanel: null,
   };
 
   function escape(text) {
@@ -280,6 +281,51 @@
     }
   }
 
+  function saveHistory(query, months, limit) {
+    state.historyPanel?.save({
+      title: query,
+      data: {
+        query,
+        months,
+        limit,
+        articles: state.articles,
+        translations: Array.from(state.translations.entries()),
+        review: state.review,
+        reviewSource: state.reviewSource,
+        terms: state.terms,
+        activeIndex: state.activeIndex,
+        indexView: state.indexView,
+      },
+    });
+  }
+
+  function restoreHistory(record) {
+    const data = record?.data || {};
+    if (!Array.isArray(data.articles) && !data.review) {
+      setStatus('历史记录无法恢复', '请重新检索');
+      $('lit-bookmarks').innerHTML = '<div class="lit-card-empty">这条历史记录没有可恢复内容，请重新执行一次检索后再查看。</div>';
+      $('lit-active-paper').innerHTML = '<p class="lit-empty">未保存文献详情</p>';
+      return;
+    }
+    const query = $('lit-query');
+    const months = $('lit-months');
+    const limit = $('lit-limit');
+    if (query) query.value = data.query || '';
+    if (months) months.value = String(data.months || 6);
+    if (limit) limit.value = String(data.limit || 5);
+    state.articles = Array.isArray(data.articles) ? data.articles : [];
+    state.translations = new Map(Array.isArray(data.translations) ? data.translations : []);
+    state.review = data.review || '';
+    state.reviewSource = data.reviewSource || '';
+    state.terms = data.terms || null;
+    state.activeIndex = Number(data.activeIndex || 0);
+    setStatus(`关键词：${state.terms?.recommended_keywords || data.query || '-'}`, `共 ${state.articles.length} 篇`);
+    renderList();
+    renderDetail();
+    renderReview();
+    setIndexView(data.indexView || 'list');
+  }
+
   async function runSearch() {
     const query = value('lit-query');
     if (!query) {
@@ -306,6 +352,7 @@
       renderList();
       renderDetail();
       renderReview();
+      saveHistory(query, months, limit);
       ensureTranslation(state.articles[0]);
     } catch (err) {
       state.articles = [];
@@ -320,6 +367,28 @@
   }
 
   function bind() {
+    state.historyPanel = window.oralUi.createHistoryPanel({
+      key: 'literature',
+      title: '前沿文献历史',
+      newLabel: '+ 新建检索',
+      emptyText: '暂无文献检索记录',
+      onNew: () => {
+        const query = $('lit-query');
+        if (query) query.value = '';
+        state.articles = [];
+        state.translations = new Map();
+        state.review = '';
+        state.reviewSource = '';
+        state.terms = null;
+        state.activeIndex = 0;
+        setStatus('尚未检索', '等待检索');
+        $('lit-bookmarks').innerHTML = '<div class="lit-card-empty">\u8f93\u5165\u4e3b\u9898\u540e\u5f00\u59cb\u68c0\u7d22\u771f\u5b9e\u6587\u732e</div>';
+        $('lit-active-paper').innerHTML = '<p class="lit-empty">\u7b49\u5f85\u68c0\u7d22\u6587\u732e\u8be6\u60c5...</p>';
+        renderReview();
+        setIndexView('list');
+      },
+      onSelect: restoreHistory,
+    });
     $('lit-run')?.addEventListener('click', runSearch);
     document.querySelectorAll('.lit-index-tab').forEach((tab) => {
       tab.addEventListener('click', () => setIndexView(tab.dataset.view || 'list'));

@@ -1,5 +1,6 @@
 (() => {
   const { byId, escapeHtml, apiPost } = window.oralUi;
+  let historyPanel = null;
 
   function value(id) {
     const node = byId(id);
@@ -21,6 +22,34 @@
       ['目前处理', value('decision-current')],
     ].filter(([, val]) => val);
     return rows.map(([label, val]) => `${label}：${val}`).join('\n');
+  }
+
+  function formData() {
+    return {
+      gender: value('decision-gender'),
+      age: value('decision-age'),
+      chief: value('decision-chief'),
+      history: value('decision-history'),
+      exam: value('decision-exam'),
+      imaging: value('decision-imaging'),
+      current: value('decision-current'),
+    };
+  }
+
+  function fillForm(data = {}) {
+    const map = {
+      'decision-gender': data.gender || '',
+      'decision-age': data.age || '',
+      'decision-chief': data.chief || '',
+      'decision-history': data.history || '',
+      'decision-exam': data.exam || '',
+      'decision-imaging': data.imaging || '',
+      'decision-current': data.current || '',
+    };
+    Object.entries(map).forEach(([id, val]) => {
+      const node = byId(id);
+      if (node) node.value = val;
+    });
   }
 
   function clipText(text, limit = 320) {
@@ -181,8 +210,17 @@
         allow_web: true,
       });
       card?.classList.remove('empty');
-      answer.innerHTML = renderResult(result);
+      const html = renderResult(result);
+      answer.innerHTML = html;
       citations.innerHTML = '';
+      historyPanel?.save({
+        title: value('decision-chief') || caseText,
+        data: {
+          form: formData(),
+          html,
+          raw: result,
+        },
+      });
     } catch (err) {
       card?.classList.remove('empty');
       answer.innerHTML = `<div class="decision-markdown"><h3>调用失败</h3><p>${escapeHtml(err.message || String(err))}</p></div>`;
@@ -194,6 +232,35 @@
   }
 
   function boot() {
+    historyPanel = window.oralUi.createHistoryPanel({
+      key: 'decision',
+      title: '决策辅助历史',
+      newLabel: '+ 新建病例',
+      emptyText: '暂无决策记录',
+      onNew: () => {
+        fillForm({});
+        outputCard()?.classList.add('empty');
+        const answer = byId('decision-answer');
+        const citations = byId('decision-citations');
+        if (answer) answer.textContent = '等待执行...';
+        if (citations) citations.innerHTML = '';
+      },
+      onSelect: (record) => {
+        const data = record?.data || {};
+        if (!data.form && !data.html && !data.raw) {
+          outputCard()?.classList.remove('empty');
+          const answer = byId('decision-answer');
+          if (answer) answer.innerHTML = '<div class="decision-markdown"><h3>历史记录无法恢复</h3><p>这条记录是在历史保存功能完善前生成的，请重新执行一次任务后再查看。</p></div>';
+          return;
+        }
+        fillForm(data.form || {});
+        outputCard()?.classList.remove('empty');
+        const answer = byId('decision-answer');
+        const citations = byId('decision-citations');
+        if (answer) answer.innerHTML = data.html || renderResult(data.raw || {});
+        if (citations) citations.innerHTML = '';
+      },
+    });
     const button = byId('decision-run');
     if (button) {
       button.addEventListener('click', runDecision);

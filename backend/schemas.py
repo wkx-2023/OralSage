@@ -58,6 +58,16 @@ class StatsRequest(BaseModel):
     top_k: int = 10
 
 
+class StatsFilterRequest(BaseModel):
+    months: list[str] = Field(default_factory=list)
+    disease_groups: list[str] = Field(default_factory=list)
+    diagnosis_names: list[str] = Field(default_factory=list)
+    operation_names: list[str] = Field(default_factory=list)
+    departments: list[str] = Field(default_factory=list)
+    register_types: list[str] = Field(default_factory=list)
+    view: str = "dashboard"
+
+
 class AsrRequest(BaseModel):
     conversation: str
 
@@ -91,6 +101,13 @@ class EvidenceSearchRequest(BaseModel):
     query: str
     top_k: int = 10
     allow_web: bool = False
+
+
+class KnowledgeViewRequest(BaseModel):
+    topic_id: str = "impacted_wisdom_tooth"
+    dimension_id: str = "all"
+    source_type: str = "all"
+    top_k: int = 4
 
 
 class ImageRequest(BaseModel):

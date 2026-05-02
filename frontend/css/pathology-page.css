@@ -51,6 +51,11 @@
   align-items: start;
 }
 
+.dialog-row[hidden],
+.pathology-empty-state[hidden] {
+  display: none;
+}
+
 .avatar {
   width: 36px;
   height: 36px;

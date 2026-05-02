@@ -4,6 +4,7 @@
     imageFile: null,
     imageUrl: '',
     markdown: '',
+    historyPanel: null,
   };
 
   const text = {
@@ -27,6 +28,16 @@
     if (!node) return;
     node.textContent = content;
     node.classList.toggle('empty', empty);
+  }
+
+  function setPreviewMessage(content) {
+    const preview = $('records-preview');
+    if (!preview) return;
+    preview.innerHTML = `<div class="record-preview-empty">${window.oralUi.escapeHtml(content)}</div>`;
+  }
+
+  function setOptionalText(id, content, empty = false) {
+    if ($(id)) setText(id, content, empty);
   }
 
   function field(fields, key) {
@@ -109,21 +120,32 @@
   async function generateRecord() {
     const raw = value('records-conversation');
     if (!raw) {
-      setText('records-markdown', text.emptyInput, true);
+      setPreviewMessage(text.emptyInput);
       return null;
     }
     setText('records-corrected', text.running, true);
     setText('records-fields', text.running, true);
-    setText('records-markdown', text.running, true);
+    setOptionalText('records-markdown', text.running, true);
     const data = await window.oralUi.apiPost('/api/records/workflow', { conversation: raw });
     const fields = data.result?.fields_normalized || {};
     const corrected = data.result?.corrected_conversation || raw;
     state.markdown = data.result?.markdown || '';
     setText('records-corrected', corrected);
     setText('records-fields', JSON.stringify({ fields: data.result?.fields || fields, meta: data.result?.meta || {} }, null, 2));
-    updateMeta(fields);
     renderPreview(fields);
-    setText('records-markdown', state.markdown);
+    setOptionalText('records-markdown', state.markdown);
+    state.historyPanel?.save({
+      title: fields.chiefComplaint || raw,
+      data: {
+        conversation: raw,
+        corrected,
+        fieldsText: JSON.stringify({ fields: data.result?.fields || fields, meta: data.result?.meta || {} }, null, 2),
+        fields,
+        markdown: state.markdown,
+        previewHtml: $('records-preview')?.innerHTML || '',
+        imageAnalysis: $('records-image-analysis')?.textContent || text.noImage,
+      },
+    });
     return data.result;
   }
 
@@ -131,7 +153,11 @@
     try {
       return await task();
     } catch (err) {
-      setText(targetId, `${text.failed}${err.message}`, true);
+      if ($(targetId)) {
+        setText(targetId, `${text.failed}${err.message}`, true);
+      } else {
+        setPreviewMessage(`${text.failed}${err.message}`);
+      }
       return null;
     }
   }
@@ -142,11 +168,11 @@
     setText('records-corrected', text.wait, true);
     setText('records-fields', text.wait, true);
     setText('records-image-analysis', text.noImage, true);
-    setText('records-markdown', text.wait, true);
-    setText('records-name', '待识别');
-    setText('records-sex', '待识别');
-    setText('records-age', '待识别');
-    setText('records-visit-date', '待生成');
+    setOptionalText('records-markdown', text.wait, true);
+    setOptionalText('records-name', '待识别');
+    setOptionalText('records-sex', '待识别');
+    setOptionalText('records-age', '待识别');
+    setOptionalText('records-visit-date', '待生成');
     const preview = $('records-preview');
     if (preview) preview.innerHTML = '<div class="record-preview-empty">等待生成病历</div>';
     state.markdown = '';
@@ -169,6 +195,34 @@
   }
 
   function bind() {
+    state.historyPanel = window.oralUi.createHistoryPanel({
+      key: 'records',
+      title: '病历生成历史',
+      newLabel: '+ 新建病历',
+      emptyText: '暂无病历记录',
+      onNew: () => {
+        clearAll();
+        clearImage();
+      },
+      onSelect: (record) => {
+        const data = record?.data || {};
+        if (!data.previewHtml && !data.conversation && !data.markdown) {
+          clearAll();
+          setPreviewMessage('这条历史记录没有可恢复内容，请重新生成一次病历后再查看。');
+          return;
+        }
+        clearImage();
+        const input = $('records-conversation');
+        if (input) input.value = data.conversation || '';
+        state.markdown = data.markdown || '';
+        setText('records-corrected', data.corrected || text.wait, !data.corrected);
+        setText('records-fields', data.fieldsText || text.wait, !data.fieldsText);
+        setText('records-image-analysis', data.imageAnalysis || text.noImage, !data.imageAnalysis);
+        const preview = $('records-preview');
+        if (preview) preview.innerHTML = data.previewHtml || '<div class="record-preview-empty">历史记录未保存预览</div>';
+        setOptionalText('records-markdown', state.markdown || text.wait, !state.markdown);
+      },
+    });
     $('records-image-trigger')?.addEventListener('click', () => $('records-image-file')?.click());
     $('records-image-clear')?.addEventListener('click', clearImage);
     $('records-clear')?.addEventListener('click', () => {
@@ -179,13 +233,13 @@
     $('records-extract')?.addEventListener('click', () => runSafely(extractAndRender, 'records-fields'));
     $('records-generate')?.addEventListener('click', () => runSafely(generateRecord, 'records-markdown'));
     $('records-copy')?.addEventListener('click', async () => {
-      const content = state.markdown || $('records-markdown')?.textContent || '';
+      const content = state.markdown || $('records-preview')?.innerText || '';
       if (!content || content === text.wait) return;
       try {
         await navigator.clipboard.writeText(content);
-        setText('records-markdown', `${content}\n\n${text.copied}`);
+        setPreviewMessage(text.copied);
       } catch (_err) {
-        setText('records-markdown', `${content}\n\n${text.copyFailed}`);
+        setPreviewMessage(text.copyFailed);
       }
     });
     $('records-image-file')?.addEventListener('change', (event) => {

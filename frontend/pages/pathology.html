@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>病理问答 - 口腔多模块工作台</title>
+  <title>病理问答 - OralSage</title>
+  <link rel="icon" href="/assets/images/oralsage-logo.jpg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/base.css?v=20260502-history2">
   <link rel="stylesheet" href="/css/pathology-page.css">
 </head>
 <body>
@@ -31,7 +32,6 @@
             <div class="chat-stream">
               <section id="pathology-empty-state" class="pathology-empty-state">
                 <h2 class="panel-title">输入问题后开始检索</h2>
-                <p>系统会优先检索本地知识库，再返回病理解释和证据依据。</p>
               </section>
 
               <article id="pathology-user-row" class="dialog-row user-row" hidden>
@@ -68,7 +68,7 @@
 
             <section class="side-section tip-block">
               <h3 class="panel-subtitle">智能提示</h3>
-              <p>病理问答会优先用本地知识库作答。若引用教材 OCR 片段，请优先看核心结论与依据解读，不要直接把原始片段当最终诊断意见。</p>
+              <p>优先用知识库作答。请不要直接把知识库片段当最终诊断意见。</p>
             </section>
           </aside>
         </section>
@@ -76,8 +76,8 @@
     </section>
   </div>
 
-  <script src="/js/common.js"></script>
-  <script src="/js/pathology.js"></script>
+  <script src="/js/common.js?v=20260502-history2"></script>
+  <script src="/js/pathology.js?v=20260502-history2"></script>
 </body>
 </html>
 

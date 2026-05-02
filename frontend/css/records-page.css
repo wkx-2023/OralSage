@@ -111,8 +111,7 @@
   color: #736ea4;
 }
 
-.records-debug-card .stream,
-.records-markdown-box .stream {
+.records-debug-card .stream {
   min-height: 120px;
   background: #ffffff;
   border-radius: 10px;
@@ -121,17 +120,8 @@
 
 .records-preview-panel {
   display: grid;
-  grid-template-rows: auto 1fr auto auto;
+  grid-template-rows: 1fr auto;
   gap: 10px;
-}
-
-.records-meta-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  padding: 2px 4px;
-  color: #7b74b3;
-  font-size: 13px;
 }
 
 .records-preview {
@@ -180,12 +170,6 @@
   border-top: 1px solid #ebe7fa;
   color: #6f6996;
   font-size: 14px;
-}
-
-.records-markdown-box summary {
-  cursor: pointer;
-  color: #736ea4;
-  font-size: 13px;
 }
 
 @media (max-width: 1180px) {

@@ -161,6 +161,51 @@ def _looks_like_case(message: str) -> bool:
     return any(word in message for word in clinical) and any(word in message for word in ask_decision)
 
 
+def _parse_small_chinese_number(text: str) -> int | None:
+    digits = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    if text in digits:
+        return digits[text]
+    if text == "十":
+        return 10
+    if text.startswith("十") and len(text) == 2 and text[1] in digits:
+        return 10 + digits[text[1]]
+    if text.endswith("十") and len(text) == 2 and text[0] in digits:
+        return digits[text[0]] * 10
+    if "十" in text:
+        head, tail = text.split("十", 1)
+        if head in digits and tail in digits:
+            return digits[head] * 10 + digits[tail]
+    return None
+
+
+def _extract_literature_limit(message: str) -> int | None:
+    match = re.search(r"(\d{1,2})\s*(?:篇|条|文献)", message)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"([一二两三四五六七八九十]{1,3})\s*(?:篇|条|文)", message)
+    if match:
+        return _parse_small_chinese_number(match.group(1))
+    return None
+
+
+def _extract_literature_months(message: str) -> int | None:
+    if any(word in message for word in ("近半年", "半年内", "过去半年", "最近半年")):
+        return 6
+    if any(word in message for word in ("近一年", "一年内", "过去一年", "最近一年")):
+        return 12
+    match = re.search(r"(?:近|过去|最近)?\s*(\d{1,2})\s*个?月", message)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"(?:近|过去|最近)?\s*(\d{1,2})\s*年", message)
+    if match:
+        return int(match.group(1)) * 12
+    match = re.search(r"(?:近|过去|最近)?\s*([一二两三四五六七八九十]{1,3})\s*年", message)
+    if match:
+        value = _parse_small_chinese_number(match.group(1))
+        return value * 12 if value else None
+    return None
+
+
 def _rule_based_plan(message: str, *, image_base64: str | None) -> dict[str, Any]:
     text = message or ""
     has_image = bool(image_base64)
@@ -225,7 +270,11 @@ def _rule_based_plan(message: str, *, image_base64: str | None) -> dict[str, Any
             "mode": "single_agent",
             "target_agent": "oral_frontier_learning_assistant",
             "confidence": 0.82,
-            "payload": {"query": text, "months": 6, "limit": 5},
+            "payload": {
+                "query": text,
+                "months": _extract_literature_months(text) or 6,
+                "limit": _extract_literature_limit(text) or 5,
+            },
             "reason": "检测到前沿文献或研究进展需求。",
         }
     if wants_decision:
@@ -265,8 +314,8 @@ def _normalize_payload(agent: str, payload: dict[str, Any], message: str, image_
         payload["top_k"] = int(payload.get("top_k") or 10)
     elif agent == "oral_frontier_learning_assistant":
         payload["query"] = str(payload.get("query") or message)
-        payload["months"] = payload.get("months")
-        payload["limit"] = int(payload.get("limit") or 5)
+        payload["months"] = _extract_literature_months(message) or payload.get("months")
+        payload["limit"] = int(_extract_literature_limit(message) or payload.get("limit") or 5)
     elif agent == "oral_dentist_report_assistant":
         payload["conversation"] = str(payload.get("conversation") or payload.get("text") or message)
     elif agent == "oral_disease_image_recognition_assistant":
@@ -454,7 +503,12 @@ async def _invoke_agent(agent: str, payload: dict[str, Any]) -> dict[str, Any]:
     if agent == "clinic_case_stats_assistant":
         return run_stats_query(payload["query"], payload["top_k"])
     if agent == "oral_frontier_learning_assistant":
-        return await run_literature_search(payload["query"], payload.get("months"), payload["limit"])
+        return await run_literature_search(
+            payload["query"],
+            payload.get("months"),
+            payload["limit"],
+            include_chat_translations=True,
+        )
     if agent == "oral_dentist_report_assistant":
         return {
             "ok": True,

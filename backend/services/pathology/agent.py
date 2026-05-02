@@ -23,9 +23,11 @@ def _build_messages(question: str, plan: dict[str, Any], evidence: list[Evidence
     system = (
         "你是口腔病理知识问答助手，服务对象是口腔医生、医学生和科研人员。"
         "你只能基于用户问题、检索计划和证据池进行分析总结，不要凭空编造。"
-        "每个关键医学判断后必须给出引用标记，例如[本地1]或[文献1]。"
+        "每个关键医学判断后必须给出引用标记，例如[依据1]或[文献1]。"
         "证据不足时必须明确写出证据不足，不要给确定诊断、处方剂量或替代面诊结论。"
         "区分教材/指南中的稳定知识和文献中的研究性结论。"
+        "引用依据只写清洗后的来源名称和证据支持点，不要输出'已压缩'、'全彩(OCR)'、学习交流/禁止商业用途等无关文本。"
+        "遇到脱敏门诊病例时，只能使用摘要化、分析后的证据，不要复述原始门诊字段、编号、医生名或流水号。"
         "输出 Markdown，严格包含这些一级小节：核心结论、病理机制、典型表现、诊断与鉴别要点、临床处理原则、证据不足或争议点、引用依据、免责声明。"
     )
     user = {
@@ -37,7 +39,8 @@ def _build_messages(question: str, plan: dict[str, Any], evidence: list[Evidence
             "病理机制解释病因、组织学或病理生理过程。",
             "诊断与鉴别要点只给思路，不给最终诊断。",
             "临床处理原则只写原则和需补充检查，不写药物剂量。",
-            "引用依据逐条说明每个证据支持了什么。",
+            "引用依据逐条说明每个证据支持了什么，使用[依据N]/[文献N]标记。",
+            "引用依据不要照搬原始片段，特别是脱敏门诊病例必须写成总结分析后的依据。",
         ],
     }
     return [
@@ -120,7 +123,7 @@ def _ensure_disclaimer(answer: str) -> str:
 
 def _safety_notes(answer: str) -> list[str]:
     notes: list[str] = []
-    if not re.search(r"\[(本地|文献)\d+\]", answer or ""):
+    if not re.search(r"\[(依据|文献)\d+\]", answer or ""):
         notes.append("生成内容未检测到标准引用标记，建议人工复核。")
     if re.search(r"\b\d+(\.\d+)?\s*(mg|g|ml|bid|tid|qd|iu)\b", answer or "", re.IGNORECASE):
         notes.append("生成内容疑似包含具体处方剂量，需人工复核后使用。")

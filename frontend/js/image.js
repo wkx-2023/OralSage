@@ -4,6 +4,8 @@
   let selectedFile = null;
   let objectUrl = null;
   let latestBoxes = [];
+  let previewDataUrl = '';
+  let historyPanel = null;
 
   function setOutput(text, isEmpty = false) {
     const output = byId('image-output');
@@ -68,6 +70,16 @@
     });
   }
 
+  function setPreviewSource(src) {
+    const preview = byId('image-preview');
+    const empty = byId('image-empty');
+    if (!preview || !empty) return;
+    preview.onload = () => renderBoxes(latestBoxes);
+    preview.src = src;
+    preview.classList.add('ready');
+    empty.classList.add('hidden');
+  }
+
   function formatResult(payload) {
     if (!payload || payload.ok === false) {
       return payload?.message || '影像识别失败。';
@@ -113,8 +125,19 @@
       if (!response.ok || payload.ok === false) {
         throw new Error(payload.message || `${response.status} ${response.statusText}`);
       }
-      setOutput(formatResult(payload));
-      renderBoxes(payload.result?.boxes || []);
+      const output = formatResult(payload);
+      const boxes = payload.result?.boxes || [];
+      setOutput(output);
+      renderBoxes(boxes);
+      historyPanel?.save({
+        title: query || selectedFile.name || '影像识别记录',
+        data: {
+          query,
+          output,
+          boxes,
+          previewDataUrl: previewDataUrl.length < 900000 ? previewDataUrl : '',
+        },
+      });
     } catch (error) {
       setOutput(`调用失败：${error.message || String(error)}`);
     } finally {
@@ -130,20 +153,74 @@
 
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = URL.createObjectURL(file);
+    previewDataUrl = '';
 
+    const reader = new FileReader();
+    reader.onload = () => {
+      previewDataUrl = typeof reader.result === 'string' ? reader.result : '';
+    };
+    reader.readAsDataURL(file);
+
+    setPreviewSource(objectUrl);
+  }
+
+  function restoreHistory(record) {
+    const data = record?.data || {};
+    if (!data.output && !data.previewDataUrl) {
+      resetCurrent();
+      setOutput('这条历史记录没有可恢复内容，请重新执行一次识别后再查看。');
+      return;
+    }
+    selectedFile = null;
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+    }
+    previewDataUrl = data.previewDataUrl || '';
+    latestBoxes = Array.isArray(data.boxes) ? data.boxes : [];
+    const query = byId('image-query');
+    if (query) query.value = data.query || '';
+    if (previewDataUrl) {
+      setPreviewSource(previewDataUrl);
+    }
+    setOutput(data.output || '历史记录未保存结果。', !data.output);
+    setTimeout(() => renderBoxes(latestBoxes), 0);
+  }
+
+  function resetCurrent() {
+    selectedFile = null;
+    previewDataUrl = '';
+    clearOverlay();
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+    }
     const preview = byId('image-preview');
     const empty = byId('image-empty');
-    if (!preview || !empty) return;
-    preview.onload = () => renderBoxes(latestBoxes);
-    preview.src = objectUrl;
-    preview.classList.add('ready');
-    empty.classList.add('hidden');
+    const query = byId('image-query');
+    if (preview) {
+      preview.removeAttribute('src');
+      preview.classList.remove('ready');
+    }
+    empty?.classList.remove('hidden');
+    if (query) query.value = '';
+    setOutput('等待分析...', true);
   }
 
   function boot() {
     const input = byId('image-file');
     const trigger = byId('image-upload-trigger');
     const run = byId('image-run');
+
+    historyPanel = window.oralUi.createHistoryPanel({
+      key: 'image',
+      title: '影像识别历史',
+      newLabel: '+ 新建识别',
+      emptyText: '暂无影像识别记录',
+      limit: 8,
+      onNew: resetCurrent,
+      onSelect: restoreHistory,
+    });
 
     trigger?.addEventListener('click', () => input?.click());
     input?.addEventListener('change', () => {

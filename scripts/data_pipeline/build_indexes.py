@@ -213,10 +213,18 @@ def write_final_vector_index(
 ) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     np.save(out_dir / "vectors.npy", np.asarray(vectors, dtype=np.float32))
+    manifest_model_ref = model_ref
+    if model_ref:
+        try:
+            model_path = Path(model_ref)
+            if model_path.is_absolute():
+                manifest_model_ref = model_path.relative_to(PROJECT_ROOT).as_posix()
+        except ValueError:
+            manifest_model_ref = model_ref
     manifest = {
         "version": 1,
         "provider": provider,
-        "model_ref": model_ref,
+        "model_ref": manifest_model_ref,
         "dims": int(vectors.shape[1]),
         "total_docs": len(doc_ids),
         "doc_ids": doc_ids,

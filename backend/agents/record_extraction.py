@@ -94,6 +94,55 @@ def _diagnosis_from_exam(exam: str) -> str:
     return MISSING
 
 
+def _extract_past_history(text: str) -> str:
+    labeled = _extract_labeled_field(text, ["既往史"])
+    if labeled != MISSING:
+        return labeled
+
+    negative = _first(
+        [
+            r"(?:既往|既往史|以前|既往病史).*?(无特殊|否认[^。！？；;\n]*)",
+            r"(否认(?:高血压|糖尿病|心脏病|肝炎|传染病|手术|外伤|药物过敏|特殊既往)[^。！？；;\n]*史?)",
+            r"(既往体健)",
+        ],
+        text,
+    )
+    if negative != MISSING:
+        return negative
+
+    clauses = [
+        _clean(part)
+        for part in re.split(r"[。！？!?；;\n]+", text)
+        if _clean(part)
+    ]
+    past_markers = ("既往", "以前", "曾", "曾经", "做过", "补过", "拔过", "治疗过", "反复", "多次")
+    history_terms = (
+        "高血压",
+        "糖尿病",
+        "心脏病",
+        "肝炎",
+        "传染病",
+        "手术",
+        "外伤",
+        "长期用药",
+        "补牙",
+        "充填",
+        "根管",
+        "拔牙",
+        "修复",
+        "种植",
+        "正畸",
+        "脱落",
+    )
+    hits = [
+        clause
+        for clause in clauses
+        if any(marker in clause for marker in past_markers)
+        and any(term in clause for term in history_terms)
+    ]
+    return _join_unique(hits)
+
+
 def _extract_summary_parts(text: str) -> dict[str, str]:
     compact = re.sub(r"\s+", "", text)
     return {
@@ -158,9 +207,7 @@ def extract_record_fields(conversation: str) -> RecordFields:
     if present == MISSING:
         present = chief if chief != MISSING else _join_unique(symptom_hits)
 
-    past_history = _extract_labeled_field(text, ["既往史"])
-    if past_history == MISSING:
-        past_history = _first([r"(?:既往|以前).*?(无特殊|否认[^。！？\n]*)"], text)
+    past_history = _extract_past_history(text)
 
     allergy = _extract_labeled_field(text, ["药物过敏史", "过敏史"])
     if allergy == MISSING:

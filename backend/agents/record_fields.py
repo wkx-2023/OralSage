@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Any
 
 
 MISSING = "未提及"
+
+
+def _clean_display_value(value: str) -> str:
+    value = re.sub(r"[（(][^（）()]*[）)]", "", value)
+    value = re.sub(r"[“”\"'‘’]", "", value)
+    value = re.sub(r"(?:，|；|。)?\s*来自医生[^，。；]*", "", value)
+    value = re.sub(r"(?:，|；|。)?\s*由医生[^，。；]*", "", value)
+    value = re.sub(r"(?:，|；|。)?\s*根据医生[^，。；]*", "", value)
+    value = re.sub(r"\s+", " ", value)
+    value = re.sub(r"\s*([，。；、])\s*", r"\1", value)
+    value = re.sub(r"[，。；、\s]+$", "", value)
+    return value.strip() or MISSING
 
 
 @dataclass
@@ -30,6 +43,8 @@ class RecordFields:
         for key, value in list(asdict(self).items()):
             if value is None or str(value).strip() == "":
                 setattr(self, key, MISSING)
+            elif key != "visit_date":
+                setattr(self, key, _clean_display_value(str(value).strip()))
 
     def to_frontend(self) -> dict[str, str]:
         return {

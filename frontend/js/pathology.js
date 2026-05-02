@@ -1,5 +1,6 @@
 (() => {
   const { byId, escapeHtml, apiPost } = window.oralUi;
+  let historyPanel = null;
 
   function value(id) {
     return (byId(id)?.value || '').trim();
@@ -97,7 +98,7 @@
     const box = byId('pathology-citations');
     if (!box) return;
     if (!citations.length) {
-      box.innerHTML = '<div class="timeline-item empty">本次未返回可展示的引用依据。</div>';
+      box.innerHTML = '<div class="timeline-item empty">本次暂未返回可展示的引用依据。</div>';
       return;
     }
 
@@ -105,7 +106,7 @@
       <div class="timeline-item">
         <div class="timeline-index">${index + 1}</div>
         <div class="timeline-text">
-          <div class="timeline-title">${esc(item.marker || `[${index + 1}]`)} ${esc(item.title || item.source || '未命名依据')}</div>
+          <div class="timeline-title">${esc(item.marker || `[依据${index + 1}]`)} ${esc(item.title || item.source || '未命名依据')}</div>
           <div>${esc(clip(item.excerpt || '', 210))}</div>
           <div class="timeline-meta">${esc(sourceLabel(item))}${item.year ? ` · ${esc(item.year)}` : ''}${item.score !== null && item.score !== undefined ? ` · ${esc(item.score)}` : ''}</div>
         </div>
@@ -113,27 +114,16 @@
     `).join('');
   }
 
-  function renderRefList(citations, result) {
+  function renderRefList(citations) {
     const box = byId('pathology-ref-list');
     if (!box) return;
 
-    const plan = result.normalized_query || {};
-    const planCard = `
-      <article class="ref-item">
-        <div class="ref-head">
-          <div>
-            <div class="ref-title">检索计划</div>
-            <div class="ref-meta">${esc(plan.source || 'rules')} · ${result.mcp_used ? '已调用 MCP 文献' : '本地知识库优先'}</div>
-          </div>
-        </div>
-        <div class="ref-snippet">${esc(clip(plan.local_query_zh || result.local_query || '', 180))}</div>
-        <div class="ref-tags">
-          ${(plan.entities_zh || []).slice(0, 4).map((item) => `<span class="ref-tag">${esc(item)}</span>`).join('')}
-        </div>
-      </article>
-    `;
+    if (!citations.length) {
+      box.innerHTML = '<article class="ref-item ref-empty"><div class="ref-title">暂无引用依据</div></article>';
+      return;
+    }
 
-    const refs = citations.slice(0, 8).map((item) => {
+    box.innerHTML = citations.slice(0, 8).map((item) => {
       const link = item.link ? `<div class="ref-meta">${esc(item.link)}</div>` : '';
       return `
         <article class="ref-item">
@@ -149,8 +139,6 @@
         </article>
       `;
     }).join('');
-
-    box.innerHTML = planCard + (refs || '<article class="ref-item"><div class="ref-title">暂无引用依据</div></article>');
   }
 
   function renderSafety(result) {
@@ -166,6 +154,16 @@
     `;
   }
 
+  function resetToEmpty() {
+    const empty = byId('pathology-empty-state');
+    const userRow = byId('pathology-user-row');
+    const aiRow = byId('pathology-ai-row');
+    if (empty) empty.hidden = false;
+    if (userRow) userRow.hidden = true;
+    if (aiRow) aiRow.hidden = true;
+    renderRefList([]);
+  }
+
   async function runPathology() {
     const question = value('pathology-question');
     const answer = byId('pathology-answer');
@@ -175,7 +173,8 @@
     const aiRow = byId('pathology-ai-row');
 
     if (!question) {
-      answer.textContent = '请输入病理问题后发送。';
+      resetToEmpty();
+      byId('pathology-question')?.focus();
       return;
     }
 
@@ -184,9 +183,9 @@
     aiRow.hidden = false;
     byId('pathology-last-question').textContent = question;
     byId('pathology-question-time').textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    answer.textContent = '正在规划检索、调用本地知识库与 MCP 文献工具，并生成结构化回答...';
+    answer.textContent = '正在检索本地知识库并生成结构化回答...';
     renderTimeline([]);
-    renderRefList([], { normalized_query: {}, mcp_used: false });
+    renderRefList([]);
     button.disabled = true;
     button.textContent = '检索中';
 
@@ -197,9 +196,22 @@
         allow_web: true,
       });
       const citations = Array.isArray(result.citations) ? result.citations : [];
-      answer.innerHTML = `${renderSafety(result)}${renderMarkdown(result.answer || '')}`;
+      const answerHtml = `${renderSafety(result)}${renderMarkdown(result.answer || '')}`;
+      answer.innerHTML = answerHtml;
       renderTimeline(citations);
-      renderRefList(citations, result);
+      renderRefList(citations);
+      historyPanel?.save({
+        title: question,
+        data: {
+          question,
+          answerHtml,
+          answer: result.answer || '',
+          citations,
+          safetyNotes: result.safety_notes || [],
+          errors: result.errors || [],
+          time: byId('pathology-question-time')?.textContent || '',
+        },
+      });
     } catch (err) {
       answer.innerHTML = `<h3>调用失败</h3><p>${esc(err.message || String(err))}</p>`;
       renderTimeline([]);
@@ -210,6 +222,42 @@
   }
 
   function bind() {
+    historyPanel = window.oralUi.createHistoryPanel({
+      key: 'pathology',
+      title: '病理问答历史',
+      newLabel: '+ 新建问题',
+      emptyText: '暂无病理问答记录',
+      onNew: () => {
+        const input = byId('pathology-question');
+        if (input) input.value = '';
+        resetToEmpty();
+      },
+      onSelect: (record) => {
+        const data = record?.data || {};
+        if (!data.answerHtml && !data.answer && !data.question) {
+          resetToEmpty();
+          const answer = byId('pathology-answer');
+          if (answer) answer.innerHTML = '<h3>历史记录无法恢复</h3><p>这条记录是在历史保存功能完善前生成的，请重新提问后再查看。</p>';
+          return;
+        }
+        const input = byId('pathology-question');
+        const empty = byId('pathology-empty-state');
+        const userRow = byId('pathology-user-row');
+        const aiRow = byId('pathology-ai-row');
+        if (input) input.value = data.question || '';
+        if (empty) empty.hidden = true;
+        if (userRow) userRow.hidden = false;
+        if (aiRow) aiRow.hidden = false;
+        byId('pathology-last-question').textContent = data.question || '';
+        byId('pathology-question-time').textContent = data.time || record.time || '--:--';
+        const answer = byId('pathology-answer');
+        if (answer) answer.innerHTML = data.answerHtml || renderMarkdown(data.answer || '');
+        renderTimeline(Array.isArray(data.citations) ? data.citations : []);
+        renderRefList(Array.isArray(data.citations) ? data.citations : []);
+      },
+    });
+    resetToEmpty();
+
     byId('pathology-run')?.addEventListener('click', runPathology);
     byId('pathology-question')?.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
@@ -217,8 +265,6 @@
         runPathology();
       }
     });
-    renderTimeline([]);
-    renderRefList([], { normalized_query: {}, mcp_used: false });
   }
 
   if (document.readyState === 'loading') {

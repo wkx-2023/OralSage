@@ -22,11 +22,13 @@ from .schemas import (
     GenericAgentRequest,
     GenericAgentResponse,
     ImageRequest,
+    KnowledgeViewRequest,
     LiteratureRequest,
     LiteratureTranslateRequest,
     PathologyRequest,
     ReportRequest,
     RouterChatRequest,
+    StatsFilterRequest,
     StatsRequest,
     TermsRequest,
     WorkflowRequest,
@@ -34,11 +36,13 @@ from .schemas import (
 from .services.decision import run_decision_assist, run_evidence_search
 from .services.image import run_image_analysis
 from .services.image.agent import image_size_limit_bytes
+from .services.knowledge import get_knowledge_topics, run_knowledge_view
 from .services.literature import run_article_translation, run_literature_search, run_terms
 from .services.mcp_tools import invoke_local_mcp_tool
 from .services.pathology import run_pathology_ask
 from .services.record_workflow import correct_asr, extract_fields, generate_record, run_workflow
 from .services.router import run_master_router
+from .services.stats.dashboard import run_stats_filter, stats_options
 from .services.stats import run_stats_query
 
 
@@ -89,6 +93,7 @@ def capabilities() -> dict[str, Any]:
             "record_workflow_text",
             "decision_assistant",
             "evidence_search",
+            "knowledge_view",
             "frontier_literature",
             "clinic_stats",
             "pathology_qa",
@@ -111,6 +116,8 @@ def capabilities() -> dict[str, Any]:
             "/api/pathology/ask",
             "/api/decision/assist",
             "/api/evidence/search",
+            "/api/knowledge/topics",
+            "/api/knowledge/view",
             "/api/literature/search",
             "/api/literature/terms",
             "/api/literature/translate",
@@ -151,6 +158,16 @@ async def evidence_search(req: EvidenceSearchRequest) -> JSONResponse:
     return JSONResponse(result)
 
 
+@app.get("/api/knowledge/topics")
+async def knowledge_topics() -> JSONResponse:
+    return JSONResponse(get_knowledge_topics())
+
+
+@app.post("/api/knowledge/view")
+async def knowledge_view(req: KnowledgeViewRequest) -> JSONResponse:
+    return JSONResponse(run_knowledge_view(req.topic_id, req.dimension_id, req.source_type, req.top_k))
+
+
 @app.post("/api/literature/search")
 async def literature_search(req: LiteratureRequest) -> JSONResponse:
     return JSONResponse(await run_literature_search(req.query, req.months, req.limit))
@@ -175,6 +192,16 @@ async def literature_translate(req: LiteratureTranslateRequest) -> JSONResponse:
 @app.post("/api/stats/query")
 async def stats_query(req: StatsRequest) -> JSONResponse:
     return JSONResponse(run_stats_query(req.query, req.top_k))
+
+
+@app.get("/api/stats/options")
+async def stats_options_api() -> JSONResponse:
+    return JSONResponse(stats_options())
+
+
+@app.post("/api/stats/filter")
+async def stats_filter(req: StatsFilterRequest) -> JSONResponse:
+    return JSONResponse(run_stats_filter(req.model_dump()))
 
 
 @app.post("/api/records/asr-correct")
@@ -373,7 +400,7 @@ async def invoke_agent(agent_name: str, req: GenericAgentRequest, response: Resp
         return GenericAgentResponse(agent=agent_name, ok=result.get("ok", True), result=result)
     if agent_name in {"oral_medicine_search_assistant", "oral_frontier_learning_assistant", "frontier_literature"}:
         query = req.query or req.task or req.question or req.message or req.text or ""
-        result = await run_literature_search(query, req.months, req.limit or 5)
+        result = await run_literature_search(query, req.months, req.limit or 5, include_chat_translations=True)
         return GenericAgentResponse(agent=agent_name, ok=result.get("ok", True), result=result)
     if agent_name in {"oral_cases_assistant", "decision_assistant"}:
         case_text = req.case_text or req.query or req.question or req.message or req.text or ""

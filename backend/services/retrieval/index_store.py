@@ -44,6 +44,28 @@ def vector_index_dir() -> Path:
     return _path_from_config("retrieval", "vector_index", default="data/indexes/vector")
 
 
+def embedding_model_path() -> Path:
+    return _path_from_config("embedding", "local_path", default="models/embeddings/bge-m3")
+
+
+def _resolve_model_ref(model_ref: str) -> str | None:
+    raw = str(model_ref or "").strip()
+    candidates: list[Path] = []
+    if raw:
+        raw_path = Path(raw)
+        candidates.append(raw_path)
+        if not raw_path.is_absolute():
+            candidates.append(PROJECT_ROOT / raw_path)
+
+    configured = embedding_model_path()
+    candidates.append(configured)
+
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return raw or None
+
+
 @lru_cache(maxsize=1)
 def load_bm25_index() -> dict[str, Any] | None:
     path = bm25_index_path()
@@ -134,7 +156,7 @@ def _query_vector(query: str, manifest: dict[str, Any]) -> np.ndarray | None:
     dims = int(manifest.get("dims") or 384)
     provider = manifest.get("provider")
     if provider == "onnxruntime":
-        model_ref = str(manifest.get("model_ref") or "")
+        model_ref = _resolve_model_ref(str(manifest.get("model_ref") or ""))
         if not model_ref:
             return None
         try:
@@ -155,7 +177,7 @@ def _query_vector(query: str, manifest: dict[str, Any]) -> np.ndarray | None:
         except Exception:
             return None
     if provider == "sentence_transformers":
-        model_ref = str(manifest.get("model_ref") or "")
+        model_ref = _resolve_model_ref(str(manifest.get("model_ref") or ""))
         if not model_ref:
             return None
         try:

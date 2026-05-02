@@ -3,45 +3,42 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>门诊统计 - 口腔多模块工作台</title>
+  <title>门诊统计 - OralSage</title>
+  <link rel="icon" href="/assets/images/oralsage-logo.jpg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/base.css">
-  <link rel="stylesheet" href="/css/stats-page.css?v=20260429-compact-gradient">
+  <link rel="stylesheet" href="/css/base.css?v=20260502-brand">
+  <link rel="stylesheet" href="/css/stats-page.css?v=20260502-dashboard24">
 </head>
-<body>
-  <div class="app-shell">
-    <aside class="rail">
-      <nav id="module-nav" class="module-nav"></nav>
-    </aside>
+<body class="stats-dashboard-page">
+  <header class="topbar">
+    <div>
+      <h1 id="page-title" class="page-title"></h1>
+      <p id="page-subtitle" class="page-subtitle"></p>
+    </div>
+  </header>
 
-    <section class="main-pane">
-      <header class="topbar">
-        <div>
-          <h1 id="page-title" class="page-title"></h1>
-          <p id="page-subtitle" class="page-subtitle"></p>
-        </div>
-        
-      </header>
-
-      <main class="workspace stats-workspace">
-        <section class="stats-search-zone">
-          <div class="search-line">
-            <input id="stats-query" class="search-input" placeholder="请输入统计请求，例如：2025年阻生牙治疗方式分布">
-            <button type="button" id="stats-run" class="btn strong">执行统计</button>
-          </div>
-        </section>
-
-        <section class="stats-visual-zone">
-          <div id="stats-chart-grid" class="stats-chart-grid"></div>
-        </section>
-      </main>
+  <main class="stats-command-center">
+    <section class="stats-filter-zone" aria-label="门诊统计筛选器">
+      <div id="stats-filter-grid" class="stats-filter-grid"></div>
+      <div class="stats-hero-actions">
+        <button type="button" id="stats-reset" class="stats-btn ghost">清空筛选</button>
+        <button type="button" id="stats-apply" class="stats-btn primary">应用筛选</button>
+      </div>
     </section>
-  </div>
 
-  <script src="/js/common.js"></script>
-  <script src="/js/stats.js?v=20260429-compact-gradient"></script>
+    <section class="stats-visual-zone">
+      <div id="stats-empty" class="stats-empty" hidden>
+        <strong>当前筛选条件下无门诊记录</strong>
+        <span>请调整筛选项或清空筛选后重新查看全量看板。</span>
+      </div>
+      <div id="stats-chart-grid" class="stats-chart-grid"></div>
+    </section>
+  </main>
+
+  <script src="/js/common.js?v=20260502-brand"></script>
+  <script src="/js/stats.js?v=20260502-dashboard24"></script>
 </body>
 </html>
 

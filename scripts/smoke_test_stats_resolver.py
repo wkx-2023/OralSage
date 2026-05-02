@@ -19,6 +19,7 @@ for key in (
     os.environ[key] = ""
 
 from backend.services.stats import run_stats_query
+from backend.services.stats.dashboard import run_stats_filter
 
 
 def main() -> None:
@@ -64,6 +65,21 @@ def main() -> None:
     out_of_range = run_stats_query("2026年阻生牙门诊情况")
     assert out_of_range["intent"]["disease_group"] == "阻生牙/埋伏牙类"
     assert out_of_range["denominator_count"] == 0
+
+    dashboard_group = run_stats_filter({"disease_groups": ["阻生牙/埋伏牙类"]})
+    assert dashboard_group["matched_count"] == 2241
+
+    dashboard_intersection = run_stats_filter({
+        "disease_groups": ["阻生牙/埋伏牙类"],
+        "diagnosis_names": ["阻生牙"],
+    })
+    assert dashboard_intersection["matched_count"] == 2223
+
+    dashboard_empty_intersection = run_stats_filter({
+        "disease_groups": ["阻生牙/埋伏牙类"],
+        "diagnosis_names": ["龋病"],
+    })
+    assert dashboard_empty_intersection["matched_count"] == 0
     print("stats resolver smoke tests passed")
 
 

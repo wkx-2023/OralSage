@@ -130,7 +130,8 @@ def translate_article(article: dict[str, Any]) -> dict[str, Any]:
         "Do not add facts that are not in the input. "
         "Return strict JSON with keys: title_zh, summary_zh, key_points. "
         "title_zh must be concise Chinese. summary_zh must be faithful Chinese translation. "
-        "key_points must be 2-4 short Chinese bullets based only on the abstract."
+        "key_points must be 2-4 short Chinese bullets based only on the abstract. "
+        "Do not use emoji or decorative symbols."
     )
     try:
         text = _chat_completion(
@@ -208,6 +209,7 @@ def build_review(
         "Do not invent authors, journals, data, drugs, outcomes, or clinical recommendations. "
         "Output Markdown with these sections: "
         "1) 检索概况, 2) 研究主题分组, 3) 主要发现, 4) 证据局限, 5) 学习与科研提示, 6) 免责声明. "
+        "Use plain Markdown headings and bullet lists. Do not use emoji, check marks, warning icons, or decorative symbols. "
         "Keep it concise and useful for dentists or oral medicine students."
     )
     user_payload = {
