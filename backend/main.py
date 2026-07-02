@@ -48,7 +48,6 @@ from .services.literature import run_article_translation, run_literature_search,
 from .services.mcp_tools import invoke_local_mcp_tool
 from .services.pathology import run_pathology_ask
 from .services.record_workflow import correct_asr, extract_fields, generate_record, run_workflow
-from .services.router import run_master_router
 from .services.stats.dashboard import run_stats_filter, stats_options
 from .services.stats import run_stats_query
 
@@ -65,6 +64,7 @@ app.add_middleware(
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 INTERFACE_REMOVED_MESSAGE = "Interface retained; implementation removed for rebuild."
+LEARNING_ROUTER_REBUILD_MESSAGE = "旧总控 agent 已停用；学习型总控 agent 待重建。"
 
 
 def _stub(module: str, payload: dict[str, Any] | None = None) -> JSONResponse:
@@ -77,6 +77,29 @@ def _stub(module: str, payload: dict[str, Any] | None = None) -> JSONResponse:
             "payload": payload or {},
         },
     )
+
+
+def _learning_router_stub(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "module": "learning_router_placeholder",
+        "answer": LEARNING_ROUTER_REBUILD_MESSAGE,
+        "message": LEARNING_ROUTER_REBUILD_MESSAGE,
+        "route": {
+            "mode": "placeholder",
+            "intent": "learning_router_rebuild",
+            "target_agent": None,
+            "reason": "当前版本已将旧医疗总控从调用链中摘除，现有专业 agent 作为工具箱能力独立保留。",
+        },
+        "steps": [],
+        "final_result": {},
+        "payload": payload or {},
+        "trace": {
+            "route_source": "disabled",
+            "selected_agent": None,
+            "errors": [],
+        },
+    }
 
 
 @app.get("/api/system/health")
@@ -106,7 +129,7 @@ def capabilities() -> dict[str, Any]:
             "clinic_stats",
             "pathology_qa",
             "image_analysis",
-            "master_router",
+            "learning_router_placeholder",
         ],
         "modules": [
             "pathology_qa",
@@ -411,24 +434,14 @@ async def image_analyze_upload(
 
 @app.post("/api/router/chat")
 async def router_chat(req: RouterChatRequest) -> JSONResponse:
-    result = await run_master_router(
-        message=req.message,
-        image_base64=req.image_base64,
-        history=req.history,
-        context=req.context,
-    )
-    return JSONResponse(result, status_code=200 if result.get("ok", False) else 422)
+    result = _learning_router_stub(req.model_dump())
+    return JSONResponse(result)
 
 
 @app.post("/api/agents/{agent_name}/invoke", response_model=GenericAgentResponse)
 async def invoke_agent(agent_name: str, req: GenericAgentRequest, response: Response) -> GenericAgentResponse:
     if agent_name in {"oral_master_router_agent", "master_router", "oral_master"}:
-        result = await run_master_router(
-            message=req.message or req.query or req.question or req.task or req.text or "",
-            image_base64=req.image_base64 or req.data.get("image_base64"),
-            history=req.context.get("history", []) if isinstance(req.context, dict) else [],
-            context=req.context,
-        )
+        result = _learning_router_stub(req.model_dump())
         return GenericAgentResponse(agent=agent_name, ok=result.get("ok", True), result=result)
     if agent_name in {"oral_pathology_assistant", "pathology_qa", "oral_pathology"}:
         question = req.question or req.query or req.task or req.message or req.text or ""

@@ -196,6 +196,32 @@
   margin-bottom: 0;
 }
 
+.learning-placeholder {
+  display: grid;
+  gap: 10px;
+}
+
+.learning-placeholder h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #3f3697;
+}
+
+.learning-placeholder p {
+  margin: 0;
+}
+
+.learning-placeholder-actions {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.learning-placeholder-actions .btn {
+  text-decoration: none;
+}
+
 .assistant-markdown p,
 .assistant-markdown ul,
 .assistant-markdown ol,

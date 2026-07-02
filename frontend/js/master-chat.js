@@ -1,5 +1,5 @@
 (() => {
-  const { byId, escapeHtml, apiPost } = window.oralUi;
+  const { byId, escapeHtml } = window.oralUi;
   const STORAGE_KEY = 'oralsage.history.master-chat';
 
   const state = {
@@ -305,32 +305,6 @@
     `;
   }
 
-  function routeLabel(route) {
-    if (!route) return '未生成路由';
-    if (route.mode === 'clarify') return '需要补充信息';
-    if (route.mode === 'multi_agent') {
-      return `多 Agent 链路：${(route.steps || []).map((step) => step.agent).join(' → ')}`;
-    }
-    return route.target_agent || '未知 Agent';
-  }
-
-  function routeDetails(result) {
-    const route = result?.route || {};
-    const trace = result?.trace || {};
-    const errors = trace.errors || [];
-    const parts = [
-      `<div class="route-pill">${escapeHtml(routeLabel(route))}</div>`,
-      `<div class="route-meta">来源：${escapeHtml(trace.route_source || 'unknown')} · 置信度：${escapeHtml(String(trace.confidence ?? '-'))} · 耗时：${escapeHtml(String(trace.elapsed_ms ?? '-'))} ms</div>`,
-    ];
-    if (trace.reason) {
-      parts.push(`<div class="route-reason">${escapeHtml(trace.reason)}</div>`);
-    }
-    if (errors.length) {
-      parts.push(`<div class="route-errors">${escapeHtml(errors.join('；'))}</div>`);
-    }
-    return `<details class="route-card"><summary>总控路由</summary>${parts.join('')}</details>`;
-  }
-
   function renderMessage(message) {
     const log = byId('agent-chat-log');
     if (!log) return;
@@ -438,6 +412,21 @@
     }));
   }
 
+  function learningPlaceholderAnswer(raw) {
+    const escaped = escapeHtml(raw);
+    return `
+      <section class="learning-placeholder">
+        <h2>学习总控待接入</h2>
+        <p>你刚才输入的是：“${escaped}”。当前旧总控 agent 已停用，这里暂时不会再把问题路由到原来的医疗分诊链路。</p>
+        <p>下一步会在这里接入新的学习型智能体，用于学习路径规划、知识点讲解、复习任务和工具调用。</p>
+        <div class="learning-placeholder-actions">
+          <a href="/" class="btn strong">返回总控工作台</a>
+          <a href="/#toolbox" class="btn ghost">打开工具箱</a>
+        </div>
+      </section>
+    `;
+  }
+
   async function sendMessage(text = null) {
     const input = byId('agent-message');
     const raw = (text ?? input?.value ?? '').trim();
@@ -445,27 +434,13 @@
     if (input) input.value = '';
 
     appendMessage({ role: 'user', content: raw, time: nowTime() });
-    const pending = {
-      role: 'assistant',
-      content: '正在识别意图并调度合适的口腔智能体...',
-      time: nowTime(),
-    };
-    renderMessage(pending);
     setBusy(true);
 
     try {
-      const result = await apiPost('/api/router/chat', {
-        message: raw,
-        history: historyPayload(),
-        context: { page: 'master-chat' },
-      });
-      const log = byId('agent-chat-log');
-      if (log?.lastElementChild) log.removeChild(log.lastElementChild);
       appendMessage({
         role: 'assistant',
-        content: resultAnswer(result),
-        html: literatureResultHtml(result),
-        routeHtml: routeDetails(result),
+        content: '',
+        html: learningPlaceholderAnswer(raw),
         time: nowTime(),
       });
     } catch (error) {
