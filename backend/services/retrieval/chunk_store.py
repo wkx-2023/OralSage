@@ -35,6 +35,8 @@ def _configured_sources(config: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _record_to_chunk(record: dict[str, Any], fallback_source: str, fallback_type: str, index: int) -> EvidenceChunk | None:
+    raw_metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    metadata = dict(raw_metadata)
     text = str(
         record.get("text")
         or record.get("content")
@@ -44,13 +46,11 @@ def _record_to_chunk(record: dict[str, Any], fallback_source: str, fallback_type
     ).strip()
     if not text:
         return None
-    source = str(record.get("source") or record.get("source_name") or fallback_source)
-    source_type = str(record.get("source_type") or record.get("type") or fallback_type)
-    title = str(record.get("title") or record.get("heading") or record.get("section") or "")
-    chunk_id = str(record.get("id") or record.get("chunk_id") or f"{fallback_source}:{index}")
+    source = str(record.get("source") or record.get("source_name") or metadata.get("subject") or record.get("source_layer") or fallback_source)
+    source_type = str(record.get("source_type") or metadata.get("source_type") or record.get("type") or fallback_type)
+    title = str(record.get("title") or record.get("heading") or record.get("section") or metadata.get("chapter") or metadata.get("subject") or "")
+    chunk_id = str(record.get("id") or record.get("chunk_id") or record.get("doc_id") or f"{fallback_source}:{index}")
     path = str(record.get("path") or record.get("file") or "")
-    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
-    metadata = dict(metadata)
     for key in (
         "page",
         "chapter",

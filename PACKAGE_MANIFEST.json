@@ -1,0 +1,236 @@
+{
+  "package_name": "oral_edu_kag_bge_m3_20260701",
+  "generated_from": "D:/craic/data/kb/kag_bge_m3",
+  "model_included": false,
+  "required_model": "BAAI/bge-m3",
+  "validation_ok": true,
+  "validation_errors": [],
+  "validation_warnings": [],
+  "counts": {
+    "chunks": 21737,
+    "chunks_by_layer": {
+      "clinical_authority": 681,
+      "external_reference": 15476,
+      "textbook_evidence": 5580
+    },
+    "chunks_by_role": {
+      "canonical_textbook_chunk": 4799,
+      "recovered_evidence_chunk": 781,
+      "source_chunk": 16157
+    },
+    "concept_edges": 4927,
+    "kg_chunk_links": 9434,
+    "kg_chunk_links_verified_or_reviewed": 9434,
+    "kg_edges": 5758,
+    "kg_nodes": 9907,
+    "question_links": 6287,
+    "questions": 3161,
+    "retrieval_docs": 34805
+  },
+  "indexes": {
+    "dense_vector": {
+      "dims": 1024,
+      "doc_ids_digest": "8cc74aa5c4d3f9256220c125de63a83c18ffdd20660d8f5b605a363de196e049",
+      "doc_metadata": "doc_metadata.json",
+      "faiss": {
+        "path": "faiss.index",
+        "status": "ready",
+        "type": "IndexFlatIP",
+        "vectors": 34805
+      },
+      "generated_at": "2026-07-01T14:06:34+00:00",
+      "max_length": 512,
+      "model": "BAAI/bge-m3",
+      "model_ref": "models/embeddings/bge-m3",
+      "normalize": true,
+      "provider": "sentence_transformers",
+      "sample_limit": null,
+      "status": "ready",
+      "total_docs": 34805,
+      "vectors": "vectors.npy"
+    },
+    "graph": {
+      "adjacency_nodes": 15595,
+      "aliases": 17399,
+      "concept_edges": 4927,
+      "generated_at": "2026-07-01T14:36:21+00:00",
+      "kg_chunk_links": 9434,
+      "kg_edges": 5758,
+      "nodes": 9907,
+      "question_links": 6287,
+      "status": "ready"
+    },
+    "sparse": {
+      "generated_at": "2026-07-01T14:40:35+00:00",
+      "index": "inverted_index.json.gz",
+      "method": "jieba_bm25_compatible_inverted_index",
+      "status": "ready",
+      "terms": 475788,
+      "total_docs": 34805
+    }
+  },
+  "quality_gates": {
+    "all_textbook_chunks_have_span_ids": true,
+    "all_textbook_chunks_have_unit_ids": true,
+    "artifact_validation": "passed",
+    "bge_m3_vector_status": "ready",
+    "clinical_alignment_status": "not_started",
+    "core_nodes_without_any_chunk_path": 0,
+    "duplicate_text_groups_tagged": 165,
+    "external_reference_quality_flags_tagged": 4549,
+    "hash_embedding_fallback": false,
+    "raptor_summary_status": "not_started",
+    "retrieval_quality_repair_status": "ready",
+    "verified_kg_chunk_links_only": true,
+    "weak_match_questions_treated_as_linked": true
+  },
+  "total_files": 29,
+  "total_bytes": 520200115,
+  "files": [
+    {
+      "path": "data/kb/kag_bge_m3/chunks.jsonl",
+      "bytes": 69687463,
+      "sha256": "a19849516f1ef2bb9f709b20c6307d605442736065bcc1e61bbd41bbfdaf9e78"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/concept_edges.jsonl",
+      "bytes": 2565572,
+      "sha256": "2581b2bde5651593ea2cad75b10834a9bc17d74741aa41d93c422f2fd2e2dc13"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/indexes/dense_bge_m3/doc_metadata.json",
+      "bytes": 22886814,
+      "sha256": "1a69e7d447b19e9c67b83f990c64fd3bababab0b4e1e7dc1eb0a6cf41af5971e"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/indexes/dense_bge_m3/faiss.index",
+      "bytes": 142561325,
+      "sha256": "11d935d89a019a31adb8faa490c78a05c5faa1cdb47bd0b9724bd4881ce2bceb"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/indexes/dense_bge_m3/manifest.json",
+      "bytes": 554,
+      "sha256": "20a4ef17379fb0630f4e0366cd3250483cb9cf5e10ed53fc0d2abe687a0058b8"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/indexes/dense_bge_m3/metadata_sync_report.json",
+      "bytes": 225,
+      "sha256": "b47b0c69689f5501a40ba804c3b437a67f4c8cdf23ac5871e48d1e0ac526e5dd"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/indexes/dense_bge_m3/vectors.npy",
+      "bytes": 142561408,
+      "sha256": "9f8acacb88a885fc4a5b4c9744aac7f8d20617fa81b546d751d7a2473c3ebefc"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/indexes/graph/adjacency.json",
+      "bytes": 9612031,
+      "sha256": "1d283c6a4648292495a3713c7963fdb3ae59a63d9af8caaec6a85ff95534df5e"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/indexes/graph/aliases.jsonl",
+      "bytes": 1971661,
+      "sha256": "3e21935b4f7a0549ad677a88d7b8e07d84ae71fb0ba9fdae8a87d8ba03c02d9f"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/indexes/graph/manifest.json",
+      "bytes": 242,
+      "sha256": "7922d874c1de855b954498e418e06da01ff585a7f4daa63e4358e91e5c2c8f3d"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/indexes/sparse/inverted_index.json.gz",
+      "bytes": 29625619,
+      "sha256": "dd31ef7ba653b6c5d92fff7233ad741f32cf7673673f0ab2b9cc714945edd244"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/indexes/sparse/manifest.json",
+      "bytes": 208,
+      "sha256": "233844e879988b64d5b5b8f4214f1a1f6a0a912337df9187a78f01436daee986"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/kg_chunk_links.jsonl",
+      "bytes": 6950090,
+      "sha256": "3fb98bb3fe7c7b4a36f953ba0d1c64b0ae002378b93f432c5f32280d0348c7b0"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/kg_edges.jsonl",
+      "bytes": 7635050,
+      "sha256": "c22155293d397e70cda9358c3a33baa79886ee75bb34c034d874810ea0ee6b3f"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/kg_nodes.jsonl",
+      "bytes": 14951571,
+      "sha256": "c5b48ec31dfa7c014706d47e275e52d5d3bacbf24af5bab61b16d2dac0b0d2c5"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/manifest.json",
+      "bytes": 3844,
+      "sha256": "cdac603ab915e9ac43a96c9515411b3887d7e12dd0046de1a39b1cdd35180331"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/quality_repair_report.json",
+      "bytes": 4599,
+      "sha256": "f5877dce69bdafe980fb41a713fe0aa90852b83b7c7b591636fcd3915f9058bf"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/question_links.jsonl",
+      "bytes": 2255252,
+      "sha256": "7c0f53520cf1f55b0e8a34286fdca1fc9e6de8b1def2524006f47e8191489fcd"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/questions.jsonl",
+      "bytes": 6676324,
+      "sha256": "db7b703b83dd8dfb3d8139256fe151eea753182e7a6c35ce698f1d0bbea9ca6b"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/retrieval_corpus.jsonl",
+      "bytes": 60166568,
+      "sha256": "2b544d25d5d70296fe76cfa9a56d7d55babfa1927ecfc6f44eb7a3fd3321c828"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/source_layers.jsonl",
+      "bytes": 730,
+      "sha256": "d2743191700a4498571b2ea467d08002ac760d78e151e24c3efffa6cc2544589"
+    },
+    {
+      "path": "data/kb/kag_bge_m3/validation_report.json",
+      "bytes": 2147,
+      "sha256": "9aa93ab62e391cbbd539985ae4773fb1331593d52cf1ca2971d0bbe785b526db"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3563,
+      "sha256": "5b0446b7dc14fb4ed51f76e8edde41986301ebfd18d3542d17daaedf7e44a688"
+    },
+    {
+      "path": "scripts/data_pipeline/build_kag_bge_m3_vectors.py",
+      "bytes": 13078,
+      "sha256": "e698932908d7a0199c8145d24b2a3aaec40eb3306117c390208d4ba363a50ad3"
+    },
+    {
+      "path": "scripts/data_pipeline/query_kag_bge_m3.py",
+      "bytes": 20065,
+      "sha256": "7dbf303333a3d0ef906b86973030d09aa8f0b52e17b9dc0d412348dc5301ff15"
+    },
+    {
+      "path": "scripts/data_pipeline/rebuild_kag_bge_m3_sparse.py",
+      "bytes": 4108,
+      "sha256": "609786e4c03d80750a13b256755695fda3bcf7e9cd8c6b6c8ca9232898c05f8f"
+    },
+    {
+      "path": "scripts/data_pipeline/repair_kag_bge_m3_quality.py",
+      "bytes": 23727,
+      "sha256": "bdf74989f58712a7810a8a62809c93b7d0828d7aa4749650f8004319eb1a0843"
+    },
+    {
+      "path": "scripts/data_pipeline/sync_kag_dense_metadata.py",
+      "bytes": 3244,
+      "sha256": "3339135af38c45ea3e716e2203a6914097052905e27b248f1e3af1e67184a5ca"
+    },
+    {
+      "path": "scripts/data_pipeline/validate_kag_bge_m3_kb.py",
+      "bytes": 13033,
+      "sha256": "476f7c80fdc4496afa0332b8ad29d524b49bfffbc289a0f17b9fa801cff05957"
+    }
+  ]
+}

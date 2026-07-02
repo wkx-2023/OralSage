@@ -1,71 +1,173 @@
-# OralPath Rebuild Shell
+# Oral Edu KAG BGE-M3 Knowledge Base
 
-This repository currently keeps only:
+Build date: 2026-07-01
 
-- `frontend/` static UI design assets
-- `backend/` FastAPI route interfaces and request schemas
+This package contains the KAG-ready oral medicine knowledge base and retrieval indexes.
 
-All previous business logic, data, agents, generated caches, and helper scripts have been removed so the project can be rebuilt from a clean interface shell.
+## Contents
 
-## Run API Shell
+```text
+data/kb/kag_bge_m3/
+  chunks.jsonl
+  kg_nodes.jsonl
+  kg_edges.jsonl
+  concept_edges.jsonl
+  kg_chunk_links.jsonl
+  questions.jsonl
+  question_links.jsonl
+  retrieval_corpus.jsonl
+  source_layers.jsonl
+  manifest.json
+  validation_report.json
+  quality_repair_report.json
+  indexes/
+    graph/
+    sparse/
+    dense_bge_m3/
 
-```powershell
-cd D:\craic
-python -m uvicorn backend.main:app --reload --port 8086
+scripts/data_pipeline/
+  query_kag_bge_m3.py
+  validate_kag_bge_m3_kb.py
+  repair_kag_bge_m3_quality.py
+  rebuild_kag_bge_m3_sparse.py
+  sync_kag_dense_metadata.py
+  build_kag_bge_m3_vectors.py
 ```
 
-Open `http://localhost:8086`.
+## Current Quality Status
 
-## Frontier Literature Agent
-
-The local rebuild now implements the literature agent without Nexent:
-
-- `POST /api/literature/terms`
-- `POST /api/literature/search`
-- `POST /api/agents/oral_medicine_search_assistant/invoke`
-
-Configuration is optional for PubMed and required for Elsevier fallback. Keep
-real secrets in the ignored project-root file `D:\craic\.env`; use
-`backend/.env.example` only as a template:
-
-- `PUBMED_CONTACT_EMAIL`
-- `ELSEVIER_API_KEY`
-- `ELSEVIER_INSTITUTION_TOKEN`
-- `LITERATURE_LLM_API_KEY`
-- `LITERATURE_LLM_BASE_URL`
-- `LITERATURE_LLM_MODEL`
-
-LLM assignment in the local rebuild:
-
-- Decision assistant uses `DECISION_LLM_*`, falling back to `QWEN_*`.
-- Frontier literature report generation uses `LITERATURE_LLM_*`, falling back to `QWEN_*`.
-- Image recognition uses `VISION_LLM_*`, falling back to `QWEN_API_KEY`/`QWEN_BASE_URL`.
-- Records, ASR correction, record extraction, record generation, evidence search, and literature term extraction stay rule/retrieval based for now.
-
-If no LLM key is configured, the literature agent still searches real PubMed
-papers and returns a conservative rule-based report.
-
-## Cloud Vision Image Assistant
-
-The image recognition assistant is implemented without Nexent through:
-
-- `POST /api/image/analyze`
-- `POST /api/image/analyze-upload`
-- `POST /api/agents/oral_disease_image_recognition_assistant/invoke`
-
-For the first cloud-backed version, configure a Qwen-VL OpenAI-compatible
-endpoint:
-
-```powershell
-VISION_LLM_API_KEY=your_dashscope_key
-VISION_LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-VISION_LLM_MODEL=qwen2.5-vl-7b-instruct
-VISION_LLM_TIMEOUT_SECONDS=180
-VISION_MAX_IMAGE_MB=10
+```text
+validation ok: true
+chunks: 21,737
+kg_nodes: 9,907
+kg_edges: 5,758
+concept_edges: 4,927
+kg_chunk_links: 9,434
+questions: 3,161
+question_links: 6,287
+retrieval_docs: 34,805
 ```
 
-The cloud model is used to return a structured oral imaging report plus
-normalized `bbox_2d` coordinates. The frontend image page draws those boxes
-over the uploaded image when coordinates are returned. This cloud model can be
-replaced later by a local OralPath service by changing `VISION_LLM_BASE_URL`
-and `VISION_LLM_MODEL`.
+Core-node evidence coverage:
+
+```text
+core_nodes_with_any_chunk_path: 1,390 / 1,390
+core_nodes_without_any_chunk_path: 0
+```
+
+Indexes:
+
+```text
+graph index: ready
+sparse BM25 index: ready
+dense BGE-M3 FAISS index: ready
+dense vectors: 34,805 x 1,024
+```
+
+Quality metadata has been added for:
+
+```text
+exact_duplicate_primary
+exact_duplicate_suppressed
+reference_heavy
+boilerplate_disclaimer
+```
+
+These flags are used by the query script for retrieval re-ranking and quality penalties.
+
+## Required Model
+
+The BGE-M3 model files are not included in this package.
+
+Expected local model path by default:
+
+```text
+models/embeddings/bge-m3
+```
+
+You can download it with:
+
+```bash
+huggingface-cli download BAAI/bge-m3 --local-dir models/embeddings/bge-m3
+```
+
+The dense index was built with:
+
+```text
+model: BAAI/bge-m3
+provider: sentence_transformers
+pooling: CLS pooling + normalize
+dims: 1024
+max_length: 512
+```
+
+The query script uses ONNX Runtime with the same CLS pooling configuration.
+
+## Recommended Python Environment
+
+```bash
+pip install jieba numpy onnxruntime transformers faiss-cpu
+```
+
+Optional, only needed for rebuilding vectors:
+
+```bash
+pip install sentence-transformers FlagEmbedding
+```
+
+## Validate
+
+From the package root:
+
+```bash
+python scripts/data_pipeline/validate_kag_bge_m3_kb.py --kag-dir data/kb/kag_bge_m3
+```
+
+Expected:
+
+```text
+ok: true
+errors: []
+warnings: []
+```
+
+## Query Examples
+
+```bash
+python scripts/data_pipeline/query_kag_bge_m3.py --kag-dir data/kb/kag_bge_m3 --model-dir models/embeddings/bge-m3 --query "儿童龋病" --top-k 5
+
+python scripts/data_pipeline/query_kag_bge_m3.py --kag-dir data/kb/kag_bge_m3 --model-dir models/embeddings/bge-m3 --query "畸形舌侧尖" --top-k 5
+
+python scripts/data_pipeline/query_kag_bge_m3.py --kag-dir data/kb/kag_bge_m3 --model-dir models/embeddings/bge-m3 --query "种植体周病管理" --top-k 5
+```
+
+Retrieval combines:
+
+```text
+alias seed
+sparse BM25
+graph local expansion
+BGE-M3 dense FAISS
+quality-aware re-ranking
+```
+
+## Main Retrieval Chain
+
+```text
+query
+-> alias / dense / sparse candidate retrieval
+-> KG local expansion
+-> kg_chunk_links
+-> evidence chunks
+-> source_span_ids / page / document
+```
+
+For factual answers, use chunks and spans as final evidence. KG nodes and edges provide structure and explanation paths.
+
+## Notes
+
+- Original source files are not included.
+- The package contains derived KB artifacts only.
+- Dense `build_progress` files are intentionally excluded.
+- `vectors.npy` and `faiss.index` are both included.
+- If `retrieval_corpus.jsonl` changes, dense vectors must be rebuilt unless only metadata changes and doc order is preserved.

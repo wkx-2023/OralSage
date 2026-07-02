@@ -37,7 +37,19 @@ def _path_from_config(*keys: str, default: str) -> Path:
 
 def bm25_index_path() -> Path:
     base = _path_from_config("retrieval", "sparse_index", default="data/indexes/bm25")
-    return base / "index.json.gz"
+    default_path = base / "index.json.gz"
+    if default_path.exists():
+        return default_path
+    manifest_path = base / "manifest.json"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            manifest = {}
+        configured_name = manifest.get("index")
+        if isinstance(configured_name, str) and configured_name:
+            return base / configured_name
+    return default_path
 
 
 def vector_index_dir() -> Path:
@@ -83,6 +95,17 @@ def load_vector_index() -> tuple[dict[str, Any], np.ndarray] | None:
     if not manifest_path.exists() or not vectors_path.exists():
         return None
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not manifest.get("doc_ids"):
+        metadata_name = manifest.get("doc_metadata")
+        metadata_path = base / str(metadata_name or "doc_metadata.json")
+        if metadata_path.exists():
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                metadata = {}
+            doc_ids = metadata.get("doc_ids")
+            if isinstance(doc_ids, list):
+                manifest["doc_ids"] = doc_ids
     vectors = np.load(vectors_path, mmap_mode="r")
     return manifest, vectors
 
@@ -95,11 +118,17 @@ def bm25_scores_from_index(query: str, chunks_by_id: dict[str, EvidenceChunk], l
     if not terms:
         return []
 
-    doc_ids: list[str] = index.get("doc_ids") or []
-    doc_lens: list[int] = index.get("doc_lens") or []
+    doc_terms = index.get("doc_terms") or []
+    if isinstance(doc_terms, list) and doc_terms and isinstance(doc_terms[0], dict):
+        doc_ids = [str(item.get("doc_id") or "") for item in doc_terms]
+        doc_lens = [int(item.get("length") or 0) for item in doc_terms]
+    else:
+        doc_ids = index.get("doc_ids") or []
+        doc_lens = index.get("doc_lens") or []
     postings: dict[str, list[list[int | float]]] = index.get("postings") or {}
     df: dict[str, int] = index.get("df") or {}
-    avgdl = float(index.get("avgdl") or 1.0)
+    idf_values: dict[str, float] = index.get("idf") or {}
+    avgdl = float(index.get("avgdl") or index.get("avg_doc_len") or 1.0)
     total_docs = int(index.get("total_docs") or len(doc_ids) or 1)
     k1 = float(index.get("k1") or 1.4)
     b = float(index.get("b") or 0.72)
@@ -109,8 +138,11 @@ def bm25_scores_from_index(query: str, chunks_by_id: dict[str, EvidenceChunk], l
         term_postings = postings.get(term)
         if not term_postings:
             continue
-        term_df = int(df.get(term) or len(term_postings))
-        idf = math.log(1 + (total_docs - term_df + 0.5) / (term_df + 0.5))
+        if term in idf_values:
+            idf = float(idf_values.get(term) or 0.0)
+        else:
+            term_df = int(df.get(term) or len(term_postings))
+            idf = math.log(1 + (total_docs - term_df + 0.5) / (term_df + 0.5))
         for doc_idx, freq in term_postings:
             idx = int(doc_idx)
             if idx >= len(doc_lens):
