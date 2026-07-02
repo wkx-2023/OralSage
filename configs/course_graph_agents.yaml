@@ -1,0 +1,135 @@
+course_graph_agents:
+  version: 1
+  objective: >
+    Build a textbook-first, chapter-by-chapter oral medicine learning knowledge
+    graph from authoritative textbook OCR. The graph is composed of evidence
+    grounded knowledge cards, chapter-local relations, and cross-chapter learning
+    relations.
+
+  non_degradation_policy:
+    no_keyword_or_regex_extraction_fallback: true
+    no_unverified_medical_facts: true
+    allowed_recovery:
+      - split_failed_llm_input_into_smaller_page_aware_chunks
+      - retry_same_llm_task_with_identical_schema
+      - repair_malformed_json_without_rewriting_medical_content
+      - validate_schema_and_queue_uncertain_items_for_review
+
+  model_routing:
+    current_default:
+      provider: dashscope_openai_compatible
+      model_env_order:
+        - COURSE_GRAPH_LLM_MODEL
+        - QWEN_MODEL
+        - DASHSCOPE_MODEL
+        - OPENAI_MODEL
+      default_model_in_client: qwen-plus
+    recommended_upgrade_path:
+      chunk_extraction: strong_low_temperature_text_model
+      chapter_synthesis: strongest_available_reasoning_or_long_context_model
+      cross_chapter_review: strongest_available_reasoning_or_long_context_model
+      quality_audit: independent_second_pass_model_when_available
+
+  artifacts:
+    per_chapter_dir: data/course_graph/chapter_runs/{textbook_id}/chapter_{chapter_number}
+    master_dir: data/course_graph/master
+    required_outputs:
+      - chapter_text.md
+      - chapter_meta.json
+      - llm_result.json
+      - knowledge_cards.jsonl
+      - chapter_relations.jsonl
+      - cross_chapter_relations.jsonl
+      - cross_chapter_review.json
+      - chapter_graph.json
+      - llm_debug/
+
+  stages:
+    - id: textbook_segmenter
+      role: Locate one textbook and produce trusted chapter page ranges.
+      implementation: config chapter_overrides plus OCR page loader
+      output:
+        - chapter_meta.json
+        - chapter_text.md
+      human_review: chapter range corrections are allowed before extraction
+
+    - id: chunk_reader
+      role: Read page-aware chapter chunks and extract draft knowledge cards.
+      implementation: call_chunk_llm
+      llm_required: true
+      input_scope: current chunk text only
+      output_schema:
+        knowledge_cards:
+          card_type: controlled_card_type
+          title: string
+          summary: string
+          core_points: list
+          prerequisites: list
+          common_confusions: list
+          evidence:
+            page: page_number
+            quote_or_paraphrase: string
+          review_status: draft
+      guards:
+        - evidence pages must be inside current chunk page range
+        - if output is malformed, repair JSON syntax only
+        - if request fails or JSON remains malformed, split pages and rerun model
+
+    - id: chapter_synthesizer
+      role: Merge draft cards into chapter-level learning cards.
+      implementation: call_chapter_synthesis_llm
+      llm_required: true
+      input_scope: draft card index and draft evidence from the same chapter
+      output:
+        - final chapter cards
+        - chapter outline
+        - chapter-local relations
+        - chapter review notes
+      guards:
+        - source_draft_ids must come from draft cards
+        - final card evidence is preserved from draft cards by code
+        - no new medical facts beyond chapter draft evidence
+
+    - id: cross_chapter_reviewer
+      role: Review the new chapter against all previously accepted cards.
+      implementation: cross_chapter_review
+      llm_required: true
+      input_scope: current chapter cards plus batched prior card summaries
+      output:
+        - cross_chapter_relations
+        - merge_suggestions
+        - uncertainty review notes
+      guards:
+        - merge suggestions do not automatically delete cards
+        - uncertain links are queued for review instead of forced into canonical graph
+
+    - id: graph_assembler
+      role: Normalize IDs, assemble chapter graph, and rebuild master graph.
+      implementation: build_chapter_outputs and rebuild_master_outputs
+      llm_required: false
+      output:
+        - data/course_graph/master/cards.jsonl
+        - data/course_graph/master/relations.jsonl
+        - data/course_graph/master/chapter_relations.jsonl
+        - data/course_graph/master/cross_chapter_relations.jsonl
+        - data/course_graph/master/review_queue.jsonl
+        - data/course_graph/master/summary.json
+
+    - id: quality_auditor
+      role: Audit graph quality after each chapter and before UI/import use.
+      implementation: planned
+      llm_required: recommended
+      checks:
+        - evidence coverage
+        - orphan cards
+        - duplicate or near-duplicate titles
+        - relation direction sanity
+        - page-range validity
+        - OCR uncertainty density
+        - chapter learning objective coverage
+
+  resume_policy:
+    completed_chapter_detection: llm_result.json exists and force is false
+    failed_chapter_policy: rerun failed chapter from chapter start
+    master_rebuild_policy: rebuild after every successful chapter
+

@@ -1,0 +1,156 @@
+course_graph:
+  output_dir: data/course_graph
+  model_env:
+    api_key_names:
+      - COURSE_GRAPH_LLM_API_KEY
+      - QWEN_API_KEY
+      - DASHSCOPE_API_KEY
+      - OPENAI_API_KEY
+    base_url_names:
+      - COURSE_GRAPH_LLM_BASE_URL
+      - QWEN_BASE_URL
+      - DASHSCOPE_BASE_URL
+      - OPENAI_BASE_URL
+    model_names:
+      - COURSE_GRAPH_LLM_MODEL
+      - QWEN_MODEL
+      - DASHSCOPE_MODEL
+      - OPENAI_MODEL
+  llm:
+    temperature: 0.05
+    max_tokens: 4200
+  processing:
+    max_chars_per_llm_call: 8000
+    min_chapter_chars: 900
+    resume: true
+
+textbooks:
+  - id: operative_endodontics_zhouxuedong_5e
+    title: 牙体牙髓病学
+    author: 周学东
+    edition: 第5版
+    source_match: 牙体牙髓病学
+    ocr_dir_match: 牙体牙髓病学
+    start_page: 19
+    end_page: 380
+    chapter_overrides:
+      - number: 0
+        title: 绪论
+        start_page: 19
+        end_page: 23
+      - number: 1
+        title: 第一章龋病学概论
+        start_page: 24
+        end_page: 28
+      - number: 2
+        title: 第二章龋病病因与发病机制
+        start_page: 29
+        end_page: 45
+      - number: 3
+        title: 第三章临床表现与诊断
+        start_page: 46
+        end_page: 54
+      - number: 4
+        title: 第四章龋病的治疗计划
+        start_page: 55
+        end_page: 63
+      - number: 5
+        title: 第五章牙发育异常和着色牙
+        start_page: 64
+        end_page: 80
+      - number: 6
+        title: 第六章牙外伤
+        start_page: 81
+        end_page: 88
+      - number: 7
+        title: 第七章牙慢性损伤
+        start_page: 89
+        end_page: 96
+      - number: 8
+        title: 第八章牙本质敏感症
+        start_page: 97
+        end_page: 101
+      - number: 9
+        title: 第九章牙体修复治疗术
+        start_page: 102
+        end_page: 108
+      - number: 10
+        title: 第十章牙体预备与银汞合金充填
+        start_page: 109
+        end_page: 127
+      - number: 11
+        title: 第十一章牙体修复材料及粘接材料的应用基础
+        start_page: 128
+        end_page: 141
+      - number: 12
+        title: 第十二章牙体粘接修复术
+        start_page: 142
+        end_page: 156
+      - number: 13
+        title: 第十三章深龋治疗与盖髓术
+        start_page: 157
+        end_page: 161
+      - number: 14
+        title: 第十四章牙髓根尖周病治疗的生物学基础
+        start_page: 162
+        end_page: 171
+      - number: 15
+        title: 第十五章牙髓根尖周病的病因及发病机制
+        start_page: 172
+        end_page: 180
+      - number: 16
+        title: 第十六章牙髓病的临床表现及诊断
+        start_page: 181
+        end_page: 195
+      - number: 17
+        title: 第十七章根尖周病的临床表现及诊断
+        start_page: 196
+        end_page: 204
+      - number: 18
+        title: 第十八章牙髓根尖周病的治疗计划
+        start_page: 205
+        end_page: 214
+      - number: 19
+        title: 第十九章根管治疗术
+        start_page: 215
+        end_page: 223
+      - number: 20
+        title: 第二十章髓腔应用解剖与开髓
+        start_page: 224
+        end_page: 229
+      - number: 21
+        title: 第二十一章根管预备与消毒
+        start_page: 230
+        end_page: 243
+      - number: 22
+        title: 第二十二章根管充填
+        start_page: 244
+        end_page: 254
+      - number: 23
+        title: 第二十三章根尖诱导成形术与根尖屏障术
+        start_page: 255
+        end_page: 260
+      - number: 24
+        title: 第二十四章显微根管治疗与根尖手术
+        start_page: 261
+        end_page: 266
+      - number: 25
+        title: 第二十五章根管治疗并发症及根管再治疗
+        start_page: 267
+        end_page: 289
+      - number: 26
+        title: 第二十六章根管治疗后的牙体修复
+        start_page: 290
+        end_page: 298
+      - number: 27
+        title: 第二十七章病史采集与临床检查
+        start_page: 299
+        end_page: 319
+      - number: 28
+        title: 第二十八章术区隔离
+        start_page: 320
+        end_page: 333
+      - number: 29
+        title: 第二十九章牙体牙髓病学实习教程
+        start_page: 334
+        end_page: 380

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oraledu-kb/question.schema.json",
+  "title": "Question",
+  "type": "object",
+  "required": [
+    "question_id",
+    "source_question_id",
+    "source_layer",
+    "stem",
+    "answer",
+    "match_status",
+    "verification_status"
+  ],
+  "properties": {
+    "question_id": { "type": "string" },
+    "source_question_id": { "type": "string" },
+    "source_layer": { "type": "string" },
+    "subject": { "type": "string" },
+    "chapter": { "type": "string" },
+    "stem": { "type": "string" },
+    "answer": {},
+    "primary_knowledge_point": { "type": "string" },
+    "match_status": { "type": "string" },
+    "provided_primary_kg_node_id": {},
+    "provided_matches": { "type": "object" },
+    "verification_status": { "type": "string" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": true
+}

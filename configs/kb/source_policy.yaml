@@ -1,0 +1,69 @@
+version: 1
+name: OralEdu-KB source policy
+description: Source roles and ranking policy for the oral medicine education knowledge base.
+
+layers:
+  textbook_kg:
+    authority_level: 100
+    role: Curriculum graph backbone extracted from reviewed textbook KG drafts.
+    sources:
+      - data/core/manual-kg-drafts
+  textbook_evidence:
+    authority_level: 90
+    role: OCR textbook chunks used as primary teaching and exam evidence.
+    sources:
+      - data/processed/knowledge_base/oral_textbooks.jsonl
+  clinical_authority:
+    authority_level: 95
+    role: Expert consensus and clinical norms used for clinical rules and recommendations.
+    sources:
+      - data/processed/knowledge_base/clinical_norms.jsonl
+  external_reference:
+    authority_level: 65
+    role: General medical reference used for background and coverage expansion.
+    sources:
+      - data/processed/knowledge_base/merck_manual.jsonl
+  assessment:
+    authority_level: 70
+    role: Question bank used for evaluation, teaching loops, and exam-oriented retrieval.
+    sources:
+      - D:/xwechat_files/wxid_moff5l81dmi122_124f/msg/file/2026-06/question_kg_matches.full.json
+
+task_rankings:
+  exam_explanation:
+    - textbook_kg
+    - textbook_evidence
+    - assessment
+    - clinical_authority
+    - external_reference
+  clinical_recommendation:
+    - clinical_authority
+    - textbook_evidence
+    - textbook_kg
+    - external_reference
+  concept_teaching:
+    - textbook_kg
+    - textbook_evidence
+    - clinical_authority
+    - external_reference
+  preview_review:
+    - textbook_kg
+    - textbook_evidence
+    - assessment
+  question_generation:
+    - textbook_kg
+    - textbook_evidence
+    - assessment
+    - clinical_authority
+  cross_disciplinary_background:
+    - textbook_evidence
+    - external_reference
+    - clinical_authority
+
+hard_rules:
+  - MSD/general external references must not be the only evidence for oral medicine core exam points.
+  - Clinical authority chunks must not overwrite textbook KG/evidence without explicit verified conflict handling.
+  - Both matched and weak_match question records are treated as linked assessment items; preserve original match_status and confidence metadata for ranking and diagnostics.
+  - Clinical recommendation tasks must check clinical_authority before final answer generation.
+  - Exam explanation tasks must prefer textbook KG and textbook evidence citations.
+  - If a required model or index is unavailable, mark the dependent artifact as not_ready instead of substituting low-quality vectors or unverified links.

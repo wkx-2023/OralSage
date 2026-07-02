@@ -110,6 +110,12 @@ class KnowledgeViewRequest(BaseModel):
     top_k: int = 4
 
 
+class KnowledgeGraphNeighborhoodRequest(BaseModel):
+    node_id: str
+    depth: int = 1
+    limit: int = 160
+
+
 class ImageRequest(BaseModel):
     query: str | None = None
     image_base64: str

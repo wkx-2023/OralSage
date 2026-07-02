@@ -22,6 +22,7 @@ from .schemas import (
     GenericAgentRequest,
     GenericAgentResponse,
     ImageRequest,
+    KnowledgeGraphNeighborhoodRequest,
     KnowledgeViewRequest,
     LiteratureRequest,
     LiteratureTranslateRequest,
@@ -37,6 +38,12 @@ from .services.decision import run_decision_assist, run_evidence_search
 from .services.image import run_image_analysis
 from .services.image.agent import image_size_limit_bytes
 from .services.knowledge import get_knowledge_topics, run_knowledge_view
+from .services.knowledge_graph import (
+    get_graph_neighborhood,
+    get_graph_node,
+    get_graph_overview,
+    get_graph_summary,
+)
 from .services.literature import run_article_translation, run_literature_search, run_terms
 from .services.mcp_tools import invoke_local_mcp_tool
 from .services.pathology import run_pathology_ask
@@ -94,6 +101,7 @@ def capabilities() -> dict[str, Any]:
             "decision_assistant",
             "evidence_search",
             "knowledge_view",
+            "course_knowledge_graph",
             "frontier_literature",
             "clinic_stats",
             "pathology_qa",
@@ -118,6 +126,10 @@ def capabilities() -> dict[str, Any]:
             "/api/evidence/search",
             "/api/knowledge/topics",
             "/api/knowledge/view",
+            "/api/knowledge-graph/summary",
+            "/api/knowledge-graph/overview",
+            "/api/knowledge-graph/node/{node_id}",
+            "/api/knowledge-graph/neighborhood",
             "/api/literature/search",
             "/api/literature/terms",
             "/api/literature/translate",
@@ -166,6 +178,30 @@ async def knowledge_topics() -> JSONResponse:
 @app.post("/api/knowledge/view")
 async def knowledge_view(req: KnowledgeViewRequest) -> JSONResponse:
     return JSONResponse(run_knowledge_view(req.topic_id, req.dimension_id, req.source_type, req.top_k))
+
+
+@app.get("/api/knowledge-graph/summary")
+async def knowledge_graph_summary() -> JSONResponse:
+    result = get_graph_summary()
+    return JSONResponse(result, status_code=200 if result.get("ok", False) else 404)
+
+
+@app.get("/api/knowledge-graph/overview")
+async def knowledge_graph_overview() -> JSONResponse:
+    result = get_graph_overview()
+    return JSONResponse(result, status_code=200 if result.get("ok", False) else 404)
+
+
+@app.get("/api/knowledge-graph/node/{node_id:path}")
+async def knowledge_graph_node(node_id: str) -> JSONResponse:
+    result = get_graph_node(node_id)
+    return JSONResponse(result, status_code=200 if result.get("ok", False) else 404)
+
+
+@app.post("/api/knowledge-graph/neighborhood")
+async def knowledge_graph_neighborhood(req: KnowledgeGraphNeighborhoodRequest) -> JSONResponse:
+    result = get_graph_neighborhood(req.node_id, req.depth, req.limit)
+    return JSONResponse(result, status_code=200 if result.get("ok", False) else 404)
 
 
 @app.post("/api/literature/search")

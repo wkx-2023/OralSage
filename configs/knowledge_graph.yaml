@@ -1,0 +1,53 @@
+knowledge_graph:
+  name: oral_course_graph
+  version: 0.1.0
+  input_dir: data/processed/knowledge_base
+  output_dir: data/processed/knowledge_graph
+  max_excerpt_chars: 420
+  max_support_ids_per_edge: 24
+  overview:
+    max_concepts_per_module: 48
+    max_topics_per_module: 24
+    max_cooccurrence_edges: 420
+
+course:
+  id: oral_medicine_course
+  label: 口腔医学课程
+  description: 面向学习智能体的口腔医学课程级知识图谱
+
+content_dimensions:
+  - id: definition
+    label: 概念定义
+  - id: etiology
+    label: 病因与危险因素
+  - id: pathogenesis
+    label: 发病机制
+  - id: pathology
+    label: 病理改变
+  - id: clinical_feature
+    label: 临床表现
+  - id: diagnosis
+    label: 诊断依据
+  - id: differential
+    label: 鉴别诊断
+  - id: exam
+    label: 检查与影像
+  - id: treatment
+    label: 治疗原则
+  - id: risk
+    label: 风险与并发症
+  - id: contraindication
+    label: 禁忌证
+  - id: prognosis
+    label: 预后与随访
+  - id: education
+    label: 患者宣教
+  - id: general
+    label: 通用知识
+
+source_types:
+  clinical_case: 病例
+  guideline: 指南/共识
+  clinical_norm: 指南/共识
+  textbook: 教材
+  general_reference: 通用参考

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oraledu-kb/manifest.schema.json",
+  "title": "KBManifest",
+  "type": "object",
+  "required": [
+    "kb_version",
+    "generated_at",
+    "stage",
+    "input_paths",
+    "outputs",
+    "counts",
+    "quality_gates"
+  ],
+  "properties": {
+    "kb_version": { "type": "string" },
+    "generated_at": { "type": "string" },
+    "stage": { "type": "string" },
+    "input_paths": { "type": "object" },
+    "outputs": { "type": "object" },
+    "counts": { "type": "object" },
+    "quality_gates": { "type": "object" },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oraledu-kb/kg_node.schema.json",
+  "title": "KGNode",
+  "type": "object",
+  "required": [
+    "node_id",
+    "node_kind",
+    "node_type",
+    "canonical_name",
+    "source_layer",
+    "subject",
+    "chapter",
+    "source_document_id",
+    "verification_status"
+  ],
+  "properties": {
+    "node_id": { "type": "string" },
+    "node_kind": { "enum": ["core", "support", "concept"] },
+    "node_type": { "type": "string" },
+    "canonical_name": { "type": "string" },
+    "aliases": { "type": "array", "items": { "type": "string" } },
+    "source_layer": { "type": "string" },
+    "source_type": { "type": "string" },
+    "subject": { "type": "string" },
+    "book_title": { "type": "string" },
+    "chapter": { "type": "string" },
+    "section": { "type": "string" },
+    "source_document_id": { "type": "string" },
+    "draft_file": { "type": "string" },
+    "source_span_ids": { "type": "array", "items": { "type": "string" } },
+    "verification_status": { "type": "string" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": true
+}

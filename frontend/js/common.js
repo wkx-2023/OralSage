@@ -13,6 +13,7 @@
     { key: 'literature', name: '\u524d\u6cbf\u6587\u732e', path: '/pages/literature.html' },
     { key: 'pathology', name: '\u75c5\u7406\u95ee\u7b54', path: '/pages/pathology.html' },
     { key: 'evidence', name: '\u77e5\u8bc6\u5e93\u67e5\u770b', path: '/pages/evidence.html' },
+    { key: 'knowledge-graph', name: '\u8bfe\u7a0b\u77e5\u8bc6\u56fe\u8c31', path: '/pages/knowledge-graph.html' },
   ];
 
   const BRAND_HTML = `
@@ -33,6 +34,7 @@
     '/pages/literature.html': { key: 'literature', title: '\u524d\u6cbf\u6587\u732e', subtitle: TEXT.shellSubtitle },
     '/pages/pathology.html': { key: 'pathology', title: '\u75c5\u7406\u95ee\u7b54', subtitle: TEXT.shellSubtitle },
     '/pages/evidence.html': { key: 'evidence', title: '\u77e5\u8bc6\u5e93\u67e5\u770b', subtitle: '\u6309\u53e3\u8154\u95ee\u9898\u7ec4\u7ec7\u77e5\u8bc6\u70b9\u4e0e\u539f\u6587\u4f9d\u636e' },
+    '/pages/knowledge-graph.html': { key: 'knowledge-graph', title: '', subtitle: '' },
   };
 
   function byId(id) {

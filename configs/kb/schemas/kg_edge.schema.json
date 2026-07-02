@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oraledu-kb/kg_edge.schema.json",
+  "title": "KGEdge",
+  "type": "object",
+  "required": [
+    "edge_id",
+    "edge_kind",
+    "source_node_id",
+    "target_node_id",
+    "predicate",
+    "source_layer",
+    "source_document_id",
+    "verification_status"
+  ],
+  "properties": {
+    "edge_id": { "type": "string" },
+    "edge_kind": { "type": "string" },
+    "source_node_id": { "type": "string" },
+    "target_node_id": { "type": "string" },
+    "predicate": { "type": "string" },
+    "support_type": { "type": "string" },
+    "importance": { "type": "string" },
+    "evidence": { "type": "array" },
+    "source_layer": { "type": "string" },
+    "source_document_id": { "type": "string" },
+    "draft_file": { "type": "string" },
+    "verification_status": { "type": "string" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": true
+}

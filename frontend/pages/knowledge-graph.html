@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OralSage</title>
+  <link rel="icon" href="/assets/images/oralsage-logo.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-screen-webfont@1.7.0/style.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="/css/base.css?v=20260629-kg-node-size-contrast">
+  <link rel="stylesheet" href="/css/knowledge-graph.css?v=20260629-kg-node-size-contrast">
+</head>
+<body class="kg-page kg-entrance-pending">
+  <div class="app-shell kg-shell">
+    <section class="main-pane">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title" class="page-title"></h1>
+          <p id="page-subtitle" class="page-subtitle"></p>
+        </div>
+      </header>
+
+      <main class="workspace kg-workspace">
+        <section class="kg-toolbar" aria-label="核心关系网控制">
+          <div class="kg-controls" aria-label="图谱操作">
+            <button id="kg-overview-btn" type="button" class="kg-btn active" title="查看全书核心关系网">
+              <i data-lucide="network"></i><span>全书核心</span>
+            </button>
+            <button id="kg-zoom-out" type="button" class="kg-icon-btn" title="缩小">
+              <i data-lucide="zoom-out"></i>
+            </button>
+            <button id="kg-zoom-in" type="button" class="kg-icon-btn" title="放大">
+              <i data-lucide="zoom-in"></i>
+            </button>
+            <button id="kg-reset-view" type="button" class="kg-icon-btn" title="重置视图">
+              <i data-lucide="maximize"></i>
+            </button>
+            <input id="kg-search" class="kg-search" type="search" placeholder="搜索核心、关系或证据">
+          </div>
+        </section>
+
+        <section class="kg-board">
+          <aside class="kg-chapters" aria-label="课程核心大纲">
+            <div class="kg-panel-head">
+              <h3>课程核心大纲</h3>
+              <div class="kg-book-picker">
+                <span>当前教材</span>
+                <select id="kg-book-select" class="kg-book-native" aria-label="选择当前教材" tabindex="-1"></select>
+                <button id="kg-book-trigger" class="kg-book-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="kg-book-trigger-text"></span>
+                </button>
+                <div id="kg-book-options" class="kg-book-options" role="listbox" hidden></div>
+              </div>
+            </div>
+            <div id="kg-chapter-list" class="kg-chapter-list"></div>
+          </aside>
+
+          <section class="kg-canvas-panel" aria-label="核心关系网">
+            <svg id="kg-canvas" class="kg-canvas" role="img" aria-label="教材核心知识图谱"></svg>
+            <canvas id="kg-entrance-canvas" class="kg-entrance-canvas" aria-hidden="true"></canvas>
+            <div id="kg-empty" class="kg-empty hidden"></div>
+          </section>
+
+          <aside class="kg-detail" aria-label="核心知识卡片" aria-hidden="true">
+            <div class="kg-detail-head">
+              <div>
+                <h3 id="kg-detail-title">选择一个核心</h3>
+              </div>
+              <div class="kg-detail-actions">
+                <span id="kg-detail-type" class="kg-type-pill">核心</span>
+                <button id="kg-detail-minimize" type="button" class="kg-detail-icon-btn" title="最小化知识卡片" aria-label="最小化知识卡片" aria-pressed="false">
+                  <i data-lucide="minus"></i>
+                </button>
+              </div>
+            </div>
+            <div id="kg-detail-body" class="kg-detail-body">
+              <div class="kg-card-stage">
+                <section class="kg-card-page">
+                  <div class="kg-card-empty">从左侧选择章节核心，或点击关系网中的核心节点查看知识卡片。</div>
+                </section>
+              </div>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <script src="/js/common.js?v=20260629-kg-node-size-contrast"></script>
+  <script src="/js/knowledge-graph.js?v=20260629-kg-node-size-contrast"></script>
+</body>
+</html>

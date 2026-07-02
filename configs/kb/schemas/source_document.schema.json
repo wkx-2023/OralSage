@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oraledu-kb/source_document.schema.json",
+  "title": "KBSourceDocument",
+  "type": "object",
+  "required": [
+    "source_document_id",
+    "source_layer",
+    "source_type",
+    "name",
+    "path",
+    "authority_level",
+    "verification_status"
+  ],
+  "properties": {
+    "source_document_id": { "type": "string" },
+    "source_layer": { "type": "string" },
+    "source_type": { "type": "string" },
+    "name": { "type": "string" },
+    "title": { "type": "string" },
+    "path": { "type": "string" },
+    "authority_level": { "type": "integer" },
+    "verification_status": { "type": "string" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": true
+}
