@@ -24,6 +24,13 @@ from .schemas import (
     ImageRequest,
     KnowledgeGraphNeighborhoodRequest,
     KnowledgeViewRequest,
+    LearningContinueRequest,
+    LearningExecuteRequest,
+    LearningInterruptionRequest,
+    LearningRouteRequest,
+    LearningStartRequest,
+    LearningStepRequest,
+    LearningSubmitAnswerRequest,
     LiteratureRequest,
     LiteratureTranslateRequest,
     PathologyRequest,
@@ -50,7 +57,11 @@ from .services.pathology import run_pathology_ask
 from .services.record_workflow import correct_asr, extract_fields, generate_record, run_workflow
 from .services.stats.dashboard import run_stats_filter, stats_options
 from .services.stats import run_stats_query
+from .services.learning.orchestrator import LearningOrchestrator, decide_next_action
+from .services.learning.llm_policy import decide_next_action_with_llm
 
+
+learning_orchestrator = LearningOrchestrator()
 
 app = FastAPI(title="OralPath API Interfaces", version="0.1.0")
 app.add_middleware(
@@ -130,6 +141,7 @@ def capabilities() -> dict[str, Any]:
             "pathology_qa",
             "image_analysis",
             "learning_router_placeholder",
+            "learning_agent_mvp",
         ],
         "modules": [
             "pathology_qa",
@@ -167,6 +179,14 @@ def capabilities() -> dict[str, Any]:
             "/api/records/workflow-upload",
             "/api/image/analyze",
             "/api/image/analyze-upload",
+            "/api/learning/session/start",
+            "/api/learning/session/{session_id}/state",
+            "/api/learning/route",
+            "/api/learning/execute",
+            "/api/learning/step",
+            "/api/learning/interruption",
+            "/api/learning/continue",
+            "/api/learning/answer",
             "/api/router/chat",
             "/api/agents/{agent_name}/invoke",
             "/api/agents/{agent_name}/stream",
@@ -430,6 +450,212 @@ async def image_analyze_upload(
         content_type=file.content_type,
     )
     return JSONResponse(result, status_code=200 if result.get("ok", False) else 422)
+
+
+# ============================================================================
+# Learning Orchestrator API
+# ============================================================================
+
+
+def _learning_route(
+    session_id: str,
+    user_input: dict[str, Any] | None,
+    use_llm_policy: bool,
+) -> dict[str, Any]:
+    """Produce a policy decision — does NOT execute.
+
+    When *use_llm_policy* is True, the LLM policy agent is used (with
+    automatic fallback to the rule-based policy on error / invalid output).
+    Otherwise the orchestrator's current policy_fn is used (default:
+    rule-based).
+    """
+    state = learning_orchestrator.get_policy_state(session_id)
+    if use_llm_policy:
+        decision = decide_next_action_with_llm(
+            state,
+            user_input,
+            fallback_policy=decide_next_action,
+        )
+    else:
+        decision = learning_orchestrator.policy_fn(state, user_input)
+    return {"state": state, "decision": decision}
+
+
+@app.post("/api/learning/session/start")
+async def learning_session_start(req: LearningStartRequest) -> JSONResponse:
+    """Start a new learning session — no policy routing needed for creation."""
+    result = learning_orchestrator.start_lesson(
+        user_id=req.user_id,
+        topic=req.topic,
+        display_name=req.display_name,
+        profile_input=req.profile_input,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "start_lesson",
+            "result": result,
+        }
+    )
+
+
+@app.get("/api/learning/session/{session_id}/state")
+async def learning_session_state(session_id: str) -> JSONResponse:
+    """Return policy state + session summary for a learning session."""
+    summary = learning_orchestrator.memory.session_summary(session_id)
+    policy_state = learning_orchestrator.get_policy_state(session_id)
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "result": {
+                "policy_state": policy_state,
+                "summary": summary,
+            },
+        }
+    )
+
+
+@app.post("/api/learning/route")
+async def learning_route(req: LearningRouteRequest) -> JSONResponse:
+    """Policy-only route — returns decision, does NOT execute.
+
+    Set ``use_llm_policy=true`` to use the LLM policy agent (with automatic
+    fallback to rule-based on error).
+    """
+    result = _learning_route(req.session_id, req.user_input, req.use_llm_policy)
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "route",
+            "result": result,
+        }
+    )
+
+
+@app.post("/api/learning/execute")
+async def learning_execute(req: LearningExecuteRequest) -> JSONResponse:
+    """Execute a policy decision — does NOT re-route."""
+    result = learning_orchestrator.execute_policy_action(
+        req.session_id, req.decision, req.user_input
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "execute",
+            "result": result,
+        }
+    )
+
+
+@app.post("/api/learning/step")
+async def learning_step(req: LearningStepRequest) -> JSONResponse:
+    """Convenience: route(None) → execute (Tutor step).
+
+    Does NOT call next_step directly — always goes through policy.
+    Set ``use_llm_policy=true`` to use the LLM policy agent.
+    """
+    route_result = _learning_route(req.session_id, None, req.use_llm_policy)
+    decision = route_result["decision"]
+    execution = learning_orchestrator.execute_policy_action(
+        req.session_id, decision, None
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "step",
+            "result": {
+                "state": route_result["state"],
+                "decision": decision,
+                "execution": execution,
+            },
+        }
+    )
+
+
+@app.post("/api/learning/interruption")
+async def learning_interruption(req: LearningInterruptionRequest) -> JSONResponse:
+    """Convenience: route(interruption) → execute (QA).
+
+    Does NOT call handle_interruption directly — always goes through policy.
+    Set ``use_llm_policy=true`` to use the LLM policy agent.
+    """
+    user_input = {"type": "interruption_question", "text": req.question}
+    route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+    decision = route_result["decision"]
+    execution = learning_orchestrator.execute_policy_action(
+        req.session_id, decision, user_input
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "interruption",
+            "result": {
+                "state": route_result["state"],
+                "decision": decision,
+                "execution": execution,
+            },
+        }
+    )
+
+
+@app.post("/api/learning/continue")
+async def learning_continue(req: LearningContinueRequest) -> JSONResponse:
+    """Convenience: route(continue) -> execute (advance + next Tutor step)."""
+    user_input = {"type": "continue"}
+    route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+    decision = route_result["decision"]
+    execution = learning_orchestrator.execute_policy_action(
+        req.session_id, decision, user_input
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "continue",
+            "result": {
+                "state": route_result["state"],
+                "decision": decision,
+                "execution": execution,
+            },
+        }
+    )
+
+
+@app.post("/api/learning/answer")
+async def learning_answer(req: LearningSubmitAnswerRequest) -> JSONResponse:
+    """Convenience: route(answer_submission) → execute (Assessment).
+
+    Does NOT call submit_answer directly — always goes through policy.
+    Set ``use_llm_policy=true`` to use the LLM policy agent.
+    """
+    user_input = {
+        "type": "answer_submission",
+        "question": req.question,
+        "answer": req.answer,
+    }
+    route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+    decision = route_result["decision"]
+    execution = learning_orchestrator.execute_policy_action(
+        req.session_id, decision, user_input
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "answer",
+            "result": {
+                "state": route_result["state"],
+                "decision": decision,
+                "execution": execution,
+            },
+        }
+    )
 
 
 @app.post("/api/router/chat")

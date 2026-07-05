@@ -120,3 +120,50 @@ class ImageRequest(BaseModel):
     query: str | None = None
     image_base64: str
     allow_web: bool = True
+
+
+# ============================================================================
+# Learning Orchestrator API schemas
+# ============================================================================
+
+
+class LearningStartRequest(BaseModel):
+    user_id: str = "demo"
+    topic: str
+    display_name: str | None = None
+    profile_input: dict[str, Any] = Field(default_factory=dict)
+
+
+class LearningRouteRequest(BaseModel):
+    session_id: str
+    user_input: dict[str, Any] | None = None
+    use_llm_policy: bool = False
+
+
+class LearningExecuteRequest(BaseModel):
+    session_id: str
+    decision: dict[str, Any]
+    user_input: dict[str, Any] | None = None
+
+
+class LearningStepRequest(BaseModel):
+    session_id: str
+    use_llm_policy: bool = False
+
+
+class LearningInterruptionRequest(BaseModel):
+    session_id: str
+    question: str
+    use_llm_policy: bool = False
+
+
+class LearningContinueRequest(BaseModel):
+    session_id: str
+    use_llm_policy: bool = False
+
+
+class LearningSubmitAnswerRequest(BaseModel):
+    session_id: str
+    question: dict[str, Any]
+    answer: str
+    use_llm_policy: bool = False

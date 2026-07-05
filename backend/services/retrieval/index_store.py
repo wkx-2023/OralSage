@@ -18,6 +18,30 @@ from .text_features import tokenize
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_PATH = PROJECT_ROOT / "configs" / "retrieval.yaml"
 
+_OLD_KAG_PREFIX = Path("data/kb/kag_bge_m3")
+_NEW_KAG_PREFIX = Path("data/data/kb/kag_bge_m3")
+
+
+def _resolve_existing_path(path: Path) -> Path:
+    """If *path* exists return it; otherwise try the fallback
+    ``data/data/kb/kag_bge_m3`` prefix for paths under the old
+    ``data/kb/kag_bge_m3`` prefix.
+    """
+    if path.exists():
+        return path
+    try:
+        rel = path.relative_to(PROJECT_ROOT)
+    except ValueError:
+        return path
+    try:
+        suffix = rel.relative_to(_OLD_KAG_PREFIX)
+        fallback = PROJECT_ROOT / _NEW_KAG_PREFIX / suffix
+        if fallback.exists():
+            return fallback
+    except ValueError:
+        pass
+    return path
+
 
 def _config() -> dict[str, Any]:
     if not CONFIG_PATH.exists():
@@ -36,7 +60,9 @@ def _path_from_config(*keys: str, default: str) -> Path:
 
 
 def bm25_index_path() -> Path:
-    base = _path_from_config("retrieval", "sparse_index", default="data/indexes/bm25")
+    base = _resolve_existing_path(
+        _path_from_config("retrieval", "sparse_index", default="data/indexes/bm25")
+    )
     default_path = base / "index.json.gz"
     if default_path.exists():
         return default_path
@@ -53,7 +79,9 @@ def bm25_index_path() -> Path:
 
 
 def vector_index_dir() -> Path:
-    return _path_from_config("retrieval", "vector_index", default="data/indexes/vector")
+    return _resolve_existing_path(
+        _path_from_config("retrieval", "vector_index", default="data/indexes/vector")
+    )
 
 
 def embedding_model_path() -> Path:
