@@ -54,6 +54,8 @@ def tokenize(value: str) -> list[str]:
 
 
 def rebuild(kag_dir: Path) -> dict[str, Any]:
+    k1 = 1.5
+    b = 0.75
     docs = list(iter_jsonl(kag_dir / "retrieval_corpus.jsonl"))
     df: Counter[str] = Counter()
     doc_terms: list[dict[str, Any]] = []
@@ -71,6 +73,8 @@ def rebuild(kag_dir: Path) -> dict[str, Any]:
     index_payload = {
         "version": 1,
         "method": "jieba_bm25_compatible_inverted_index",
+        "k1": k1,
+        "b": b,
         "total_docs": total_docs,
         "avg_doc_len": round(sum(item["length"] for item in doc_terms) / max(total_docs, 1), 4),
         "doc_terms": doc_terms,
@@ -82,6 +86,8 @@ def rebuild(kag_dir: Path) -> dict[str, Any]:
     manifest = {
         "status": "ready",
         "method": index_payload["method"],
+        "k1": k1,
+        "b": b,
         "total_docs": total_docs,
         "terms": len(df),
         "index": "inverted_index.json.gz",
