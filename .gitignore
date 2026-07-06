@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 env/
 .env
+logs/
 
 # Local extraction / generated workspace files
 _docx_extracted.txt

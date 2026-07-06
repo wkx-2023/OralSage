@@ -207,11 +207,13 @@ class BGEReranker:
 
         def score_pairs(query: str, docs: list[str]) -> list[float]:
             scores: list[float] = []
+            batch_size = 8
             with torch.no_grad():
-                for doc in docs:
+                for start in range(0, len(docs), batch_size):
+                    batch_docs = docs[start : start + batch_size]
                     encoded = tokenizer(
-                        query,
-                        doc,
+                        [query] * len(batch_docs),
+                        batch_docs,
                         padding=True,
                         truncation=True,
                         max_length=self.max_length,
@@ -219,7 +221,7 @@ class BGEReranker:
                     )
                     encoded = {key: value.to(device) for key, value in encoded.items()}
                     logits = model(**encoded).logits.detach().float().view(-1)
-                    scores.append(float(logits[0].cpu().item()))
+                    scores.extend(float(value) for value in logits.cpu().tolist())
             return scores
 
         return score_pairs
@@ -269,7 +271,7 @@ class KAGSolver:
         sparse_k: int = 40,
         alias_k: int = 12,
         ppr_k: int | None = None,
-        rerank_k: int = 80,
+        rerank_k: int = 20,
         doc_types: set[str] | None = None,
         source_layers: set[str] | None = None,
     ) -> dict[str, Any]:

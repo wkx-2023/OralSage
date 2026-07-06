@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sparse-k", type=int, default=40)
     parser.add_argument("--alias-k", type=int, default=12)
     parser.add_argument("--ppr-k", type=int, default=80)
-    parser.add_argument("--rerank-k", type=int, default=80)
+    parser.add_argument("--rerank-k", type=int, default=20)
     parser.add_argument("--dense-max-length", type=int, default=512)
     parser.add_argument("--dense-num-threads", type=int, default=4)
     parser.add_argument("--reranker-max-length", type=int, default=512)
