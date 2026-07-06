@@ -16,6 +16,15 @@ from .llm_policy import (
     is_learning_policy_llm_configured,
     validate_policy_decision,
 )
+from .profile_memory import (
+    build_profile_slice,
+    consolidate_l2,
+    consolidate_l3,
+    is_learning_memory_llm_configured,
+    refresh_compact_profile_from_l3,
+    refresh_profile_state_from_l3,
+    update_learner_memory_from_event,
+)
 from .user_model import (
     default_profile,
     diagnose_profile,
@@ -50,4 +59,11 @@ __all__ = [
     "validate_policy_decision",
     "decide_next_action_with_llm",
     "decide_next_action_with_llm_debug",
+    "is_learning_memory_llm_configured",
+    "build_profile_slice",
+    "consolidate_l2",
+    "consolidate_l3",
+    "refresh_compact_profile_from_l3",
+    "refresh_profile_state_from_l3",
+    "update_learner_memory_from_event",
 ]

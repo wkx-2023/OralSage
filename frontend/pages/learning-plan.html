@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>学习计划 - OralSage</title>
+  <link rel="icon" href="/assets/images/oralsage-logo.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-screen-webfont@1.7.0/style.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="/css/base.css?v=20260706-plan-nav">
+  <link rel="stylesheet" href="/css/learning-plan.css?v=20260706-calendar-boost">
+</head>
+<body class="learning-plan-page">
+  <div class="app-shell plan-shell">
+    <main class="main-pane plan-pane">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title" class="page-title"></h1>
+          <p id="page-subtitle" class="page-subtitle"></p>
+        </div>
+      </header>
+
+      <main class="workspace plan-main">
+        <section class="plan-layout" aria-label="学习计划日历与待办">
+          <section class="calendar-column" aria-label="学习计划日历">
+            <section class="calendar-zone" aria-label="月历">
+              <div class="calendar-toolbar">
+                <div class="calendar-controls">
+                  <button id="prev-month" class="icon-button" type="button" title="上个月" aria-label="上个月">
+                    <i data-lucide="chevron-left"></i>
+                  </button>
+                  <span id="month-label" class="month-label"></span>
+                  <button id="next-month" class="icon-button" type="button" title="下个月" aria-label="下个月">
+                    <i data-lucide="chevron-right"></i>
+                  </button>
+                </div>
+                <button id="today-button" class="today-button" type="button">今天</button>
+              </div>
+
+              <div class="weekday-row" aria-hidden="true">
+                <span>一</span>
+                <span>二</span>
+                <span>三</span>
+                <span>四</span>
+                <span>五</span>
+                <span>六</span>
+                <span>日</span>
+              </div>
+              <div id="calendar-grid" class="calendar-grid"></div>
+              <div class="calendar-legend" aria-hidden="true">
+                <span><i class="legend-dot filled"></i>有学习计划</span>
+                <span><i class="legend-dot hollow"></i>已完成全部计划</span>
+              </div>
+            </section>
+
+            <section class="daily-boost-card" aria-label="学习鼓励">
+              <img class="daily-boost-image" src="/assets/images/learning-plan-encourage.png" alt="学习鼓励插画">
+              <p class="daily-boost-copy">今日事今日毕，继续加油↖(^ω^)↗<br>有什么问题都可以问我哦</p>
+            </section>
+          </section>
+
+          <aside class="todo-book" aria-label="计划本">
+            <header class="todo-head">
+              <div>
+                <span class="todo-kicker">To Do List</span>
+                <h2 id="todo-date"></h2>
+              </div>
+              <div id="todo-stats" class="todo-stats"></div>
+            </header>
+
+            <div id="todo-list" class="todo-list"></div>
+            <div id="plan-status" class="plan-status" aria-live="polite"></div>
+            <form id="plan-form" class="plan-form">
+              <input id="plan-title" type="text" maxlength="180" placeholder="写下一个学习计划" autocomplete="off">
+              <button class="add-button" type="submit" title="添加计划" aria-label="添加计划">
+                <i data-lucide="plus"></i>
+              </button>
+            </form>
+          </aside>
+        </section>
+      </main>
+    </main>
+  </div>
+
+  <script src="/js/common.js?v=20260702-learning-shell"></script>
+  <script src="/js/learning-plan.js?v=20260706-paper-todo"></script>
+</body>
+</html>

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +97,53 @@ CREATE TABLE IF NOT EXISTS answer_records (
     score             REAL NOT NULL,
     created_at        TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS learner_memory (
+    user_id           TEXT NOT NULL,
+    slot              TEXT NOT NULL,
+    data_json         TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    PRIMARY KEY (user_id, slot)
+);
+
+CREATE TABLE IF NOT EXISTS learning_summaries (
+    id                    TEXT PRIMARY KEY,
+    user_id               TEXT NOT NULL,
+    session_id            TEXT,
+    surface               TEXT NOT NULL,
+    summary_json          TEXT NOT NULL,
+    source_event_ids_json TEXT NOT NULL,
+    created_at            TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS memory_consolidation_meta (
+    user_id       TEXT NOT NULL,
+    layer         TEXT NOT NULL,
+    key           TEXT NOT NULL,
+    seen_ids_json TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    PRIMARY KEY (user_id, layer, key)
+);
+
+CREATE TABLE IF NOT EXISTS study_plan_items (
+    id                  TEXT PRIMARY KEY,
+    user_id             TEXT NOT NULL,
+    plan_date           TEXT NOT NULL,
+    title               TEXT NOT NULL,
+    notes               TEXT,
+    status              TEXT NOT NULL DEFAULT 'open',
+    linked_course_id    TEXT,
+    linked_course_title TEXT,
+    kg_node_ids_json    TEXT NOT NULL,
+    sort_order          INTEGER NOT NULL DEFAULT 0,
+    deferred_count      INTEGER NOT NULL DEFAULT 0,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    completed_at        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_study_plan_items_user_date
+ON study_plan_items (user_id, plan_date, sort_order, created_at);
 """
 
 
@@ -106,6 +153,38 @@ def _now() -> str:
 
 def _new_id(prefix: str = "") -> str:
     return f"{prefix}{uuid.uuid4().hex[:12]}"
+
+
+def _normalize_plan_date(value: str | date | datetime) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = str(value or "").strip()[:10]
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"Invalid plan date: {value!r}") from exc
+
+
+def _json_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = [part.strip() for part in value.split(",")]
+    else:
+        parsed = value
+    if not isinstance(parsed, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in parsed:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
 
 
 class LearningMemory:
@@ -121,7 +200,7 @@ class LearningMemory:
     def __init__(self, db_path: str | Path | None = None) -> None:
         self.db_path = Path(db_path) if db_path else _DEFAULT_DB_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.db_path))
+        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
 
@@ -190,6 +269,232 @@ class LearningMemory:
         # return the full dict as the caller would see it
         profile["confidence"] = confidence
         return profile
+
+    # -- study plan ----------------------------------------------------
+
+    def _study_plan_row_to_dict(self, row: sqlite3.Row | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        item = dict(row)
+        item["kg_node_ids"] = _json_list(item.pop("kg_node_ids_json", "[]"))
+        return item
+
+    def _next_study_plan_sort_order(self, user_id: str, plan_date: str) -> int:
+        row = self._conn.execute(
+            """SELECT COALESCE(MAX(sort_order), -1) AS max_order
+               FROM study_plan_items
+               WHERE user_id = ? AND plan_date = ?""",
+            (user_id, plan_date),
+        ).fetchone()
+        return int(row["max_order"] if row else -1) + 1
+
+    def list_study_plan_items(
+        self,
+        user_id: str,
+        start_date: str | date | datetime,
+        end_date: str | date | datetime,
+    ) -> list[dict[str, Any]]:
+        """Return study-plan items for a date range, oldest first."""
+        self.ensure_user(user_id)
+        start = _normalize_plan_date(start_date)
+        end = _normalize_plan_date(end_date)
+        rows = self._conn.execute(
+            """SELECT * FROM study_plan_items
+               WHERE user_id = ? AND plan_date >= ? AND plan_date <= ?
+               ORDER BY plan_date ASC, sort_order ASC, created_at ASC""",
+            (user_id, start, end),
+        ).fetchall()
+        return [
+            item for item in (self._study_plan_row_to_dict(row) for row in rows)
+            if item is not None
+        ]
+
+    def list_study_plan_items_for_day(
+        self,
+        user_id: str,
+        plan_date: str | date | datetime,
+    ) -> list[dict[str, Any]]:
+        """Return study-plan items for one day."""
+        day = _normalize_plan_date(plan_date)
+        return self.list_study_plan_items(user_id, day, day)
+
+    def get_study_plan_item(
+        self,
+        item_id: str,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Return one study-plan item. Raises ``KeyError`` when missing."""
+        if user_id:
+            row = self._conn.execute(
+                "SELECT * FROM study_plan_items WHERE id = ? AND user_id = ?",
+                (item_id, user_id),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT * FROM study_plan_items WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+        item = self._study_plan_row_to_dict(row)
+        if item is None:
+            raise KeyError(f"Study plan item not found: {item_id}")
+        return item
+
+    def create_study_plan_item(
+        self,
+        *,
+        user_id: str,
+        plan_date: str | date | datetime,
+        title: str,
+        notes: str | None = None,
+        linked_course_id: str | None = None,
+        linked_course_title: str | None = None,
+        kg_node_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Create a study-plan to-do item."""
+        self.ensure_user(user_id)
+        day = _normalize_plan_date(plan_date)
+        clean_title = str(title or "").strip()
+        if not clean_title:
+            raise ValueError("title is required")
+        item_id = _new_id("plan_")
+        now = _now()
+        self._conn.execute(
+            """INSERT INTO study_plan_items
+               (id, user_id, plan_date, title, notes, status,
+                linked_course_id, linked_course_title, kg_node_ids_json,
+                sort_order, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)""",
+            (
+                item_id,
+                user_id,
+                day,
+                clean_title[:180],
+                str(notes or "").strip()[:800] or None,
+                str(linked_course_id or "").strip() or None,
+                str(linked_course_title or "").strip()[:180] or None,
+                json.dumps(_json_list(kg_node_ids or []), ensure_ascii=False),
+                self._next_study_plan_sort_order(user_id, day),
+                now,
+                now,
+            ),
+        )
+        self._conn.commit()
+        return self.get_study_plan_item(item_id, user_id=user_id)
+
+    def update_study_plan_item(
+        self,
+        item_id: str,
+        *,
+        user_id: str,
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Update editable fields on a study-plan item."""
+        self.get_study_plan_item(item_id, user_id=user_id)
+        allowed: dict[str, Any] = {}
+        if "plan_date" in updates:
+            allowed["plan_date"] = _normalize_plan_date(updates["plan_date"])
+        if "title" in updates:
+            clean_title = str(updates.get("title") or "").strip()
+            if not clean_title:
+                raise ValueError("title is required")
+            allowed["title"] = clean_title[:180]
+        if "notes" in updates:
+            allowed["notes"] = str(updates.get("notes") or "").strip()[:800] or None
+        if "linked_course_id" in updates:
+            allowed["linked_course_id"] = str(updates.get("linked_course_id") or "").strip() or None
+        if "linked_course_title" in updates:
+            allowed["linked_course_title"] = str(updates.get("linked_course_title") or "").strip()[:180] or None
+        if "kg_node_ids" in updates:
+            allowed["kg_node_ids_json"] = json.dumps(
+                _json_list(updates.get("kg_node_ids") or []),
+                ensure_ascii=False,
+            )
+        if not allowed:
+            return self.get_study_plan_item(item_id, user_id=user_id)
+
+        allowed["updated_at"] = _now()
+        assignments = ", ".join(f"{key} = ?" for key in allowed)
+        params = list(allowed.values()) + [item_id, user_id]
+        self._conn.execute(
+            f"""UPDATE study_plan_items
+                SET {assignments}
+                WHERE id = ? AND user_id = ?""",
+            params,
+        )
+        self._conn.commit()
+        return self.get_study_plan_item(item_id, user_id=user_id)
+
+    def set_study_plan_item_completion(
+        self,
+        item_id: str,
+        *,
+        user_id: str,
+        completed: bool,
+    ) -> dict[str, Any]:
+        """Mark a study-plan item completed or open."""
+        self.get_study_plan_item(item_id, user_id=user_id)
+        now = _now()
+        self._conn.execute(
+            """UPDATE study_plan_items
+               SET status = ?, completed_at = ?, updated_at = ?
+               WHERE id = ? AND user_id = ?""",
+            (
+                "completed" if completed else "open",
+                now if completed else None,
+                now,
+                item_id,
+                user_id,
+            ),
+        )
+        self._conn.commit()
+        return self.get_study_plan_item(item_id, user_id=user_id)
+
+    def defer_study_plan_item(
+        self,
+        item_id: str,
+        *,
+        user_id: str,
+        to_date: str | date | datetime | None = None,
+    ) -> dict[str, Any]:
+        """Move a study-plan item to another day and reopen it."""
+        item = self.get_study_plan_item(item_id, user_id=user_id)
+        if to_date is None:
+            current = date.fromisoformat(item["plan_date"])
+            target = (current + timedelta(days=1)).isoformat()
+        else:
+            target = _normalize_plan_date(to_date)
+        now = _now()
+        self._conn.execute(
+            """UPDATE study_plan_items
+               SET plan_date = ?, status = 'open', completed_at = NULL,
+                   sort_order = ?, deferred_count = deferred_count + 1,
+                   updated_at = ?
+               WHERE id = ? AND user_id = ?""",
+            (
+                target,
+                self._next_study_plan_sort_order(user_id, target),
+                now,
+                item_id,
+                user_id,
+            ),
+        )
+        self._conn.commit()
+        return self.get_study_plan_item(item_id, user_id=user_id)
+
+    def delete_study_plan_item(
+        self,
+        item_id: str,
+        *,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Delete a study-plan item and return the removed row."""
+        item = self.get_study_plan_item(item_id, user_id=user_id)
+        self._conn.execute(
+            "DELETE FROM study_plan_items WHERE id = ? AND user_id = ?",
+            (item_id, user_id),
+        )
+        self._conn.commit()
+        return item
 
     # -- session -------------------------------------------------------
 
@@ -280,7 +585,7 @@ class LearningMemory:
         event_type: str,
         outline_node_id: str | None,
         payload: dict,
-    ) -> None:
+    ) -> str:
         """Append a lesson event (immutable — no updates)."""
         eid = _new_id("evt_")
         self._conn.execute(
@@ -294,6 +599,276 @@ class LearningMemory:
                 event_type,
                 outline_node_id,
                 json.dumps(payload or {}, ensure_ascii=False),
+                _now(),
+            ),
+        )
+        self._conn.commit()
+        return eid
+
+    def get_event(
+        self,
+        event_id: str,
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return one learning event with parsed payload, or None."""
+        if user_id:
+            row = self._conn.execute(
+                "SELECT * FROM lesson_events WHERE id = ? AND user_id = ?",
+                (event_id, user_id),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT * FROM lesson_events WHERE id = ?",
+                (event_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        d["payload"] = json.loads(d.pop("payload_json", "{}"))
+        return d
+
+    def event_exists(self, user_id: str, event_id: str) -> bool:
+        """Return True when *event_id* belongs to *user_id*."""
+        row = self._conn.execute(
+            "SELECT 1 FROM lesson_events WHERE id = ? AND user_id = ? LIMIT 1",
+            (event_id, user_id),
+        ).fetchone()
+        return row is not None
+
+    def list_recent_events(
+        self,
+        user_id: str,
+        session_id: str | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Return recent learning events for a user, newest last."""
+        limit = max(1, min(int(limit), 100))
+        if session_id:
+            rows = self._conn.execute(
+                """SELECT * FROM lesson_events
+                   WHERE user_id = ? AND session_id = ?
+                   ORDER BY created_at DESC
+                   LIMIT ?""",
+                (user_id, session_id, limit),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """SELECT * FROM lesson_events
+                   WHERE user_id = ?
+                   ORDER BY created_at DESC
+                   LIMIT ?""",
+                (user_id, limit),
+            ).fetchall()
+        events: list[dict[str, Any]] = []
+        for row in reversed(rows):
+            d = dict(row)
+            d["payload"] = json.loads(d.pop("payload_json", "{}"))
+            events.append(d)
+        return events
+
+    def list_events(
+        self,
+        user_id: str,
+        session_id: str | None = None,
+        surface: str | None = None,
+        event_types: list[str] | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Return learning events for consolidation, oldest first."""
+        limit = max(1, min(int(limit), 2000))
+        clauses = ["user_id = ?"]
+        params: list[Any] = [user_id]
+        if session_id:
+            clauses.append("session_id = ?")
+            params.append(session_id)
+        if event_types:
+            placeholders = ",".join("?" for _ in event_types)
+            clauses.append(f"event_type IN ({placeholders})")
+            params.extend(event_types)
+        params.append(limit)
+        rows = self._conn.execute(
+            f"""SELECT * FROM lesson_events
+                WHERE {' AND '.join(clauses)}
+                ORDER BY created_at ASC
+                LIMIT ?""",
+            params,
+        ).fetchall()
+        events: list[dict[str, Any]] = []
+        for row in rows:
+            d = dict(row)
+            d["payload"] = json.loads(d.pop("payload_json", "{}"))
+            if surface and d.get("payload", {}).get("surface") != surface:
+                continue
+            events.append(d)
+        return events
+
+    # -- learner memory ------------------------------------------------
+
+    def get_learner_memory_slot(self, user_id: str, slot: str) -> dict[str, Any]:
+        """Return one L3 learner-memory slot as JSON data."""
+        row = self._conn.execute(
+            "SELECT data_json FROM learner_memory WHERE user_id = ? AND slot = ?",
+            (user_id, slot),
+        ).fetchone()
+        if row is None:
+            return {"items": []}
+        try:
+            data = json.loads(row["data_json"])
+        except json.JSONDecodeError:
+            return {"items": []}
+        return data if isinstance(data, dict) else {"items": []}
+
+    def save_learner_memory_slot(
+        self,
+        user_id: str,
+        slot: str,
+        data: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist one L3 learner-memory slot."""
+        self.ensure_user(user_id)
+        payload = data if isinstance(data, dict) else {"items": []}
+        self._conn.execute(
+            """INSERT OR REPLACE INTO learner_memory
+               (user_id, slot, data_json, updated_at)
+               VALUES (?, ?, ?, ?)""",
+            (user_id, slot, json.dumps(payload, ensure_ascii=False), _now()),
+        )
+        self._conn.commit()
+        return payload
+
+    def get_learner_memory(self, user_id: str) -> dict[str, Any]:
+        """Return all L3 learner-memory slots for a user."""
+        rows = self._conn.execute(
+            "SELECT slot, data_json, updated_at FROM learner_memory WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        result: dict[str, Any] = {}
+        for row in rows:
+            try:
+                data = json.loads(row["data_json"])
+            except json.JSONDecodeError:
+                data = {"items": []}
+            if isinstance(data, dict):
+                data.setdefault("updated_at", row["updated_at"])
+            result[row["slot"]] = data
+        return result
+
+    # -- L2 learning summaries ----------------------------------------
+
+    def append_learning_summary(
+        self,
+        user_id: str,
+        surface: str,
+        summary: dict[str, Any],
+        source_event_ids: list[str],
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append a per-surface L2 learning summary."""
+        sid = _new_id("sum_")
+        now = _now()
+        source_ids = [str(eid) for eid in source_event_ids if str(eid).strip()]
+        self._conn.execute(
+            """INSERT INTO learning_summaries
+               (id, user_id, session_id, surface, summary_json,
+                source_event_ids_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                sid,
+                user_id,
+                session_id,
+                surface,
+                json.dumps(summary or {}, ensure_ascii=False),
+                json.dumps(source_ids, ensure_ascii=False),
+                now,
+            ),
+        )
+        self._conn.commit()
+        return {
+            "id": sid,
+            "user_id": user_id,
+            "session_id": session_id,
+            "surface": surface,
+            "summary": summary or {},
+            "source_event_ids": source_ids,
+            "created_at": now,
+        }
+
+    def list_learning_summaries(
+        self,
+        user_id: str,
+        session_id: str | None = None,
+        surface: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Return recent L2 summaries, newest last."""
+        limit = max(1, min(int(limit), 200))
+        clauses = ["user_id = ?"]
+        params: list[Any] = [user_id]
+        if session_id:
+            clauses.append("session_id = ?")
+            params.append(session_id)
+        if surface:
+            clauses.append("surface = ?")
+            params.append(surface)
+        params.append(limit)
+        rows = self._conn.execute(
+            f"""SELECT * FROM learning_summaries
+                WHERE {' AND '.join(clauses)}
+                ORDER BY created_at DESC
+                LIMIT ?""",
+            params,
+        ).fetchall()
+        summaries: list[dict[str, Any]] = []
+        for row in reversed(rows):
+            d = dict(row)
+            d["summary"] = json.loads(d.pop("summary_json", "{}"))
+            d["source_event_ids"] = json.loads(d.pop("source_event_ids_json", "[]"))
+            summaries.append(d)
+        return summaries
+
+    # -- consolidation metadata ---------------------------------------
+
+    def get_consolidation_seen_ids(
+        self,
+        user_id: str,
+        layer: str,
+        key: str,
+    ) -> set[str]:
+        """Return upstream ids already processed by a consolidation pass."""
+        row = self._conn.execute(
+            """SELECT seen_ids_json FROM memory_consolidation_meta
+               WHERE user_id = ? AND layer = ? AND key = ?""",
+            (user_id, layer, key),
+        ).fetchone()
+        if row is None:
+            return set()
+        try:
+            ids = json.loads(row["seen_ids_json"])
+        except json.JSONDecodeError:
+            return set()
+        if not isinstance(ids, list):
+            return set()
+        return {str(item) for item in ids if str(item).strip()}
+
+    def save_consolidation_seen_ids(
+        self,
+        user_id: str,
+        layer: str,
+        key: str,
+        seen_ids: set[str] | list[str],
+    ) -> None:
+        """Persist upstream ids already processed by a consolidation pass."""
+        self.ensure_user(user_id)
+        payload = sorted({str(item) for item in seen_ids if str(item).strip()})
+        self._conn.execute(
+            """INSERT OR REPLACE INTO memory_consolidation_meta
+               (user_id, layer, key, seen_ids_json, updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                user_id,
+                layer,
+                key,
+                json.dumps(payload, ensure_ascii=False),
                 _now(),
             ),
         )
@@ -546,6 +1121,7 @@ class LearningMemory:
                 "tutor_exposure",
                 outline_node_id,
                 json.dumps({
+                    "surface": "lecture",
                     "kg_node_ids": kg_node_ids,
                     "handout_section_title": handout_section_title,
                     "mastery_records_count": len(mastery_records),
@@ -600,6 +1176,12 @@ class LearningMemory:
             mastery.append(md)
 
         answers = self.list_answer_records(session_id)
+        learner_memory = self.get_learner_memory(session["user_id"])
+        learning_summaries = self.list_learning_summaries(
+            session["user_id"],
+            session_id=session_id,
+            limit=50,
+        )
 
         return {
             "session": session,
@@ -608,4 +1190,6 @@ class LearningMemory:
             "events": events,
             "mastery": mastery,
             "answers": answers,
+            "learner_memory": learner_memory,
+            "learning_summaries": learning_summaries,
         }

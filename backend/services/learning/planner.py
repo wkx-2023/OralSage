@@ -1211,16 +1211,10 @@ def build_outline_evidence_map(
 # ---------------------------------------------------------------------------
 
 
-def _build_agent_planner_user_prompt(
-    topic: str,
-    user_profile: dict[str, Any],
+def _build_light_evidence_pool_for_prompt(
     evidence_pool: dict[str, Any],
-) -> str:
-    """Build the user-prompt JSON for the LLM Agent Planner.
-
-    Formats the evidence pool into a concise JSON that the LLM can digest,
-    with truncated excerpts and capped list sizes to stay within context limits.
-    """
+) -> dict[str, Any]:
+    """Return a compact evidence pool for planner prompts."""
     # Light versions with truncated text_excerpt for LLM context budget
     # Cap evidence chunks at top 12, with heavily truncated excerpts
     light_chunks: list[dict[str, Any]] = []
@@ -1253,17 +1247,30 @@ def _build_agent_planner_user_prompt(
             "primary_node_id": q.get("primary_node_id", ""),
         })
 
+    return {
+        "kg_nodes": evidence_pool.get("kg_nodes", []),
+        "kg_edges": light_edges,
+        "concepts": evidence_pool.get("concepts", []),
+        "questions": light_questions,
+        "evidence_chunks": light_chunks,
+        "counts": evidence_pool.get("counts", {}),
+    }
+
+
+def _build_agent_planner_user_prompt(
+    topic: str,
+    user_profile: dict[str, Any],
+    evidence_pool: dict[str, Any],
+) -> str:
+    """Build the user-prompt JSON for the LLM Agent Planner.
+
+    Formats the evidence pool into a concise JSON that the LLM can digest,
+    with truncated excerpts and capped list sizes to stay within context limits.
+    """
     payload = {
         "topic": topic,
         "user_profile": user_profile,
-        "evidence_pool": {
-            "kg_nodes": evidence_pool.get("kg_nodes", []),
-            "kg_edges": light_edges,
-            "concepts": evidence_pool.get("concepts", []),
-            "questions": light_questions,
-            "evidence_chunks": light_chunks,
-            "counts": evidence_pool.get("counts", {}),
-        },
+        "evidence_pool": _build_light_evidence_pool_for_prompt(evidence_pool),
     }
 
     return json.dumps(payload, ensure_ascii=False, indent=2)
@@ -1851,6 +1858,737 @@ def plan_lesson_agent(
     return outline, outline_evidence_map, trace
 
 
+def _agent_llm_settings() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    return (
+        (
+            "LEARNING_PLANNER_LLM_API_KEY",
+            "PLANNER_LLM_API_KEY",
+            "LEARNING_LLM_API_KEY",
+            "QWEN_API_KEY",
+            "DASHSCOPE_API_KEY",
+        ),
+        (
+            "LEARNING_PLANNER_LLM_BASE_URL",
+            "PLANNER_LLM_BASE_URL",
+            "LEARNING_LLM_BASE_URL",
+            "QWEN_BASE_URL",
+            "DASHSCOPE_BASE_URL",
+        ),
+        (
+            "LEARNING_PLANNER_LLM_MODEL",
+            "PLANNER_LLM_MODEL",
+            "LEARNING_LLM_MODEL",
+            "QWEN_MODEL",
+            "DASHSCOPE_MODEL",
+        ),
+    )
+
+
+def _empty_refinement_trace(reason: str) -> dict[str, Any]:
+    return {
+        "outline_refinement": reason,
+        "outline_refinement_model": None,
+        "outline_refinement_error": None,
+        "outline_refinement_change_count": 0,
+        "outline_refinement_changes": [],
+    }
+
+
+def _outline_evidence_counts(
+    outline_evidence_map: dict[str, Any],
+) -> dict[str, int]:
+    return {
+        "outline_nodes": len(outline_evidence_map),
+        "total_kg_nodes_bound": sum(
+            len(entry.get("kg_nodes", []))
+            for entry in outline_evidence_map.values()
+        ),
+        "total_kg_edges_bound": sum(
+            len(entry.get("kg_edges", []))
+            for entry in outline_evidence_map.values()
+        ),
+        "total_concepts_bound": sum(
+            len(entry.get("concepts", []))
+            for entry in outline_evidence_map.values()
+        ),
+        "total_questions_bound": sum(
+            len(entry.get("questions", []))
+            for entry in outline_evidence_map.values()
+        ),
+        "total_evidence_chunks_bound": sum(
+            len(entry.get("evidence_chunks", []))
+            for entry in outline_evidence_map.values()
+        ),
+    }
+
+
+def _build_outline_from_agent_plan(
+    plan: dict[str, Any],
+    topic: str,
+) -> dict[str, Any]:
+    outline_nodes: list[dict[str, Any]] = []
+    for node in plan.get("nodes", []):
+        outline_nodes.append({
+            "id": node["id"],
+            "title": node["title"],
+            "kg_node_ids": node.get("kg_node_ids", []),
+            "learning_objectives": node.get("learning_objectives", []),
+            "prerequisites": node.get("prerequisites", []),
+            "estimated_minutes": node.get("estimated_minutes", 8),
+            "difficulty": node.get("difficulty", "basic"),
+            "source_refs": [],
+            "sequence_reason": node.get("sequence_reason", ""),
+            "kg_edge_ids": node.get("kg_edge_ids", []),
+            "concept_ids": node.get("concept_ids", []),
+            "evidence_chunk_ids": node.get("evidence_chunk_ids", []),
+            "question_ids": node.get("question_ids", []),
+        })
+
+    outline = {
+        "title": plan.get("title", f"{topic}系统学习路径"),
+        "nodes": outline_nodes,
+    }
+    LessonOutline(**outline)
+    return outline
+
+
+def _validate_progressive_initial_output(
+    plan: dict[str, Any],
+    evidence_pool: dict[str, Any],
+    max_nodes: int,
+) -> list[str]:
+    """Validate first-section-fast planner output.
+
+    Only node_1 must be fully evidence-backed. Remaining nodes are allowed
+    to be title-only placeholders for background completion.
+    """
+    errors: list[str] = []
+    if not plan.get("title"):
+        errors.append("plan title is empty")
+
+    nodes = plan.get("nodes", [])
+    if not isinstance(nodes, list) or not nodes:
+        return errors + ["plan has no nodes"]
+
+    if len(nodes) > max_nodes:
+        errors.append(f"plan has {len(nodes)} nodes; max is {max_nodes}")
+
+    pool_node_ids: set[str] = {
+        n["node_id"] for n in evidence_pool.get("kg_nodes", []) if n.get("node_id")
+    }
+    pool_edge_ids: set[str] = {
+        e["edge_id"] for e in evidence_pool.get("kg_edges", []) if e.get("edge_id")
+    }
+    pool_concept_ids: set[str] = {
+        c["node_id"] for c in evidence_pool.get("concepts", []) if c.get("node_id")
+    }
+    pool_question_ids: set[str] = {
+        q["question_id"] for q in evidence_pool.get("questions", []) if q.get("question_id")
+    }
+    pool_chunk_ids: set[str] = {
+        ch["chunk_id"] for ch in evidence_pool.get("evidence_chunks", []) if ch.get("chunk_id")
+    }
+
+    first = nodes[0]
+    if not first.get("id"):
+        errors.append("first node has empty id")
+    if not first.get("title"):
+        errors.append("first node title is empty")
+    if not first.get("learning_objectives"):
+        errors.append("first node has no learning_objectives")
+    if not first.get("sequence_reason"):
+        errors.append("first node sequence_reason is empty")
+    if not first.get("kg_node_ids"):
+        errors.append("first node has no kg_node_ids")
+    if not first.get("evidence_chunk_ids"):
+        errors.append("first node has no evidence_chunk_ids")
+
+    for nid in first.get("kg_node_ids", []):
+        if nid not in pool_node_ids:
+            errors.append(f"first node references unknown kg_node_id: {nid!r}")
+    for eid in first.get("kg_edge_ids", []):
+        if eid not in pool_edge_ids:
+            errors.append(f"first node references unknown kg_edge_id: {eid!r}")
+    for cid in first.get("concept_ids", []):
+        if cid not in pool_concept_ids:
+            errors.append(f"first node references unknown concept_id: {cid!r}")
+    for qid in first.get("question_ids", []):
+        if qid not in pool_question_ids:
+            errors.append(f"first node references unknown question_id: {qid!r}")
+    for cid in first.get("evidence_chunk_ids", []):
+        if cid not in pool_chunk_ids:
+            errors.append(f"first node references unknown evidence_chunk_id: {cid!r}")
+
+    seen_ids: set[str] = set()
+    for i, node in enumerate(nodes[:max_nodes]):
+        nid = node.get("id", "")
+        if not nid:
+            errors.append(f"node[{i}] has empty id")
+        elif nid in seen_ids:
+            errors.append(f"node[{i}] duplicate id: {nid!r}")
+        seen_ids.add(nid)
+        if not node.get("title"):
+            errors.append(f"node[{i}] ({nid}) title is empty")
+
+    return errors
+
+
+def _build_progressive_initial_outline(
+    plan: dict[str, Any],
+    topic: str,
+    max_nodes: int,
+) -> dict[str, Any]:
+    nodes: list[dict[str, Any]] = []
+    raw_nodes = plan.get("nodes", [])[:max_nodes]
+    for i, node in enumerate(raw_nodes):
+        if i == 0:
+            nodes.append({
+                "id": node["id"],
+                "title": node["title"],
+                "kg_node_ids": node.get("kg_node_ids", []),
+                "learning_objectives": node.get("learning_objectives", []),
+                "prerequisites": node.get("prerequisites", []),
+                "estimated_minutes": node.get("estimated_minutes", 8),
+                "difficulty": node.get("difficulty", "basic"),
+                "source_refs": [],
+                "sequence_reason": node.get("sequence_reason", ""),
+                "kg_edge_ids": node.get("kg_edge_ids", []),
+                "concept_ids": node.get("concept_ids", []),
+                "evidence_chunk_ids": node.get("evidence_chunk_ids", []),
+                "question_ids": node.get("question_ids", []),
+                "planning_status": "ready",
+            })
+            continue
+
+        prerequisites = node.get("prerequisites", [])
+        if not prerequisites and nodes:
+            prerequisites = [nodes[-1]["id"]]
+        nodes.append({
+            "id": node["id"],
+            "title": node["title"],
+            "kg_node_ids": [],
+            "learning_objectives": [],
+            "prerequisites": prerequisites,
+            "estimated_minutes": node.get("estimated_minutes", 8),
+            "difficulty": node.get("difficulty", "basic"),
+            "source_refs": [],
+            "sequence_reason": "pending_background_planning",
+            "kg_edge_ids": [],
+            "concept_ids": [],
+            "evidence_chunk_ids": [],
+            "question_ids": [],
+            "planning_status": "title_only_pending",
+        })
+
+    outline = {
+        "title": plan.get("title", f"{topic}系统学习路径"),
+        "nodes": nodes,
+        "planning_status": "initial_ready",
+        "sequence_strategy": plan.get("sequence_strategy", ""),
+    }
+    LessonOutline(**outline)
+    return outline
+
+
+def _build_progressive_initial_user_prompt(
+    topic: str,
+    user_profile: dict[str, Any],
+    evidence_pool: dict[str, Any],
+    max_nodes: int,
+) -> str:
+    payload = {
+        "topic": topic,
+        "user_profile": user_profile,
+        "max_nodes": max_nodes,
+        "task": {
+            "mode": "progressive_initial_outline",
+            "requirements": [
+                "Choose the best first section to teach immediately. It should usually be a definition, nature, boundary, or basic property section when evidence supports that.",
+                "Return a complete evidence-backed node_1 with objectives and evidence ids.",
+                "For later sections, return only id, title, difficulty, prerequisites, and estimated_minutes. Do not fill objectives or evidence for later sections.",
+                "Use only ids from evidence_pool. If evidence is weak, create fewer later title placeholders.",
+            ],
+            "output_shape": {
+                "title": "course title",
+                "sequence_strategy": "short overall logic",
+                "nodes": [
+                    "node_1 complete",
+                    "node_2 title only",
+                    "node_3 title only",
+                ],
+            },
+        },
+        "evidence_pool": _build_light_evidence_pool_for_prompt(evidence_pool),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def plan_lesson_initial_agent(
+    topic: str,
+    user_profile: dict[str, Any],
+    evidence_pool: dict[str, Any],
+    planning_context: dict[str, Any],
+    max_nodes: int = 6,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any]]:
+    """Plan only the first teachable section plus later title placeholders."""
+    trace: dict[str, Any] = {
+        "strategy": "progressive_llm_agent_planner",
+        "is_agent_planned": False,
+        "fallback_used": False,
+        "sequence_strategy": "",
+        "evidence_pool_counts": evidence_pool.get("counts", {}),
+        "json_mode_used": False,
+        "normalization_warnings": [],
+        "validation_errors": [],
+        "agent_planner_prompt_chars": 0,
+        "agent_planner_raw_response_chars": 0,
+        "agent_planner_json_error": None,
+        "planning_context_source": planning_context.get("source", ""),
+    }
+
+    try:
+        from backend.services.llm_client import chat_completion, is_llm_configured
+    except Exception:
+        trace["fallback_used"] = True
+        trace["fallback_reason"] = "llm_client_import_failed"
+        return None, None, trace
+
+    api_keys, base_urls, model_names = _agent_llm_settings()
+    if not is_llm_configured(*api_keys):
+        trace["fallback_used"] = True
+        trace["fallback_reason"] = "no_llm_api_key_configured"
+        return None, None, trace
+
+    system_prompt = (
+        "You are OralSage's progressive lesson planner. "
+        "The user must start learning as soon as possible. "
+        "Return strict compact JSON only. "
+        "Plan node_1 completely with evidence ids. "
+        "For all later nodes, return title-only placeholders. "
+        "Do not invent evidence ids."
+    )
+    user_prompt = _build_progressive_initial_user_prompt(
+        topic=topic,
+        user_profile=user_profile,
+        evidence_pool=evidence_pool,
+        max_nodes=max_nodes,
+    )
+    trace["agent_planner_prompt_chars"] = len(system_prompt) + len(user_prompt)
+
+    try:
+        raw = chat_completion(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.25,
+            max_tokens=2600,
+            api_key_names=api_keys,
+            base_url_names=base_urls,
+            model_names=model_names,
+            response_format={"type": "json_object"},
+        )
+        trace["json_mode_used"] = True
+    except Exception as exc:
+        trace["fallback_used"] = True
+        trace["fallback_reason"] = f"llm_call_failed: {str(exc)[:200]}"
+        return None, None, trace
+
+    trace["agent_planner_raw_response_chars"] = len(raw)
+    trace["agent_planner_raw_response_head"] = raw[:500]
+    trace["agent_planner_raw_response_tail"] = raw[-500:]
+
+    try:
+        plan = normalize_agent_planner_output(raw)
+    except ValueError as exc:
+        trace["fallback_used"] = True
+        exc_msg = str(exc)
+        trace["fallback_reason"] = f"normalization_failed: {exc_msg[:180]}"
+        trace["agent_planner_json_error"] = exc_msg[:500]
+        return None, None, trace
+
+    validation_errors = _validate_progressive_initial_output(
+        plan,
+        evidence_pool,
+        max_nodes=max_nodes,
+    )
+    trace["validation_errors"] = validation_errors
+    if validation_errors:
+        trace["fallback_used"] = True
+        trace["fallback_reason"] = (
+            f"validation_failed: {len(validation_errors)} error(s); "
+            f"first: {validation_errors[0][:200]}"
+        )
+        return None, None, trace
+
+    try:
+        outline = _build_progressive_initial_outline(plan, topic, max_nodes)
+    except Exception as exc:
+        trace["fallback_used"] = True
+        trace["fallback_reason"] = f"outline_schema_validation_failed: {exc}"
+        return None, None, trace
+
+    first_plan = {
+        "title": plan.get("title", outline.get("title", "")),
+        "sequence_strategy": plan.get("sequence_strategy", ""),
+        "nodes": [plan.get("nodes", [])[0]],
+    }
+    outline_evidence_map = _build_agent_outline_evidence_map(
+        first_plan,
+        evidence_pool,
+    )
+
+    trace["is_agent_planned"] = True
+    trace["fallback_used"] = False
+    trace["sequence_strategy"] = plan.get("sequence_strategy", "")
+    trace["outline_evidence_map_counts"] = _outline_evidence_counts(
+        outline_evidence_map
+    )
+    trace["initial_outline_node_count"] = len(outline.get("nodes", []))
+    trace["title_only_node_count"] = max(0, len(outline.get("nodes", [])) - 1)
+
+    return outline, outline_evidence_map, trace
+
+
+def _build_progressive_completion_user_prompt(
+    topic: str,
+    user_profile: dict[str, Any],
+    evidence_pool: dict[str, Any],
+    initial_outline: dict[str, Any],
+) -> str:
+    nodes = initial_outline.get("nodes", [])
+    first_node = copy.deepcopy(nodes[0]) if nodes else {}
+    title_skeleton = [
+        {
+            "id": n.get("id", ""),
+            "title": n.get("title", ""),
+            "prerequisites": n.get("prerequisites", []),
+        }
+        for n in nodes[1:]
+    ]
+    payload = {
+        "topic": topic,
+        "user_profile": user_profile,
+        "task": {
+            "mode": "complete_progressive_outline",
+            "locked_first_node": first_node,
+            "later_title_skeleton": title_skeleton,
+            "requirements": [
+                "Keep locked_first_node as the first section; do not change its id or title.",
+                "Complete the remaining outline nodes with learning_objectives, sequence_reason, prerequisites, and evidence ids.",
+                "Use the later_title_skeleton as guidance, but you may rename, merge, drop, or add later nodes when evidence and teaching sequence require it.",
+                "Every returned node must have at least one kg_node_id and one evidence_chunk_id from evidence_pool.",
+                "Use only ids present in evidence_pool.",
+            ],
+        },
+        "evidence_pool": _build_light_evidence_pool_for_prompt(evidence_pool),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _merge_locked_first_node(
+    plan: dict[str, Any],
+    initial_outline: dict[str, Any],
+) -> dict[str, Any]:
+    initial_nodes = initial_outline.get("nodes", [])
+    if not initial_nodes:
+        return plan
+
+    first_node = copy.deepcopy(initial_nodes[0])
+    first_id = first_node.get("id", "")
+    merged_nodes = [first_node]
+    for node in plan.get("nodes", []):
+        if node.get("id") == first_id:
+            continue
+        merged_nodes.append(node)
+
+    return {
+        "title": plan.get("title") or initial_outline.get("title", ""),
+        "sequence_strategy": plan.get("sequence_strategy", ""),
+        "nodes": merged_nodes,
+    }
+
+
+def plan_lesson_completion_agent(
+    topic: str,
+    user_profile: dict[str, Any],
+    evidence_pool: dict[str, Any],
+    planning_context: dict[str, Any],
+    initial_outline: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any]]:
+    """Complete a progressive outline in the background."""
+    trace: dict[str, Any] = {
+        "strategy": "progressive_llm_agent_planner_completed",
+        "is_agent_planned": False,
+        "fallback_used": False,
+        "sequence_strategy": "",
+        "evidence_pool_counts": evidence_pool.get("counts", {}),
+        "json_mode_used": False,
+        "normalization_warnings": [],
+        "validation_errors": [],
+        "agent_planner_prompt_chars": 0,
+        "agent_planner_raw_response_chars": 0,
+        "agent_planner_json_error": None,
+        "planning_context_source": planning_context.get("source", ""),
+    }
+
+    try:
+        from backend.services.llm_client import chat_completion, is_llm_configured
+    except Exception:
+        trace["fallback_used"] = True
+        trace["fallback_reason"] = "llm_client_import_failed"
+        return None, None, trace
+
+    api_keys, base_urls, model_names = _agent_llm_settings()
+    if not is_llm_configured(*api_keys):
+        trace["fallback_used"] = True
+        trace["fallback_reason"] = "no_llm_api_key_configured"
+        return None, None, trace
+
+    system_prompt = (
+        "You are OralSage's background lesson planner. "
+        "The first section is already being taught, so keep it locked. "
+        "Complete the rest of the course outline with strict evidence-backed JSON only. "
+        "Do not invent ids."
+    )
+    user_prompt = _build_progressive_completion_user_prompt(
+        topic=topic,
+        user_profile=user_profile,
+        evidence_pool=evidence_pool,
+        initial_outline=initial_outline,
+    )
+    trace["agent_planner_prompt_chars"] = len(system_prompt) + len(user_prompt)
+
+    try:
+        raw = chat_completion(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.3,
+            max_tokens=8000,
+            api_key_names=api_keys,
+            base_url_names=base_urls,
+            model_names=model_names,
+            response_format={"type": "json_object"},
+        )
+        trace["json_mode_used"] = True
+    except Exception as exc:
+        trace["fallback_used"] = True
+        trace["fallback_reason"] = f"llm_call_failed: {str(exc)[:200]}"
+        return None, None, trace
+
+    trace["agent_planner_raw_response_chars"] = len(raw)
+    trace["agent_planner_raw_response_head"] = raw[:500]
+    trace["agent_planner_raw_response_tail"] = raw[-500:]
+
+    try:
+        plan = normalize_agent_planner_output(raw)
+    except ValueError as exc:
+        trace["fallback_used"] = True
+        exc_msg = str(exc)
+        trace["fallback_reason"] = f"normalization_failed: {exc_msg[:180]}"
+        trace["agent_planner_json_error"] = exc_msg[:500]
+        return None, None, trace
+
+    plan = _merge_locked_first_node(plan, initial_outline)
+    validation_errors = validate_agent_planner_output(plan, evidence_pool)
+    trace["validation_errors"] = validation_errors
+    if validation_errors:
+        trace["fallback_used"] = True
+        trace["fallback_reason"] = (
+            f"validation_failed: {len(validation_errors)} error(s); "
+            f"first: {validation_errors[0][:200]}"
+        )
+        return None, None, trace
+
+    try:
+        outline = _build_outline_from_agent_plan(plan, topic)
+    except Exception as exc:
+        trace["fallback_used"] = True
+        trace["fallback_reason"] = f"outline_schema_validation_failed: {exc}"
+        return None, None, trace
+
+    outline["planning_status"] = "complete"
+    outline["sequence_strategy"] = plan.get("sequence_strategy", "")
+    outline_evidence_map = _build_agent_outline_evidence_map(plan, evidence_pool)
+
+    trace["is_agent_planned"] = True
+    trace["fallback_used"] = False
+    trace["sequence_strategy"] = plan.get("sequence_strategy", "")
+    trace["outline_evidence_map_counts"] = _outline_evidence_counts(
+        outline_evidence_map
+    )
+
+    return outline, outline_evidence_map, trace
+
+
+def _merge_first_node_into_outline(
+    initial_outline: dict[str, Any],
+    outline: dict[str, Any],
+) -> dict[str, Any]:
+    initial_nodes = initial_outline.get("nodes", [])
+    outline_nodes = outline.get("nodes", [])
+    if not initial_nodes or not outline_nodes:
+        return outline
+
+    first_node = copy.deepcopy(initial_nodes[0])
+    first_id = first_node.get("id", "")
+    rest_nodes = [n for n in outline_nodes if n.get("id") != first_id]
+    merged = copy.deepcopy(outline)
+    merged["nodes"] = [first_node] + rest_nodes
+    merged["planning_status"] = "complete"
+    return merged
+
+
+def complete_progressive_lesson_plan(
+    initial_plan_result: dict[str, Any],
+) -> dict[str, Any]:
+    """Complete a progressive plan after the first section has started."""
+    topic = initial_plan_result.get("topic", "").strip() or "口腔医学主题"
+    initial_outline = initial_plan_result.get("outline", {})
+    user_profile = (
+        initial_plan_result.get("source_trace", {}).get("user_profile", {})
+        or {}
+    )
+    evidence_pool = initial_plan_result.get("evidence_pool", {})
+    planning_context = initial_plan_result.get("planning_context", {})
+    relevant_nodes = initial_plan_result.get("matched_nodes", [])
+    edges = initial_plan_result.get("related_edges", [])
+    questions = initial_plan_result.get("linked_questions", [])
+
+    completion_outline, completion_evidence_map, completion_trace = (
+        plan_lesson_completion_agent(
+            topic=topic,
+            user_profile=user_profile,
+            evidence_pool=evidence_pool,
+            planning_context=planning_context,
+            initial_outline=initial_outline,
+        )
+    )
+
+    if completion_outline is not None and completion_evidence_map is not None:
+        outline = completion_outline
+        outline_evidence_map = completion_evidence_map
+        planning_trace = completion_trace
+        strategy = "progressive_llm_agent_planner_completed"
+        refinement_trace = _empty_refinement_trace(
+            "skipped_progressive_completion_active"
+        )
+    else:
+        full_outline, full_evidence_map, full_trace = plan_lesson_agent(
+            topic=topic,
+            user_profile=user_profile,
+            evidence_pool=evidence_pool,
+            planning_context=planning_context,
+        )
+        if full_outline is not None and full_evidence_map is not None:
+            outline = _merge_first_node_into_outline(initial_outline, full_outline)
+            outline_evidence_map = full_evidence_map
+            first_id = (initial_outline.get("nodes") or [{}])[0].get("id", "")
+            initial_map = initial_plan_result.get("outline_evidence_map", {})
+            if first_id and first_id in initial_map:
+                outline_evidence_map[first_id] = initial_map[first_id]
+            planning_trace = full_trace
+            planning_trace["strategy"] = "llm_agent_planner_background_fallback"
+            planning_trace["progressive_completion_fallback_reason"] = (
+                completion_trace.get("fallback_reason", "completion_failed")
+            )
+            strategy = "llm_agent_planner_background_fallback"
+            refinement_trace = _empty_refinement_trace(
+                "skipped_background_full_agent_active"
+            )
+        else:
+            fallback_reason = completion_trace.get(
+                "fallback_reason",
+                "progressive_completion_failed",
+            )
+            dimensions = infer_learning_dimensions(planning_context.get("chunks", []))
+            if dimensions:
+                outline = build_outline_from_dimensions(topic, dimensions, relevant_nodes)
+                strategy = "retrieval_enhanced_background_fallback"
+            elif relevant_nodes:
+                outline = build_outline_from_nodes(topic, relevant_nodes, edges, questions)
+                strategy = "kag_node_match_background_fallback"
+            else:
+                outline = build_fallback_outline(topic)
+                strategy = "fallback_outline_background_fallback"
+
+            outline = _merge_first_node_into_outline(initial_outline, outline)
+            outline_evidence_map = build_outline_evidence_map(
+                outline=outline,
+                evidence_pool=evidence_pool,
+            )
+            first_id = (initial_outline.get("nodes") or [{}])[0].get("id", "")
+            initial_map = initial_plan_result.get("outline_evidence_map", {})
+            if first_id and first_id in initial_map:
+                outline_evidence_map[first_id] = initial_map[first_id]
+            planning_trace = {
+                "strategy": strategy,
+                "is_agent_planned": False,
+                "fallback_used": True,
+                "fallback_reason": fallback_reason,
+                "progressive_completion_trace": completion_trace,
+                "full_agent_fallback_trace": full_trace,
+                "evidence_pool_counts": evidence_pool.get("counts", {}),
+                "outline_evidence_map_counts": _outline_evidence_counts(
+                    outline_evidence_map
+                ),
+                "coverage_warnings": [],
+                "sequence_strategy": "",
+            }
+            refinement_trace = _empty_refinement_trace(
+                "skipped_background_rule_fallback"
+            )
+
+    outline["planning_status"] = "complete"
+    mindmap = build_mindmap(outline)
+    kag_dir = resolve_kag_dir()
+    progressive_planning = {
+        "enabled": True,
+        "completion_required": False,
+        "completed": True,
+    }
+
+    return {
+        "ok": True,
+        "topic": topic,
+        "outline": outline,
+        "mindmap": mindmap,
+        "matched_nodes": relevant_nodes,
+        "related_edges": edges,
+        "linked_questions": questions,
+        "outline_refinement_trace": refinement_trace,
+        "evidence_pool": evidence_pool,
+        "outline_evidence_map": outline_evidence_map,
+        "planning_context": planning_context,
+        "progressive_planning": progressive_planning,
+        "planning_trace": planning_trace,
+        "source_trace": {
+            "strategy": strategy,
+            "planning_context_source": planning_context.get("source", ""),
+            "planning_context_ok": planning_context.get("ok", False),
+            "planning_context_warning_count": len(planning_context.get("warnings", [])),
+            "evidence_chunk_count": len(planning_context.get("chunks", [])),
+            "dimension_count": len(
+                infer_learning_dimensions(planning_context.get("chunks", []))
+            ),
+            "matched_node_count": len(relevant_nodes),
+            "edge_count": len(edges),
+            "question_count": len(questions),
+            "kag_dir": str(kag_dir),
+            "user_profile": user_profile,
+            "outline_refinement": refinement_trace["outline_refinement"],
+            "outline_refinement_model": refinement_trace["outline_refinement_model"],
+            "outline_refinement_error": refinement_trace["outline_refinement_error"],
+            "outline_refinement_change_count": refinement_trace["outline_refinement_change_count"],
+            "evidence_pool_counts": evidence_pool.get("counts", {}),
+            "outline_evidence_node_count": len(outline_evidence_map),
+            "progressive_planning_completed": True,
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -1863,13 +2601,13 @@ def plan_lesson(
 ) -> dict[str, Any]:
     """Generate a lesson outline and mindmap for *topic*.
 
-    Strategy: llm_agent_planner (NEW main path) > retrieval_enhanced
-    (deprecated fallback) > kag_node_match (deprecated fallback) >
-    fallback_outline (last resort).
+    Strategy: progressive_llm_agent_planner (first full node + later titles)
+    > retrieval_enhanced fallback > kag_node_match fallback > fallback_outline.
 
-    The LLM Agent Planner is now the primary path.  The old dimension-based
-    flow is only used as fallback when the LLM is unavailable or its output
-    fails validation.
+    The synchronous path is intentionally progressive: it prepares enough
+    outline/evidence for the first section to start teaching immediately. The
+    orchestrator completes the remaining evidence-backed outline in the
+    background while the first section is being taught.
     """
     topic = topic.strip() or "口腔医学主题"
     user_profile = user_profile or {}
@@ -1899,12 +2637,13 @@ def plan_lesson(
         questions=questions,
     )
 
-    # --- 5. NEW: try LLM Agent Planner first -----------------------------
-    agent_outline, agent_evidence_map, agent_trace = plan_lesson_agent(
+    # --- 5. try progressive Agent Planner first --------------------------
+    agent_outline, agent_evidence_map, agent_trace = plan_lesson_initial_agent(
         topic=topic,
         user_profile=user_profile,
         evidence_pool=evidence_pool,
         planning_context=planning_context,
+        max_nodes=max_nodes,
     )
 
     if agent_outline is not None and agent_evidence_map is not None:
@@ -1912,13 +2651,20 @@ def plan_lesson(
         outline = agent_outline
         outline_evidence_map = agent_evidence_map
         planning_trace = agent_trace
-        strategy = "llm_agent_planner"
-        refinement_trace: dict[str, Any] = {
-            "outline_refinement": "skipped_agent_planner_active",
-            "outline_refinement_model": None,
-            "outline_refinement_error": None,
-            "outline_refinement_change_count": 0,
-            "outline_refinement_changes": [],
+        strategy = "progressive_llm_agent_planner"
+        refinement_trace: dict[str, Any] = _empty_refinement_trace(
+            "skipped_progressive_planner_active"
+        )
+        progressive_planning: dict[str, Any] = {
+            "enabled": True,
+            "completion_required": True,
+            "first_node_id": (
+                outline.get("nodes", [{}])[0].get("id", "")
+                if outline.get("nodes")
+                else ""
+            ),
+            "initial_strategy": strategy,
+            "title_only_node_count": max(0, len(outline.get("nodes", [])) - 1),
         }
     else:
         # --- 6. FALLBACK: old dimension-based path -----------------------
@@ -1935,11 +2681,10 @@ def plan_lesson(
             outline = build_fallback_outline(topic, max_nodes=max_nodes)
             strategy = "fallback_outline"
 
-        # Optional LLM title/objective refinement (OLD path — deprecated)
-        refined_outline, refinement_trace = refine_outline_with_llm(
-            topic, outline, planning_context, relevant_nodes, user_profile
+        # Keep synchronous fallback fast; background completion can refine later.
+        refinement_trace = _empty_refinement_trace(
+            "skipped_fast_progressive_fallback"
         )
-        outline = refined_outline
 
         # Build evidence map using fallback matching logic
         outline_evidence_map = build_outline_evidence_map(
@@ -2001,6 +2746,11 @@ def plan_lesson(
             "coverage_warnings": [],
             "sequence_strategy": "",
         }
+        progressive_planning = {
+            "enabled": False,
+            "completion_required": False,
+            "fallback_reason": fallback_reason,
+        }
 
     # --- 7. mindmap ------------------------------------------------------
     mindmap = build_mindmap(outline)
@@ -2017,6 +2767,8 @@ def plan_lesson(
         "outline_refinement_trace": refinement_trace,
         "evidence_pool": evidence_pool,
         "outline_evidence_map": outline_evidence_map,
+        "planning_context": planning_context,
+        "progressive_planning": progressive_planning,
         "planning_trace": planning_trace,
         "source_trace": {
             "strategy": strategy,
@@ -2038,5 +2790,6 @@ def plan_lesson(
             "outline_refinement_change_count": refinement_trace["outline_refinement_change_count"],
             "evidence_pool_counts": evidence_pool["counts"],
             "outline_evidence_node_count": len(outline_evidence_map),
+            "progressive_planning": progressive_planning,
         },
     }

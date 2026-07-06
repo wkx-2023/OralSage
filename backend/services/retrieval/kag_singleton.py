@@ -21,6 +21,7 @@ DEFAULT_SPARSE_K = 30
 DEFAULT_ALIAS_K = 12
 DEFAULT_PPR_K = 50
 DEFAULT_RERANK_K = 20
+DEFAULT_RERANK_STRATEGY = "rrf"
 
 
 def _env_int(name: str, default: int, *, minimum: int = 1, maximum: int | None = None) -> int:
@@ -35,6 +36,12 @@ def _env_int(name: str, default: int, *, minimum: int = 1, maximum: int | None =
     if maximum is not None:
         value = min(value, maximum)
     return value
+
+
+def _env_choice(name: str, default: str, allowed: set[str]) -> str:
+    raw = os.getenv(name)
+    value = (raw or default).strip().lower()
+    return value if value in allowed else default
 
 
 def resolve_kag_dir() -> Path:
@@ -71,6 +78,11 @@ def _load_solver_class():
 @lru_cache(maxsize=1)
 def get_kag_solver():
     KAGSolver, SolverConfig = _load_solver_class()
+    rerank_strategy = _env_choice(
+        "ORALSAGE_KAG_RERANK_STRATEGY",
+        DEFAULT_RERANK_STRATEGY,
+        {"model", "rrf"},
+    )
     config = SolverConfig(
         kag_dir=resolve_kag_dir(),
         embedding_model_dir=_resolve_model_dir(
@@ -78,13 +90,18 @@ def get_kag_solver():
             DEFAULT_EMBEDDING_MODEL_DIR,
             "BGE-M3",
         ),
-        reranker_model_dir=_resolve_model_dir(
-            "ORALSAGE_RERANKER_DIR",
-            DEFAULT_RERANKER_MODEL_DIR,
-            "bge-reranker-v2-m3",
+        reranker_model_dir=(
+            _resolve_model_dir(
+                "ORALSAGE_RERANKER_DIR",
+                DEFAULT_RERANKER_MODEL_DIR,
+                "bge-reranker-v2-m3",
+            )
+            if rerank_strategy == "model"
+            else DEFAULT_RERANKER_MODEL_DIR
         ),
         enable_dense=True,
-        require_reranker=True,
+        rerank_strategy=rerank_strategy,
+        require_reranker=rerank_strategy == "model",
         dense_num_threads=_env_int("ORALSAGE_KAG_DENSE_THREADS", 4, minimum=1, maximum=16),
         reranker_max_length=_env_int("ORALSAGE_KAG_RERANKER_MAX_LENGTH", 512, minimum=128, maximum=2048),
         ppr_top_k=_env_int("ORALSAGE_KAG_PPR_K", DEFAULT_PPR_K, minimum=5, maximum=200),
@@ -111,7 +128,10 @@ def kag_solver_status() -> dict[str, Any]:
         "kag_dir": str(solver.kag_dir),
         "dense_enabled": bool(solver.config.enable_dense),
         "dense_provider": getattr(solver.encoder, "provider", None),
-        "reranker": "bge-reranker-v2-m3",
+        "ranker": getattr(solver, "rerank_strategy", solver.config.rerank_strategy),
+        "reranker": "bge-reranker-v2-m3"
+        if getattr(solver, "rerank_strategy", solver.config.rerank_strategy) == "model"
+        else "disabled_rrf_fusion",
         "default_dense_k": DEFAULT_DENSE_K,
         "default_sparse_k": DEFAULT_SPARSE_K,
         "default_ppr_k": DEFAULT_PPR_K,
@@ -141,6 +161,8 @@ def _chunk_to_evidence_chunk(item: dict[str, Any], solver: Any, retrieval_trace:
         "source_layer": item.get("source_layer") or row.get("source_layer"),
         "matched_by": item.get("matched_by") or [],
         "rerank_score": item.get("rerank_score"),
+        "fusion_score": item.get("fusion_score"),
+        "ranker": item.get("ranker"),
         "graph_score": item.get("graph_score"),
         "retrieval_trace": retrieval_trace,
     }
@@ -174,7 +196,7 @@ def _chunk_to_evidence_chunk(item: dict[str, Any], solver: Any, retrieval_trace:
         source_type=source_type,
         title=title,
         path=path,
-        score=float(item.get("rerank_score") or item.get("graph_score") or 0.0),
+        score=float(item.get("rerank_score") or item.get("fusion_score") or item.get("graph_score") or 0.0),
         metadata=metadata,
     )
 

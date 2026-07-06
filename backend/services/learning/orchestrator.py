@@ -13,6 +13,7 @@ and event recording.  Content generation is delegated to leaf modules
 from __future__ import annotations
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable
@@ -32,7 +33,8 @@ from .tutor_cache import (
     save_tutor_cache_ready,
 )
 from .memory import LearningMemory
-from .planner import plan_lesson
+from .planner import complete_progressive_lesson_plan, plan_lesson
+from .profile_memory import build_profile_slice, update_learner_memory_from_event
 from .qa import answer_interruption_question, answer_question_with_evidence
 from .resource_factory import generate_resources
 from .resource_factory import generate_handout_section as _generate_handout_section
@@ -80,6 +82,35 @@ class LearningOrchestrator:
         # user answers incorrectly; cleared on continue_to_next_section.
         # Used by handle_interruption to provide context for QA follow-up.
         self._last_wrong_answer_context: dict[str, Any] | None = None
+        self._outline_completion_threads: dict[str, threading.Thread] = {}
+        self._outline_completion_events: dict[str, threading.Event] = {}
+        self._outline_completion_errors: dict[str, str] = {}
+
+    def _update_learner_memory_for_event(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        event_id: str,
+        surface: str,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Best-effort L1 event -> L3 learner-memory update."""
+        try:
+            return update_learner_memory_from_event(
+                self.memory,
+                user_id=user_id,
+                session_id=session_id,
+                event_id=event_id,
+                surface=surface,
+                context=context or {},
+            )
+        except Exception as exc:  # noqa: BLE001 - memory must not block learning
+            return {
+                "updated": False,
+                "reason": "memory_update_exception",
+                "error": str(exc)[:240],
+            }
 
     # ------------------------------------------------------------------
     # Start lesson
@@ -116,7 +147,14 @@ class LearningOrchestrator:
         session_id: str = session["id"]
 
         # --- plan lesson ----------------------------------------------------
-        plan_result = plan_lesson(topic, user_profile=profile)
+        planner_profile = dict(profile)
+        planner_profile["learner_memory_slice"] = build_profile_slice(
+            self.memory,
+            user_id=user_id,
+            role="planner",
+            context={"topic": topic},
+        )
+        plan_result = plan_lesson(topic, user_profile=planner_profile)
         if not plan_result.get("ok"):
             raise RuntimeError(
                 f"plan_lesson failed for topic {topic!r}"
@@ -150,16 +188,29 @@ class LearningOrchestrator:
         )
 
         # --- record event ---------------------------------------------------
-        self.memory.record_event(
+        lesson_started_event_id = self.memory.record_event(
             session_id=session_id,
             user_id=user_id,
             event_type="lesson_started",
             outline_node_id=first_node_id,
             payload={
+                "surface": "planning",
                 "topic": topic,
                 "strategy": source_trace.get("strategy"),
                 "node_count": len(nodes),
                 "resource_count": len(resources),
+            },
+        )
+        lesson_memory_update = self._update_learner_memory_for_event(
+            user_id=user_id,
+            session_id=session_id,
+            event_id=lesson_started_event_id,
+            surface="planning",
+            context={
+                "topic": topic,
+                "outline_node_id": first_node_id,
+                "kg_node_ids": nodes[0].get("kg_node_ids", []),
+                "node_count": len(nodes),
             },
         )
 
@@ -170,8 +221,16 @@ class LearningOrchestrator:
             first_node_id=first_node_id,
         )
 
-        # --- launch background prefetch for remaining sections -------------
-        if len(nodes) > 1:
+        # --- launch background outline completion / prefetch ---------------
+        progressive_planning = plan_result.get("progressive_planning", {}) or {}
+        outline_completion_started = False
+        if progressive_planning.get("completion_required"):
+            outline_completion_started = self._start_outline_completion_background(
+                session_id=session_id,
+                user_id=user_id,
+                initial_plan_result=plan_result,
+            )
+        elif len(nodes) > 1:
             self._start_handout_prefetch_background(
                 session_id=session_id,
                 outline=outline,
@@ -186,7 +245,126 @@ class LearningOrchestrator:
             "resources": resources,
             "current_outline_node_id": first_node_id,
             "first_handout_section_ready": first_section_ok,
+            "outline_status": (
+                "initial_ready" if outline_completion_started else "complete"
+            ),
+            "outline_completion_started": outline_completion_started,
+            "learner_memory_update": lesson_memory_update,
         }
+
+    def _start_outline_completion_background(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        initial_plan_result: dict[str, Any],
+    ) -> bool:
+        """Start background completion for a progressive initial outline."""
+        existing = self._outline_completion_threads.get(session_id)
+        if existing and existing.is_alive():
+            return True
+
+        event = threading.Event()
+        self._outline_completion_events[session_id] = event
+        self._outline_completion_errors.pop(session_id, None)
+
+        thread = threading.Thread(
+            target=self._complete_outline_background,
+            args=(session_id, user_id, initial_plan_result, event),
+            daemon=True,
+            name=f"outline-complete-{session_id[:8]}",
+        )
+        self._outline_completion_threads[session_id] = thread
+        thread.start()
+        return True
+
+    def _complete_outline_background(
+        self,
+        session_id: str,
+        user_id: str,
+        initial_plan_result: dict[str, Any],
+        done_event: threading.Event,
+    ) -> None:
+        """Background worker: finish outline planning, then prefetch sections."""
+        try:
+            completed = complete_progressive_lesson_plan(initial_plan_result)
+            if not completed.get("ok"):
+                raise RuntimeError("complete_progressive_lesson_plan returned not ok")
+
+            outline = completed["outline"]
+            mindmap = completed["mindmap"]
+            source_trace = completed["source_trace"]
+
+            self.memory.save_outline(session_id, outline, mindmap, source_trace)
+            self._last_evidence_pool = completed.get("evidence_pool", {})
+            self._last_outline_evidence_map = completed.get(
+                "outline_evidence_map",
+                {},
+            )
+
+            resources = generate_resources(
+                session_id=session_id,
+                topic=completed.get("topic", ""),
+                outline=outline,
+                mindmap=mindmap,
+                output_root=self.resource_root,
+            )
+
+            nodes: list[dict[str, Any]] = outline.get("nodes", [])
+            self.memory.record_event(
+                session_id=session_id,
+                user_id=user_id,
+                event_type="outline_completed",
+                outline_node_id=nodes[0].get("id") if nodes else None,
+                payload={
+                    "surface": "planning",
+                    "strategy": source_trace.get("strategy"),
+                    "node_count": len(nodes),
+                    "resource_count": len(resources),
+                    "background": True,
+                },
+            )
+
+            if len(nodes) > 1:
+                self._start_handout_prefetch_background(
+                    session_id=session_id,
+                    outline=outline,
+                )
+        except Exception as exc:  # noqa: BLE001 - background must not crash API
+            self._outline_completion_errors[session_id] = str(exc)[:500]
+            try:
+                session = self.memory.get_session(session_id)
+                self.memory.record_event(
+                    session_id=session_id,
+                    user_id=session.get("user_id", user_id),
+                    event_type="outline_completion_failed",
+                    outline_node_id=session.get("current_outline_node_id"),
+                    payload={
+                        "surface": "planning",
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "background": True,
+                    },
+                )
+            except Exception:
+                pass
+        finally:
+            done_event.set()
+
+    def _wait_for_outline_completion(
+        self,
+        session_id: str,
+        timeout_seconds: float = 0.0,
+    ) -> bool:
+        """Wait for a progressive outline completion thread if one exists."""
+        event = self._outline_completion_events.get(session_id)
+        if event is None:
+            return True
+        if event.is_set():
+            return session_id not in self._outline_completion_errors
+        if timeout_seconds <= 0:
+            return False
+        event.wait(timeout_seconds)
+        return event.is_set() and session_id not in self._outline_completion_errors
 
     # ------------------------------------------------------------------
     # Internal: handout section cache helpers
@@ -482,6 +660,188 @@ class LearningOrchestrator:
                 resource_root=self.resource_root,
             )
 
+    @staticmethod
+    def _is_cache_in_progress(record: dict[str, Any]) -> bool:
+        return record.get("status") in {"pending", "generating"}
+
+    @staticmethod
+    def _is_ready_handout_cache(record: dict[str, Any]) -> bool:
+        return (
+            record.get("status") == "ready"
+            and record.get("section_status") == "llm_generated"
+        )
+
+    @staticmethod
+    def _is_ready_tutor_cache(record: dict[str, Any]) -> bool:
+        return (
+            record.get("status") == "ready"
+            and record.get("content_status") == "llm_generated"
+        )
+
+    def _wait_for_handout_cache_ready(
+        self,
+        session_id: str,
+        outline_node_id: str,
+        timeout_seconds: float = 8.0,
+        poll_interval_seconds: float = 0.5,
+    ) -> dict[str, Any]:
+        """Briefly poll an in-progress handout cache before doing sync work."""
+        record = get_handout_cache(
+            session_id,
+            outline_node_id,
+            resource_root=self.resource_root,
+        )
+        if self._is_ready_handout_cache(record) or not self._is_cache_in_progress(record):
+            return record
+
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
+            record = get_handout_cache(
+                session_id,
+                outline_node_id,
+                resource_root=self.resource_root,
+            )
+            if self._is_ready_handout_cache(record) or not self._is_cache_in_progress(record):
+                return record
+
+        return record
+
+    def _wait_for_tutor_cache_ready(
+        self,
+        session_id: str,
+        outline_node_id: str,
+        timeout_seconds: float = 8.0,
+        poll_interval_seconds: float = 0.5,
+    ) -> dict[str, Any]:
+        """Briefly poll an in-progress tutor cache before doing sync work."""
+        record = get_tutor_cache(
+            session_id,
+            outline_node_id,
+            resource_root=self.resource_root,
+        )
+        if self._is_ready_tutor_cache(record) or not self._is_cache_in_progress(record):
+            return record
+
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
+            record = get_tutor_cache(
+                session_id,
+                outline_node_id,
+                resource_root=self.resource_root,
+            )
+            if self._is_ready_tutor_cache(record) or not self._is_cache_in_progress(record):
+                return record
+
+        return record
+
+    def _return_cached_tutor_step(
+        self,
+        session_id: str,
+        user_id: str,
+        current_node_id: str | None,
+        tutor_cache_record: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Hydrate, trace, and return a ready cached tutor step."""
+        step = tutor_cache_record.get("tutor_step") or {}
+        tutor_generation_source = (
+            tutor_cache_record.get("trace", {}).get("source", "")
+        )
+
+        _ho_cache = get_handout_cache(
+            session_id,
+            current_node_id or "",
+            resource_root=self.resource_root,
+        )
+        if _ho_cache.get("status") == "ready":
+            _ho_section = _ho_cache.get("handout_section")
+            if _ho_section and current_node_id:
+                self._last_handout_sections[current_node_id] = _ho_section
+
+        exposure_recorded = False
+        exposure_memory_update: dict[str, Any] | None = None
+        mastery_records: list[dict[str, Any]] = []
+        kg_node_ids: list[str] = []
+        _cached_kg = step.get("signals", {}).get("used_kg_node_ids", [])
+        _cached_hs_title = step.get("signals", {}).get(
+            "used_handout_section_title",
+            "",
+        )
+        if _cached_kg:
+            try:
+                mastery_records, exposure_event_id = self.memory.record_tutor_exposure(
+                    user_id=user_id,
+                    session_id=session_id,
+                    outline_node_id=current_node_id or "",
+                    kg_node_ids=_cached_kg,
+                    handout_section_title=_cached_hs_title,
+                )
+                exposure_recorded = True
+                exposure_memory_update = self._update_learner_memory_for_event(
+                    user_id=user_id,
+                    session_id=session_id,
+                    event_id=exposure_event_id,
+                    surface="lecture",
+                    context={
+                        "outline_node_id": current_node_id,
+                        "kg_node_ids": _cached_kg,
+                        "handout_section_title": _cached_hs_title,
+                    },
+                )
+            except Exception:
+                pass
+
+        step["_handout_section_used"] = True
+        step["_handout_section_title"] = _cached_hs_title
+        step["_exposure_recorded"] = exposure_recorded
+        step["_learner_memory_update"] = exposure_memory_update
+        step["_mastery_records"] = mastery_records
+
+        step["tutor_cache_hit"] = True
+        step["tutor_cache_miss_sync_generation"] = False
+        step["tutor_generation_source"] = tutor_generation_source
+
+        step["handout_cache_hit"] = True
+        step["handout_cache_status"] = "ready"
+        step["handout_generation_source"] = (
+            tutor_cache_record.get("trace", {}).get("handout_source", "")
+        )
+        step["cache_miss_sync_generation"] = False
+
+        tutor_step_event_id = self.memory.record_event(
+            session_id=session_id,
+            user_id=user_id,
+            event_type="tutor_step_generated",
+            outline_node_id=step.get("outline_node_id", current_node_id or ""),
+            payload={
+                "outline_node_id": step.get("outline_node_id", current_node_id or ""),
+                "content_status": step.get("content_status"),
+                "trace_mode": step.get("trace", {}).get("mode", ""),
+                "handout_section_used": True,
+                "exposure_recorded": exposure_recorded,
+                "tutor_cache_hit": True,
+            },
+        )
+        tutor_step_memory_update = self._update_learner_memory_for_event(
+            user_id=user_id,
+            session_id=session_id,
+            event_id=tutor_step_event_id,
+            surface="lecture",
+            context={
+                "outline_node_id": current_node_id,
+                "kg_node_ids": _cached_kg,
+                "content_status": step.get("content_status"),
+            },
+        )
+
+        return {
+            **step,
+            "session_id": session_id,
+            "current_outline_node_id": current_node_id,
+            "tutor_step_memory_update": tutor_step_memory_update,
+        }
+
     # ------------------------------------------------------------------
     # Next step
     # ------------------------------------------------------------------
@@ -523,9 +883,34 @@ class LearningOrchestrator:
                     next_title = outline_nodes[i + 1].get("title")
                 break
 
+        if (
+            current_node
+            and current_node_id
+            and not (self._last_outline_evidence_map or {}).get(current_node_id)
+            and self._wait_for_outline_completion(session_id, timeout_seconds=8.0)
+        ):
+            outline_record = _require_outline(self.memory, session_id)
+            outline = outline_record["outline"]
+            outline_nodes = outline.get("nodes", [])
+            current_node = None
+            current_index = -1
+            prev_title = None
+            next_title = None
+            for i, n in enumerate(outline_nodes):
+                if n.get("id") == current_node_id:
+                    current_node = n
+                    current_index = i
+                    if i > 0:
+                        prev_title = outline_nodes[i - 1].get("title")
+                    if i + 1 < len(outline_nodes):
+                        next_title = outline_nodes[i + 1].get("title")
+                    break
+
         step: dict[str, Any]
         exposure_recorded = False
+        exposure_memory_update: dict[str, Any] | None = None
         mastery_records: list[dict[str, Any]] = []
+        kg_node_ids: list[str] = []
 
         # ================================================================
         # Try LLM handout-section-driven Tutor (cache-aware)
@@ -545,10 +930,13 @@ class LearningOrchestrator:
                     session_id, current_node_id or "",
                     resource_root=self.resource_root,
                 )
-                if (
-                    tutor_cache_record.get("status") == "ready"
-                    and tutor_cache_record.get("content_status") == "llm_generated"
-                ):
+                if self._is_cache_in_progress(tutor_cache_record):
+                    tutor_cache_record = self._wait_for_tutor_cache_ready(
+                        session_id,
+                        current_node_id or "",
+                    )
+
+                if self._is_ready_tutor_cache(tutor_cache_record):
                     # --- Tutor cache hit: return cached step, no LLM ---
                     step = tutor_cache_record.get("tutor_step") or {}
                     tutor_cache_hit = True
@@ -578,7 +966,7 @@ class LearningOrchestrator:
                     )
                     if _cached_kg:
                         try:
-                            mastery_records, _ = self.memory.record_tutor_exposure(
+                            mastery_records, exposure_event_id = self.memory.record_tutor_exposure(
                                 user_id=user_id,
                                 session_id=session_id,
                                 outline_node_id=current_node_id or "",
@@ -586,12 +974,24 @@ class LearningOrchestrator:
                                 handout_section_title=_cached_hs_title,
                             )
                             exposure_recorded = True
+                            exposure_memory_update = self._update_learner_memory_for_event(
+                                user_id=user_id,
+                                session_id=session_id,
+                                event_id=exposure_event_id,
+                                surface="lecture",
+                                context={
+                                    "outline_node_id": current_node_id,
+                                    "kg_node_ids": _cached_kg,
+                                    "handout_section_title": _cached_hs_title,
+                                },
+                            )
                         except Exception:
                             pass
 
                     step["_handout_section_used"] = True
                     step["_handout_section_title"] = _cached_hs_title
                     step["_exposure_recorded"] = exposure_recorded
+                    step["_learner_memory_update"] = exposure_memory_update
                     step["_mastery_records"] = mastery_records
 
                     # Tutor cache trace
@@ -610,7 +1010,7 @@ class LearningOrchestrator:
                     step["cache_miss_sync_generation"] = False
 
                     # Record event
-                    self.memory.record_event(
+                    tutor_step_event_id = self.memory.record_event(
                         session_id=session_id,
                         user_id=user_id,
                         event_type="tutor_step_generated",
@@ -624,11 +1024,23 @@ class LearningOrchestrator:
                             "tutor_cache_hit": True,
                         },
                     )
+                    tutor_step_memory_update = self._update_learner_memory_for_event(
+                        user_id=user_id,
+                        session_id=session_id,
+                        event_id=tutor_step_event_id,
+                        surface="lecture",
+                        context={
+                            "outline_node_id": current_node_id,
+                            "kg_node_ids": _cached_kg,
+                            "content_status": step.get("content_status"),
+                        },
+                    )
 
                     return {
                         **step,
                         "session_id": session_id,
                         "current_outline_node_id": current_node_id,
+                        "tutor_step_memory_update": tutor_step_memory_update,
                     }
 
                 # --- Tutor cache miss — fall through to handout logic ---
@@ -639,6 +1051,12 @@ class LearningOrchestrator:
                 # --- Check handout cache first ---
                 cache_record = get_handout_cache(session_id, current_node_id or "", resource_root=self.resource_root)
                 handout_cache_status = cache_record.get("status", "missing")
+                if self._is_cache_in_progress(cache_record):
+                    cache_record = self._wait_for_handout_cache_ready(
+                        session_id,
+                        current_node_id or "",
+                    )
+                    handout_cache_status = cache_record.get("status", "missing")
 
                 hs: dict[str, Any]
 
@@ -696,6 +1114,36 @@ class LearningOrchestrator:
                             resource_root=self.resource_root,
                         )
 
+                if hs.get("section_status") != "llm_generated" and cache_miss_sync_generation:
+                    refreshed_tutor_cache = get_tutor_cache(
+                        session_id,
+                        current_node_id or "",
+                        resource_root=self.resource_root,
+                    )
+                    if self._is_ready_tutor_cache(refreshed_tutor_cache):
+                        return self._return_cached_tutor_step(
+                            session_id=session_id,
+                            user_id=user_id,
+                            current_node_id=current_node_id,
+                            tutor_cache_record=refreshed_tutor_cache,
+                        )
+
+                    refreshed_handout_cache = get_handout_cache(
+                        session_id,
+                        current_node_id or "",
+                        resource_root=self.resource_root,
+                    )
+                    handout_cache_status = refreshed_handout_cache.get(
+                        "status", "missing",
+                    )
+                    if self._is_ready_handout_cache(refreshed_handout_cache):
+                        hs = refreshed_handout_cache.get("handout_section") or {}
+                        handout_cache_hit = True
+                        handout_generation_source = (
+                            refreshed_handout_cache.get("trace", {}).get("source", "")
+                        )
+                        cache_miss_sync_generation = False
+
                 if hs.get("section_status") == "llm_generated":
                     # Cache for later QA reads (avoids regeneration)
                     if current_node_id:
@@ -708,25 +1156,46 @@ class LearningOrchestrator:
                     mastery_by_kg = self.memory.get_mastery_by_kg_node(
                         user_id=user_id, session_id=session_id
                     )
-
-                    step = _build_tutor_step(
-                        outline_node=current_node,
-                        handout_section_content=hs_content,
-                        handout_section_title=hs_title,
-                        kg_node_ids=kg_node_ids,
-                        previous_node_title=prev_title,
-                        next_node_title=next_title,
-                        user_mastery_summary=mastery_by_kg,
-                        section_position={
-                            "is_first_section": current_index == 0,
-                            "is_last_section": (
-                                current_index >= 0
-                                and current_index + 1 == len(outline_nodes)
-                            ),
-                            "current_index": current_index + 1,
-                            "total": len(outline_nodes),
+                    mastery_summary_for_tutor = dict(mastery_by_kg)
+                    mastery_summary_for_tutor["profile_slice"] = build_profile_slice(
+                        self.memory,
+                        user_id=user_id,
+                        role="tutor",
+                        context={
+                            "session_id": session_id,
+                            "topic": session.get("topic", ""),
+                            "outline_node_id": current_node_id,
+                            "kg_node_ids": kg_node_ids,
                         },
                     )
+
+                    try:
+                        step = _build_tutor_step(
+                            outline_node=current_node,
+                            handout_section_content=hs_content,
+                            handout_section_title=hs_title,
+                            kg_node_ids=kg_node_ids,
+                            previous_node_title=prev_title,
+                            next_node_title=next_title,
+                            user_mastery_summary=mastery_summary_for_tutor,
+                            section_position={
+                                "is_first_section": current_index == 0,
+                                "is_last_section": (
+                                    current_index >= 0
+                                    and current_index + 1 == len(outline_nodes)
+                                ),
+                                "current_index": current_index + 1,
+                                "total": len(outline_nodes),
+                            },
+                        )
+                    except Exception as exc:
+                        step = {
+                            "content_status": "failed",
+                            "trace": {
+                                "mode": "handout_section_llm_tutor",
+                                "error": f"build_tutor_step_raised: {exc}",
+                            },
+                        }
 
                     if step.get("content_status") != "failed":
                         # --- Record tutor exposure ---
@@ -734,7 +1203,7 @@ class LearningOrchestrator:
                         used_kg = signals.get("used_kg_node_ids", kg_node_ids)
                         if used_kg:
                             try:
-                                mastery_records, _ = self.memory.record_tutor_exposure(
+                                mastery_records, exposure_event_id = self.memory.record_tutor_exposure(
                                     user_id=user_id,
                                     session_id=session_id,
                                     outline_node_id=current_node_id or "",
@@ -742,12 +1211,24 @@ class LearningOrchestrator:
                                     handout_section_title=hs_title,
                                 )
                                 exposure_recorded = True
+                                exposure_memory_update = self._update_learner_memory_for_event(
+                                    user_id=user_id,
+                                    session_id=session_id,
+                                    event_id=exposure_event_id,
+                                    surface="lecture",
+                                    context={
+                                        "outline_node_id": current_node_id,
+                                        "kg_node_ids": used_kg,
+                                        "handout_section_title": hs_title,
+                                    },
+                                )
                             except Exception:
                                 pass  # Non-fatal: tutor step is still valid
 
                         step["_handout_section_used"] = True
                         step["_handout_section_title"] = hs_title
                         step["_exposure_recorded"] = exposure_recorded
+                        step["_learner_memory_update"] = exposure_memory_update
                         step["_mastery_records"] = mastery_records
                         # Cache trace fields
                         step["handout_cache_hit"] = handout_cache_hit
@@ -760,6 +1241,19 @@ class LearningOrchestrator:
                         step["tutor_generation_source"] = tutor_generation_source
                     else:
                         # LLM tutor failed — try rule-based below
+                        refreshed_tutor_cache = get_tutor_cache(
+                            session_id,
+                            current_node_id or "",
+                            resource_root=self.resource_root,
+                        )
+                        if self._is_ready_tutor_cache(refreshed_tutor_cache):
+                            return self._return_cached_tutor_step(
+                                session_id=session_id,
+                                user_id=user_id,
+                                current_node_id=current_node_id,
+                                tutor_cache_record=refreshed_tutor_cache,
+                            )
+
                         step["handout_cache_hit"] = handout_cache_hit
                         step["handout_cache_status"] = handout_cache_status
                         step["cache_miss_sync_generation"] = cache_miss_sync_generation
@@ -797,7 +1291,7 @@ class LearningOrchestrator:
         # ================================================================
         # Record event (common for both paths)
         # ================================================================
-        self.memory.record_event(
+        tutor_step_event_id = self.memory.record_event(
             session_id=session_id,
             user_id=user_id,
             event_type="tutor_step_generated",
@@ -810,11 +1304,23 @@ class LearningOrchestrator:
                 "exposure_recorded": exposure_recorded,
             },
         )
+        tutor_step_memory_update = self._update_learner_memory_for_event(
+            user_id=user_id,
+            session_id=session_id,
+            event_id=tutor_step_event_id,
+            surface="lecture",
+            context={
+                "outline_node_id": current_node_id,
+                "kg_node_ids": kg_node_ids,
+                "content_status": step.get("content_status"),
+            },
+        )
 
         return {
             **step,
             "session_id": session_id,
             "current_outline_node_id": current_node_id,
+            "tutor_step_memory_update": tutor_step_memory_update,
         }
 
     # ------------------------------------------------------------------
@@ -883,6 +1389,18 @@ class LearningOrchestrator:
                 if _wrong_ctx and _wrong_ctx.get("outline_node_id") != current_node_id:
                     _wrong_ctx = None  # only pass context from same section
 
+                qa_profile_slice = build_profile_slice(
+                    self.memory,
+                    user_id=user_id,
+                    role="qa",
+                    context={
+                        "session_id": session_id,
+                        "topic": topic,
+                        "outline_node_id": current_node_id,
+                        "kg_node_ids": current_node.get("kg_node_ids", []),
+                    },
+                )
+
                 try:
                     qa_result = answer_question_with_evidence(
                         question=question,
@@ -891,7 +1409,7 @@ class LearningOrchestrator:
                         current_handout_section=current_handout_section,
                         node_evidence=node_evidence,
                         evidence_pool=self._last_evidence_pool,
-                        user_profile=self.memory.get_or_create_profile(user_id),
+                        user_profile=qa_profile_slice,
                         outline=outline,
                         current_node_id=current_node_id,
                         recent_qa_context=recent_qa_context,
@@ -926,12 +1444,13 @@ class LearningOrchestrator:
         # ================================================================
         # Record QA event with full payload
         # ================================================================
-        self.memory.record_event(
+        qa_event_id = self.memory.record_event(
             session_id=session_id,
             user_id=user_id,
             event_type="user_interruption_question",
             outline_node_id=current_node_id,
             payload={
+                "surface": "qa",
                 "question": question,
                 "answer": qa_result.get("answer", ""),
                 "qa_status": qa_result.get("qa_status", "fallback_rule_based"),
@@ -993,10 +1512,25 @@ class LearningOrchestrator:
                         except Exception:
                             pass  # Non-fatal
 
+        learner_memory_update = self._update_learner_memory_for_event(
+            user_id=user_id,
+            session_id=session_id,
+            event_id=qa_event_id,
+            surface="qa",
+            context={
+                "topic": topic,
+                "outline_node_id": current_node_id,
+                "kg_node_ids": (
+                    current_node.get("kg_node_ids", []) if current_node else []
+                ),
+            },
+        )
+
         return {
             **qa_result,
             "current_outline_node_id_before": before,
             "current_outline_node_id_after": after,
+            "learner_memory_update": learner_memory_update,
         }
 
     # ------------------------------------------------------------------
@@ -1108,9 +1642,11 @@ class LearningOrchestrator:
 
         # --- find current node title for mastery concept_name ---------------
         current_node_title = ""
+        current_node: dict[str, Any] | None = None
         if current_node_id:
             for n in nodes:
                 if n.get("id") == current_node_id:
+                    current_node = n
                     current_node_title = n.get("title", "")
                     break
 
@@ -1124,10 +1660,23 @@ class LearningOrchestrator:
         if self._last_outline_evidence_map and current_node_id:
             _node_evidence = self._last_outline_evidence_map.get(current_node_id, {})
 
+        assessment_profile_slice = build_profile_slice(
+            self.memory,
+            user_id=user_id,
+            role="assessment",
+            context={
+                "session_id": session_id,
+                "outline_node_id": current_node_id,
+                "kg_node_ids": question.get("kg_node_ids", [])
+                or (current_node.get("kg_node_ids", []) if current_node else []),
+            },
+        )
+
         assessment = assess_answer(
             question=question,
             user_answer=user_answer,
             outline_node_id=current_node_id,
+            user_profile=assessment_profile_slice,
             handout_section=_handout_section,
             node_evidence=_node_evidence,
         )
@@ -1223,17 +1772,24 @@ class LearningOrchestrator:
                 pass  # Non-fatal: profile update shouldn't block assessment
 
         # --- record answer_submitted (lesson event) -------------------------
-        self.memory.record_event(
+        answer_event_id = self.memory.record_event(
             session_id=session_id,
             user_id=user_id,
             event_type="answer_submitted",
             outline_node_id=current_node_id,
             payload={
+                "surface": "quiz",
                 "question_id": question.get("id"),
+                "question_stem": question.get("stem", ""),
+                "kg_node_ids": kg_node_ids,
                 "user_answer": user_answer,
                 "is_correct": assessment["is_correct"],
                 "score": assessment["score"],
                 "mastery_delta": assessment["mastery_delta"],
+                "mistake_tags": assessment.get("mistake_tags", []),
+                "related_kg_node_ids": assessment.get("related_kg_node_ids", []),
+                "misconception_summary": assessment.get("misconception_summary"),
+                "remedial_suggestion": assessment.get("recommendation", {}).get("remedial_suggestion"),
                 "recommendation_action": assessment["recommendation"]["action"],
                 "fallback_rule_based": assessment.get("fallback_rule_based", True),
                 "content_status": assessment.get("content_status", "rule_based"),
@@ -1262,13 +1818,39 @@ class LearningOrchestrator:
         # else: reinforce — stay on current node
 
         # --- record progress_updated ----------------------------------------
-        self.memory.record_event(
+        progress_event_id = self.memory.record_event(
             session_id=session_id,
             user_id=user_id,
             event_type="progress_updated",
             outline_node_id=before,
             payload={
                 "current_outline_node_id_before": before,
+                "current_outline_node_id_after": after,
+                "action": action,
+                "advanced": advanced,
+                "lesson_completed": lesson_completed,
+            },
+        )
+
+        learner_memory_update = self._update_learner_memory_for_event(
+            user_id=user_id,
+            session_id=session_id,
+            event_id=answer_event_id,
+            surface="quiz",
+            context={
+                "outline_node_id": current_node_id,
+                "question_id": question.get("id", ""),
+                "kg_node_ids": kg_node_ids,
+                "is_correct": assessment["is_correct"],
+            },
+        )
+        progress_memory_update = self._update_learner_memory_for_event(
+            user_id=user_id,
+            session_id=session_id,
+            event_id=progress_event_id,
+            surface="planning",
+            context={
+                "outline_node_id": before,
                 "current_outline_node_id_after": after,
                 "action": action,
                 "advanced": advanced,
@@ -1283,6 +1865,8 @@ class LearningOrchestrator:
             "advanced": advanced,
             "lesson_completed": lesson_completed,
             "mastery_updates": mastery_updates,
+            "learner_memory_update": learner_memory_update,
+            "progress_memory_update": progress_memory_update,
         }
 
     # ------------------------------------------------------------------
@@ -1477,6 +2061,7 @@ class LearningOrchestrator:
         does not let Python generate teaching content.  It only moves the
         session pointer and delegates teaching to :meth:`next_step`.
         """
+        self._wait_for_outline_completion(session_id, timeout_seconds=12.0)
         outline_record = _require_outline(self.memory, session_id)
         outline: dict[str, Any] = outline_record["outline"]
         session = self.memory.get_session(session_id)
@@ -1489,7 +2074,7 @@ class LearningOrchestrator:
         next_id = _next_node_id(outline, before)
         if next_id is None:
             self.memory.set_current_outline_node(session_id, None)
-            self.memory.record_event(
+            progress_event_id = self.memory.record_event(
                 session_id=session_id,
                 user_id=user_id,
                 event_type="progress_updated",
@@ -1502,22 +2087,49 @@ class LearningOrchestrator:
                     "lesson_completed": True,
                 },
             )
+            progress_memory_update = self._update_learner_memory_for_event(
+                user_id=user_id,
+                session_id=session_id,
+                event_id=progress_event_id,
+                surface="planning",
+                context={
+                    "outline_node_id": before,
+                    "current_outline_node_id_after": None,
+                    "action": "continue",
+                    "advanced": before is not None,
+                    "lesson_completed": True,
+                },
+            )
             return {
                 "current_outline_node_id_before": before,
                 "current_outline_node_id_after": None,
                 "advanced": before is not None,
                 "lesson_completed": True,
                 "tutor_step": None,
+                "progress_memory_update": progress_memory_update,
             }
 
         self.memory.set_current_outline_node(session_id, next_id)
-        self.memory.record_event(
+        progress_event_id = self.memory.record_event(
             session_id=session_id,
             user_id=user_id,
             event_type="progress_updated",
             outline_node_id=before,
             payload={
                 "current_outline_node_id_before": before,
+                "current_outline_node_id_after": next_id,
+                "action": "continue",
+                "advanced": True,
+                "lesson_completed": False,
+            },
+        )
+        progress_memory_update = self._update_learner_memory_for_event(
+            user_id=user_id,
+            session_id=session_id,
+            event_id=progress_event_id,
+            surface="planning",
+            context={
+                "outline_node_id": before,
                 "current_outline_node_id_after": next_id,
                 "action": "continue",
                 "advanced": True,
@@ -1531,6 +2143,7 @@ class LearningOrchestrator:
             "advanced": True,
             "lesson_completed": False,
             "tutor_step": tutor_step,
+            "progress_memory_update": progress_memory_update,
             "handout_cache_hit": tutor_step.get("handout_cache_hit", False),
             "cache_miss_sync_generation": tutor_step.get(
                 "cache_miss_sync_generation", False

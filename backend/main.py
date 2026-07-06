@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 import base64
 import json
+import time
 
 from .services.env_loader import load_project_env
 
@@ -26,6 +28,12 @@ from .schemas import (
     KnowledgeViewRequest,
     LearningContinueRequest,
     LearningExecuteRequest,
+    LearningMemoryConsolidateRequest,
+    LearningPlanCompleteRequest,
+    LearningPlanCreateRequest,
+    LearningPlanDeferRequest,
+    LearningPlanUpdateRequest,
+    LearningProfileSliceRequest,
     LearningInterruptionRequest,
     LearningRouteRequest,
     LearningStartRequest,
@@ -59,6 +67,21 @@ from .services.stats.dashboard import run_stats_filter, stats_options
 from .services.stats import run_stats_query
 from .services.learning.orchestrator import LearningOrchestrator, decide_next_action
 from .services.learning.llm_policy import decide_next_action_with_llm
+from .services.learning.profile_memory import (
+    build_profile_slice,
+    consolidate_l2,
+    consolidate_l3,
+    refresh_profile_state_from_l3,
+)
+from .services.learning.study_plan import (
+    complete_study_plan_item,
+    create_study_plan_item,
+    defer_study_plan_item,
+    delete_study_plan_item,
+    get_study_plan_day,
+    get_study_plan_month,
+    update_study_plan_item,
+)
 
 
 learning_orchestrator = LearningOrchestrator()
@@ -71,6 +94,45 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _sse(event: str, data: dict[str, Any]) -> str:
+    payload = json.dumps(data, ensure_ascii=False, default=str)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+def _stream_headers() -> dict[str, str]:
+    return {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+
+
+def _elapsed(started_at: float) -> float:
+    return round(time.perf_counter() - started_at, 3)
+
+
+def _progress_event(
+    *,
+    action: str,
+    phase: str,
+    message: str,
+    started_at: float,
+    tick: int,
+) -> str:
+    return _sse(
+        "progress",
+        {
+            "ok": True,
+            "module": "learning",
+            "action": action,
+            "phase": phase,
+            "message": message,
+            "elapsed_seconds": _elapsed(started_at),
+            "tick": tick,
+        },
+    )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
@@ -142,6 +204,7 @@ def capabilities() -> dict[str, Any]:
             "image_analysis",
             "learning_router_placeholder",
             "learning_agent_mvp",
+            "learning_study_plan",
         ],
         "modules": [
             "pathology_qa",
@@ -180,13 +243,27 @@ def capabilities() -> dict[str, Any]:
             "/api/image/analyze",
             "/api/image/analyze-upload",
             "/api/learning/session/start",
+            "/api/learning/session/start/stream",
             "/api/learning/session/{session_id}/state",
+            "/api/learning/profile/{user_id}",
+            "/api/learning/profile/slice",
+            "/api/learning/memory/consolidate",
+            "/api/learning/plan/{user_id}/month",
+            "/api/learning/plan/{user_id}/day/{plan_date}",
+            "/api/learning/plan/items",
+            "/api/learning/plan/items/{item_id}/update",
+            "/api/learning/plan/items/{item_id}/complete",
+            "/api/learning/plan/items/{item_id}/defer",
+            "/api/learning/plan/items/{item_id}",
             "/api/learning/route",
             "/api/learning/execute",
             "/api/learning/step",
             "/api/learning/interruption",
+            "/api/learning/interruption/stream",
             "/api/learning/continue",
+            "/api/learning/continue/stream",
             "/api/learning/answer",
+            "/api/learning/answer/stream",
             "/api/router/chat",
             "/api/agents/{agent_name}/invoke",
             "/api/agents/{agent_name}/stream",
@@ -500,9 +577,177 @@ async def learning_session_start(req: LearningStartRequest) -> JSONResponse:
     )
 
 
+@app.post("/api/learning/session/start/stream")
+async def learning_session_start_stream(req: LearningStartRequest) -> StreamingResponse:
+    """Start a lesson and stream long-running progress events via SSE."""
+
+    async def event_stream():
+        action = "start_lesson_stream"
+        started_at = time.perf_counter()
+        yield _sse(
+            "start",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "received",
+                "topic": req.topic,
+                "user_id": req.user_id,
+                "message": "已收到学习请求，开始检索知识库并规划课程。",
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+
+        start_task = asyncio.create_task(
+            asyncio.to_thread(
+                learning_orchestrator.start_lesson,
+                user_id=req.user_id,
+                topic=req.topic,
+                display_name=req.display_name,
+                profile_input=req.profile_input,
+            )
+        )
+        start_messages = [
+            "正在检索 KAG 证据并生成第一节大纲。",
+            "正在为第一节绑定 evidence / KG node。",
+            "正在生成第一节 handout_section，后续标题先占位。",
+            "正在启动完整大纲后台补全。",
+        ]
+        tick = 0
+        while not start_task.done():
+            await asyncio.sleep(5)
+            tick += 1
+            yield _progress_event(
+                action=action,
+                phase="start_lesson",
+                message=start_messages[(tick - 1) % len(start_messages)],
+                started_at=started_at,
+                tick=tick,
+            )
+
+        try:
+            start_result = await start_task
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "start_lesson",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        session_id = start_result["session"]["id"]
+        outline_nodes = start_result.get("outline", {}).get("nodes", [])
+        yield _sse(
+            "outline_ready",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "outline_ready",
+                "session_id": session_id,
+                "outline_node_count": len(outline_nodes),
+                "outline": [
+                    {"id": node.get("id"), "title": node.get("title")}
+                    for node in outline_nodes
+                ],
+                "first_handout_section_ready": start_result.get("first_handout_section_ready"),
+                "outline_status": start_result.get("outline_status", "complete"),
+                "outline_completion_started": start_result.get(
+                    "outline_completion_started",
+                    False,
+                ),
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+
+        tutor_task = asyncio.create_task(
+            asyncio.to_thread(learning_orchestrator.next_step, session_id)
+        )
+        tutor_messages = [
+            "正在基于第一节 handout 生成 Tutor 讲解。",
+            "正在生成本节 quiz 与教学信号。",
+            "正在写入学习事件与掌握度信号。",
+        ]
+        while not tutor_task.done():
+            await asyncio.sleep(5)
+            tick += 1
+            yield _progress_event(
+                action=action,
+                phase="first_tutor_step",
+                message=tutor_messages[(tick - 1) % len(tutor_messages)],
+                started_at=started_at,
+                tick=tick,
+            )
+
+        try:
+            tutor_step = await tutor_task
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "first_tutor_step",
+                    "session_id": session_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "tutor_ready",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "tutor_ready",
+                "session_id": session_id,
+                "outline_node_id": tutor_step.get("outline_node_id"),
+                "content_status": tutor_step.get("content_status"),
+                "question_count": len(tutor_step.get("questions") or []),
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        yield _sse(
+            "complete",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "elapsed_seconds": _elapsed(started_at),
+                "result": {
+                    "start": start_result,
+                    "tutor_step": tutor_step,
+                },
+            },
+        )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=_stream_headers(),
+    )
+
+
 @app.get("/api/learning/session/{session_id}/state")
 async def learning_session_state(session_id: str) -> JSONResponse:
     """Return policy state + session summary for a learning session."""
+    session = learning_orchestrator.memory.get_session(session_id)
+    try:
+        refresh_profile_state_from_l3(
+            learning_orchestrator.memory,
+            session["user_id"],
+        )
+    except Exception:
+        pass
     summary = learning_orchestrator.memory.session_summary(session_id)
     policy_state = learning_orchestrator.get_policy_state(session_id)
     return JSONResponse(
@@ -515,6 +760,236 @@ async def learning_session_state(session_id: str) -> JSONResponse:
             },
         }
     )
+
+
+@app.get("/api/learning/profile/{user_id}")
+async def learning_profile(user_id: str) -> JSONResponse:
+    """Return compact profile + L3 learner memory for a user."""
+    profile = learning_orchestrator.memory.get_or_create_profile(user_id)
+    try:
+        refresh_profile_state_from_l3(learning_orchestrator.memory, user_id)
+    except Exception:
+        pass
+    learner_memory = learning_orchestrator.memory.get_learner_memory(user_id)
+    summaries = learning_orchestrator.memory.list_learning_summaries(
+        user_id,
+        limit=50,
+    )
+    recent_events = learning_orchestrator.memory.list_recent_events(
+        user_id,
+        limit=100,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "profile",
+            "result": {
+                "user_id": user_id,
+                "profile": profile,
+                "learner_memory": learner_memory,
+                "learning_summaries": summaries,
+                "recent_events": recent_events,
+            },
+        }
+    )
+
+
+@app.post("/api/learning/profile/slice")
+async def learning_profile_slice(req: LearningProfileSliceRequest) -> JSONResponse:
+    """Return a role-specific learner-memory slice."""
+    result = build_profile_slice(
+        learning_orchestrator.memory,
+        user_id=req.user_id,
+        role=req.role,
+        context=req.context,
+        limit=req.limit,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "profile_slice",
+            "result": result,
+        }
+    )
+
+
+@app.post("/api/learning/memory/consolidate")
+async def learning_memory_consolidate(
+    req: LearningMemoryConsolidateRequest,
+) -> JSONResponse:
+    """Manually run L2 and/or L3 learner-memory consolidation."""
+    layer = req.layer.lower().strip()
+    result: dict[str, Any] = {}
+    if layer in {"all", "l2"}:
+        result["l2"] = consolidate_l2(
+            learning_orchestrator.memory,
+            user_id=req.user_id,
+            session_id=req.session_id,
+            surface=req.surface,
+            surfaces=req.surfaces,
+            limit=req.limit,
+        )
+    if layer in {"all", "l3"}:
+        result["l3"] = consolidate_l3(
+            learning_orchestrator.memory,
+            user_id=req.user_id,
+            session_id=req.session_id,
+            slot=req.slot,
+            limit=req.limit,
+        )
+    if not result:
+        result["error"] = "layer must be one of: all, l2, l3"
+    return JSONResponse(
+        {
+            "ok": "error" not in result,
+            "module": "learning",
+            "action": "memory_consolidate",
+            "result": result,
+        }
+    )
+
+
+def _learning_plan_response(action: str, result: dict[str, Any], status_code: int = 200) -> JSONResponse:
+    return JSONResponse(
+        {
+            "ok": status_code < 400,
+            "module": "learning",
+            "action": action,
+            "result": result,
+        },
+        status_code=status_code,
+    )
+
+
+def _learning_plan_error(action: str, exc: Exception, status_code: int) -> JSONResponse:
+    return _learning_plan_response(
+        action,
+        {"error": str(exc)},
+        status_code=status_code,
+    )
+
+
+@app.get("/api/learning/plan/{user_id}/month")
+async def learning_plan_month(user_id: str, year: int, month: int) -> JSONResponse:
+    """Return study-plan items grouped by calendar day for one month."""
+    try:
+        result = get_study_plan_month(
+            learning_orchestrator.memory,
+            user_id=user_id,
+            year=year,
+            month=month,
+        )
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_month", exc, 400)
+    return _learning_plan_response("study_plan_month", result)
+
+
+@app.get("/api/learning/plan/{user_id}/day/{plan_date}")
+async def learning_plan_day(user_id: str, plan_date: str) -> JSONResponse:
+    """Return study-plan items for one day."""
+    try:
+        result = get_study_plan_day(
+            learning_orchestrator.memory,
+            user_id=user_id,
+            plan_date=plan_date,
+        )
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_day", exc, 400)
+    return _learning_plan_response("study_plan_day", result)
+
+
+@app.post("/api/learning/plan/items")
+async def learning_plan_create_item(req: LearningPlanCreateRequest) -> JSONResponse:
+    """Create one study-plan to-do item."""
+    try:
+        result = create_study_plan_item(
+            learning_orchestrator.memory,
+            user_id=req.user_id,
+            plan_date=req.plan_date,
+            title=req.title,
+            notes=req.notes,
+            linked_course_id=req.linked_course_id,
+            linked_course_title=req.linked_course_title,
+            kg_node_ids=req.kg_node_ids,
+        )
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_create_item", exc, 400)
+    return _learning_plan_response("study_plan_create_item", result)
+
+
+@app.post("/api/learning/plan/items/{item_id}/update")
+async def learning_plan_update_item(
+    item_id: str,
+    req: LearningPlanUpdateRequest,
+) -> JSONResponse:
+    """Update one study-plan item."""
+    try:
+        updates = req.model_dump(exclude={"user_id"}, exclude_unset=True)
+        result = update_study_plan_item(
+            learning_orchestrator.memory,
+            item_id=item_id,
+            user_id=req.user_id,
+            updates=updates,
+        )
+    except KeyError as exc:
+        return _learning_plan_error("study_plan_update_item", exc, 404)
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_update_item", exc, 400)
+    return _learning_plan_response("study_plan_update_item", result)
+
+
+@app.post("/api/learning/plan/items/{item_id}/complete")
+async def learning_plan_complete_item(
+    item_id: str,
+    req: LearningPlanCompleteRequest,
+) -> JSONResponse:
+    """Toggle completion. Completed items feed a deterministic learner-memory signal."""
+    try:
+        result = complete_study_plan_item(
+            learning_orchestrator.memory,
+            item_id=item_id,
+            user_id=req.user_id,
+            completed=req.completed,
+        )
+    except KeyError as exc:
+        return _learning_plan_error("study_plan_complete_item", exc, 404)
+    return _learning_plan_response("study_plan_complete_item", result)
+
+
+@app.post("/api/learning/plan/items/{item_id}/defer")
+async def learning_plan_defer_item(
+    item_id: str,
+    req: LearningPlanDeferRequest,
+) -> JSONResponse:
+    """Move a plan item to another day, defaulting to the next day."""
+    try:
+        result = defer_study_plan_item(
+            learning_orchestrator.memory,
+            item_id=item_id,
+            user_id=req.user_id,
+            to_date=req.to_date,
+        )
+    except KeyError as exc:
+        return _learning_plan_error("study_plan_defer_item", exc, 404)
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_defer_item", exc, 400)
+    return _learning_plan_response("study_plan_defer_item", result)
+
+
+@app.delete("/api/learning/plan/items/{item_id}")
+async def learning_plan_delete_item(item_id: str, user_id: str = "demo") -> JSONResponse:
+    """Delete one study-plan item."""
+    try:
+        result = delete_study_plan_item(
+            learning_orchestrator.memory,
+            item_id=item_id,
+            user_id=user_id,
+        )
+    except KeyError as exc:
+        return _learning_plan_error("study_plan_delete_item", exc, 404)
+    return _learning_plan_response("study_plan_delete_item", result)
 
 
 @app.post("/api/learning/route")
@@ -604,6 +1079,120 @@ async def learning_interruption(req: LearningInterruptionRequest) -> JSONRespons
     )
 
 
+@app.post("/api/learning/interruption/stream")
+async def learning_interruption_stream(req: LearningInterruptionRequest) -> StreamingResponse:
+    """Stream QA progress events while preserving the route -> execute path."""
+
+    async def event_stream():
+        action = "interruption_stream"
+        started_at = time.perf_counter()
+        user_input = {"type": "interruption_question", "text": req.question}
+        yield _sse(
+            "start",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "received",
+                "session_id": req.session_id,
+                "message": "已收到中途提问，开始路由到 QA。",
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        try:
+            route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+            decision = route_result["decision"]
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "route",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "route_ready",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "route_ready",
+                "session_id": req.session_id,
+                "decision": decision,
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        exec_task = asyncio.create_task(
+            asyncio.to_thread(
+                learning_orchestrator.execute_policy_action,
+                req.session_id,
+                decision,
+                user_input,
+            )
+        )
+        messages = [
+            "正在读取当前小节 handout / evidence。",
+            "正在判断是否需要 targeted KAG search。",
+            "正在生成证据约束的 QA 回答。",
+            "正在更新学习画像与掌握度信号。",
+        ]
+        tick = 0
+        while not exec_task.done():
+            await asyncio.sleep(5)
+            tick += 1
+            yield _progress_event(
+                action=action,
+                phase="execute_qa",
+                message=messages[(tick - 1) % len(messages)],
+                started_at=started_at,
+                tick=tick,
+            )
+
+        try:
+            execution = await exec_task
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "execute_qa",
+                    "session_id": req.session_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "complete",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "elapsed_seconds": _elapsed(started_at),
+                "result": {
+                    "state": route_result["state"],
+                    "decision": decision,
+                    "execution": execution,
+                },
+            },
+        )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=_stream_headers(),
+    )
+
+
 @app.post("/api/learning/continue")
 async def learning_continue(req: LearningContinueRequest) -> JSONResponse:
     """Convenience: route(continue) -> execute (advance + next Tutor step)."""
@@ -624,6 +1213,120 @@ async def learning_continue(req: LearningContinueRequest) -> JSONResponse:
                 "execution": execution,
             },
         }
+    )
+
+
+@app.post("/api/learning/continue/stream")
+async def learning_continue_stream(req: LearningContinueRequest) -> StreamingResponse:
+    """Stream continue progress events while preserving the route -> execute path."""
+
+    async def event_stream():
+        action = "continue_stream"
+        started_at = time.perf_counter()
+        user_input = {"type": "continue"}
+        yield _sse(
+            "start",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "received",
+                "session_id": req.session_id,
+                "message": "已收到继续请求，开始进入下一节。",
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        try:
+            route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+            decision = route_result["decision"]
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "route",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "route_ready",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "route_ready",
+                "session_id": req.session_id,
+                "decision": decision,
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        exec_task = asyncio.create_task(
+            asyncio.to_thread(
+                learning_orchestrator.execute_policy_action,
+                req.session_id,
+                decision,
+                user_input,
+            )
+        )
+        messages = [
+            "正在检查下一节 handout/tutor cache。",
+            "如果后台已生成，将直接返回缓存讲解。",
+            "如果缓存未就绪，正在等待或同步生成下一节。",
+            "正在写入学习进度与事件。",
+        ]
+        tick = 0
+        while not exec_task.done():
+            await asyncio.sleep(5)
+            tick += 1
+            yield _progress_event(
+                action=action,
+                phase="execute_continue",
+                message=messages[(tick - 1) % len(messages)],
+                started_at=started_at,
+                tick=tick,
+            )
+
+        try:
+            execution = await exec_task
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "execute_continue",
+                    "session_id": req.session_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "complete",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "elapsed_seconds": _elapsed(started_at),
+                "result": {
+                    "state": route_result["state"],
+                    "decision": decision,
+                    "execution": execution,
+                },
+            },
+        )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=_stream_headers(),
     )
 
 
@@ -655,6 +1358,124 @@ async def learning_answer(req: LearningSubmitAnswerRequest) -> JSONResponse:
                 "execution": execution,
             },
         }
+    )
+
+
+@app.post("/api/learning/answer/stream")
+async def learning_answer_stream(req: LearningSubmitAnswerRequest) -> StreamingResponse:
+    """Stream assessment progress events while preserving route -> execute."""
+
+    async def event_stream():
+        action = "answer_stream"
+        started_at = time.perf_counter()
+        user_input = {
+            "type": "answer_submission",
+            "question": req.question,
+            "answer": req.answer,
+        }
+        yield _sse(
+            "start",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "received",
+                "session_id": req.session_id,
+                "message": "已收到小测答案，开始评估。",
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        try:
+            route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+            decision = route_result["decision"]
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "route",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "route_ready",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "route_ready",
+                "session_id": req.session_id,
+                "decision": decision,
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        exec_task = asyncio.create_task(
+            asyncio.to_thread(
+                learning_orchestrator.execute_policy_action,
+                req.session_id,
+                decision,
+                user_input,
+            )
+        )
+        messages = [
+            "正在分析用户选项与正确答案。",
+            "正在生成错因分析或正答解释。",
+            "正在关联 KG node 掌握度信号。",
+            "正在更新学习画像。",
+        ]
+        tick = 0
+        while not exec_task.done():
+            await asyncio.sleep(5)
+            tick += 1
+            yield _progress_event(
+                action=action,
+                phase="execute_assessment",
+                message=messages[(tick - 1) % len(messages)],
+                started_at=started_at,
+                tick=tick,
+            )
+
+        try:
+            execution = await exec_task
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "execute_assessment",
+                    "session_id": req.session_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "complete",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "elapsed_seconds": _elapsed(started_at),
+                "result": {
+                    "state": route_result["state"],
+                    "decision": decision,
+                    "execution": execution,
+                },
+            },
+        )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=_stream_headers(),
     )
 
 

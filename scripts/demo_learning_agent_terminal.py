@@ -22,9 +22,19 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+
+def _configure_stdio() -> None:
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+_configure_stdio()
 
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
@@ -37,6 +47,43 @@ from backend.services.learning.orchestrator import LearningOrchestrator
 
 def _clean_text(text: str) -> str:
     return text.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+
+
+def _run_with_progress(
+    title: str,
+    fn: Callable[[], Any],
+    messages: list[str],
+    *,
+    interval_seconds: float = 8.0,
+) -> Any:
+    done = threading.Event()
+
+    started_at = time.perf_counter()
+    print(f"[stream] {title} ...", flush=True)
+
+    def _progress() -> None:
+        tick = 0
+        while not done.wait(interval_seconds):
+            tick += 1
+            message = messages[(tick - 1) % len(messages)] if messages else "仍在处理"
+            elapsed = time.perf_counter() - started_at
+            print(f"[stream +{elapsed:.1f}s] {message}", flush=True)
+
+    progress_thread = threading.Thread(target=_progress, daemon=True)
+    progress_thread.start()
+    try:
+        value = fn()
+    except BaseException:
+        done.set()
+        progress_thread.join(timeout=1.0)
+        elapsed = time.perf_counter() - started_at
+        print(f"[stream +{elapsed:.1f}s] {title} 失败", flush=True)
+        raise
+    done.set()
+    progress_thread.join(timeout=1.0)
+    elapsed = time.perf_counter() - started_at
+    print(f"[stream +{elapsed:.1f}s] {title} 完成", flush=True)
+    return value
 
 
 def _print_bar(title: str) -> None:
@@ -305,10 +352,19 @@ def main() -> None:
     print(f"topic: {args.topic}")
     print("正在创建课程和生成大纲，这一步会真实调用 Planner / Resource Factory...")
 
-    start = orchestrator.start_lesson(
-        user_id=args.user_id,
-        topic=args.topic,
-        display_name="Terminal Demo User",
+    start = _run_with_progress(
+        "课程规划与第一节讲义生成",
+        lambda: orchestrator.start_lesson(
+            user_id=args.user_id,
+            topic=args.topic,
+            display_name="Terminal Demo User",
+        ),
+        [
+            "正在检索 KAG 证据并生成课程大纲。",
+            "正在绑定小节 evidence / KG node。",
+            "正在生成第一节 handout_section。",
+            "正在启动后续小节后台预生成。",
+        ],
     )
     session_id = start["session"]["id"]
     outline_nodes = start.get("outline", {}).get("nodes", [])
@@ -319,7 +375,15 @@ def main() -> None:
         print(f"  {idx}. {node.get('title', '?')}{marker}")
 
     _print_bar("生成第一节 Tutor")
-    current_step = orchestrator.next_step(session_id)
+    current_step = _run_with_progress(
+        "第一节 Tutor 讲解生成",
+        lambda: orchestrator.next_step(session_id),
+        [
+            "正在基于第一节 handout 生成 Tutor 讲解。",
+            "正在生成本节 quiz 与教学信号。",
+            "正在写入学习事件与掌握度信号。",
+        ],
+    )
     current_questions = _print_tutor_step(current_step)
 
     while True:
@@ -339,7 +403,16 @@ def main() -> None:
             continue
 
         if lower in {"3", "next", "continue", "c", "下一节", "继续"}:
-            result = orchestrator.continue_to_next_section(session_id)
+            result = _run_with_progress(
+                "继续到下一节",
+                lambda: orchestrator.continue_to_next_section(session_id),
+                [
+                    "正在检查下一节 handout/tutor cache。",
+                    "如果后台已生成，将直接返回缓存讲解。",
+                    "如果缓存未就绪，正在等待或同步生成下一节。",
+                    "正在写入学习进度与事件。",
+                ],
+            )
             _print_bar("Continue Result")
             print(f"advanced: {result.get('advanced')}")
             print(f"lesson_completed: {result.get('lesson_completed')}")
@@ -367,7 +440,15 @@ def main() -> None:
             if not answer:
                 print("未输入答案，本次取消。")
                 continue
-            result = orchestrator.submit_answer(session_id, question, answer)
+            result = _run_with_progress(
+                "小测评估",
+                lambda: orchestrator.submit_answer(session_id, question, answer),
+                [
+                    "正在分析用户选项与正确答案。",
+                    "正在生成错因分析或正答解释。",
+                    "正在更新掌握度与学习画像。",
+                ],
+            )
             _print_assessment(result)
             continue
 
@@ -377,7 +458,16 @@ def main() -> None:
             if not question_text:
                 print("未输入问题，本次取消。")
                 continue
-            qa_result = orchestrator.handle_interruption(session_id, question_text)
+            qa_result = _run_with_progress(
+                "中途 QA 回答生成",
+                lambda: orchestrator.handle_interruption(session_id, question_text),
+                [
+                    "正在读取当前小节 handout / evidence。",
+                    "正在判断是否需要 targeted KAG search。",
+                    "正在生成证据约束的 QA 回答。",
+                    "正在更新学习画像与掌握度信号。",
+                ],
+            )
             _print_qa_result(qa_result)
             continue
 

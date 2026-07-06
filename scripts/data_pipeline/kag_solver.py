@@ -80,6 +80,7 @@ class SolverConfig:
     embedding_model_dir: Path = DEFAULT_EMBEDDING_MODEL_DIR
     reranker_model_dir: Path = DEFAULT_RERANKER_MODEL_DIR
     enable_dense: bool = True
+    rerank_strategy: str = "model"
     require_reranker: bool = True
     dense_max_length: int = 512
     dense_num_threads: int = 4
@@ -252,11 +253,16 @@ class KAGSolver:
             )
         else:
             self.dense_manifest = {"status": "disabled"}
-        self.reranker = BGEReranker(
-            self.config.reranker_model_dir,
-            max_length=self.config.reranker_max_length,
-            required=self.config.require_reranker,
-        )
+        self.rerank_strategy = text(self.config.rerank_strategy or "model").lower()
+        if self.rerank_strategy not in {"model", "rrf"}:
+            raise ValueError(f"Unsupported rerank_strategy: {self.config.rerank_strategy}")
+        self.reranker: BGEReranker | None = None
+        if self.rerank_strategy == "model":
+            self.reranker = BGEReranker(
+                self.config.reranker_model_dir,
+                max_length=self.config.reranker_max_length,
+                required=self.config.require_reranker,
+            )
         self._chunks: dict[str, dict[str, Any]] | None = None
         self._nodes: dict[str, dict[str, Any]] | None = None
         self._questions: dict[str, dict[str, Any]] | None = None
@@ -648,10 +654,78 @@ class KAGSolver:
     def rerank_candidates(self, query: str, candidates: list[dict[str, Any]], *, top_k: int) -> list[dict[str, Any]]:
         if not candidates:
             return []
+        if self.rerank_strategy == "rrf":
+            return self.rrf_rank_candidates(candidates, top_k=top_k)
+        if self.reranker is None or not self.reranker.available:
+            if self.config.require_reranker:
+                raise RuntimeError("Reranker is required but not available.")
+            return self.rrf_rank_candidates(candidates, top_k=top_k)
         docs = [text(self.docs_by_id[item["doc_id"]].get("text"))[:4000] for item in candidates]
         scores = self.reranker.score(query, docs)
         ranked = [{**item, "rerank_score": round(float(score), 6)} for item, score in zip(candidates, scores)]
         return sorted(ranked, key=lambda item: item.get("rerank_score") or 0.0, reverse=True)[:top_k]
+
+    def rrf_rank_candidates(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        top_k: int,
+        rrf_k: int = 60,
+    ) -> list[dict[str, Any]]:
+        stage_scores: dict[str, dict[str, float]] = defaultdict(dict)
+        for item in candidates:
+            doc_id = text(item.get("doc_id"))
+            if not doc_id:
+                continue
+            retrieval_scores = item.get("retrieval_scores")
+            if isinstance(retrieval_scores, dict):
+                for stage, score in retrieval_scores.items():
+                    try:
+                        stage_scores[text(stage)][doc_id] = float(score)
+                    except (TypeError, ValueError):
+                        continue
+            graph_score = item.get("graph_score")
+            if graph_score is not None:
+                try:
+                    stage_scores["graph_ppr"][doc_id] = float(graph_score)
+                except (TypeError, ValueError):
+                    pass
+
+        rrf_scores: dict[str, float] = defaultdict(float)
+        rank_features: dict[str, dict[str, int]] = defaultdict(dict)
+        for stage, scores in stage_scores.items():
+            ranked_doc_ids = [
+                doc_id
+                for doc_id, _ in sorted(scores.items(), key=lambda pair: pair[1], reverse=True)
+            ]
+            for rank, doc_id in enumerate(ranked_doc_ids, 1):
+                rrf_scores[doc_id] += 1.0 / (rrf_k + rank)
+                rank_features[doc_id][stage] = rank
+
+        ranked: list[dict[str, Any]] = []
+        for item in candidates:
+            doc_id = text(item.get("doc_id"))
+            score = rrf_scores.get(doc_id, 0.0)
+            if score <= 0:
+                score = 1.0 / (rrf_k + int(item.get("_order") or 9999))
+            ranked.append(
+                {
+                    **item,
+                    "fusion_score": round(float(score), 8),
+                    "ranker": "rrf",
+                    "rank_features": dict(rank_features.get(doc_id, {})),
+                }
+            )
+        return sorted(
+            ranked,
+            key=lambda item: (
+                float(item.get("fusion_score") or 0.0),
+                len(item.get("matched_by") or []),
+                float(item.get("graph_score") or 0.0),
+                -int(item.get("_order") or 0),
+            ),
+            reverse=True,
+        )[:top_k]
 
     def hydrate_result(self, result: dict[str, Any]) -> dict[str, Any]:
         doc_id = result["doc_id"]
@@ -681,13 +755,18 @@ class KAGSolver:
         kg_nodes = [self.node_payload(item) for item in results if item.get("doc_type") == "kg_node"]
         kg_paths = self.build_paths([seed["doc_id"] for seed in candidate_pack["seeds"]], results)
         citations = self.build_citations(evidence_chunks)
+        operators = ["alias", "bm25"]
+        operators.append("dense_bge_m3" if self.config.enable_dense else "dense_disabled")
+        operators.append("graph_ppr")
+        operators.append("bge_reranker_v2_m3" if self.rerank_strategy == "model" else "rrf_fusion")
         return {
             "query": query,
             "task_type": task_type,
             "retrieval_trace": {
-                "operators": ["alias", "bm25", "dense_bge_m3", "graph_ppr", "bge_reranker_v2_m3"],
+                "operators": operators,
                 "dense_enabled": self.config.enable_dense,
                 "dense_provider": getattr(self.encoder, "provider", None),
+                "ranker": self.rerank_strategy,
                 "candidate_count": len(candidate_pack["candidates"]),
                 "gated_candidate_count": len(candidate_pack["gated_candidates"]),
                 "returned_count": len(results),
@@ -746,6 +825,8 @@ class KAGSolver:
             "chapter": node.get("chapter"),
             "matched_by": result.get("matched_by") or [],
             "rerank_score": result.get("rerank_score"),
+            "fusion_score": result.get("fusion_score"),
+            "ranker": result.get("ranker"),
             "graph_score": result.get("graph_score"),
         }
 

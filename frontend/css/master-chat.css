@@ -3,11 +3,12 @@
 }
 
 .chat-product-shell {
-  height: calc(100vh - var(--nav-height));
+  height: 100vh;
   min-height: 0;
-  margin-top: var(--nav-height);
-  padding-top: 0;
+  margin: 0 auto;
+  padding-top: var(--nav-height);
   background: var(--bg);
+  overflow: hidden;
 }
 
 .chat-history-panel {
@@ -78,10 +79,6 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-}
-
-.chat-topbar {
-  padding: 12px 18px 10px;
 }
 
 .chat-stage {

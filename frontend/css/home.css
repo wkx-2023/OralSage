@@ -13,11 +13,6 @@ html,
   grid-template-rows: 1fr;
 }
 
-.home-topbar {
-  background: rgba(255, 255, 255, 0.96);
-  border-bottom-color: #e7e1fb;
-}
-
 .home-main {
   height: calc(100vh - var(--nav-height));
   min-height: 0;

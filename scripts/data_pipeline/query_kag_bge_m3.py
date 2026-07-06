@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--alias-k", type=int, default=12)
     parser.add_argument("--ppr-k", type=int, default=80)
     parser.add_argument("--rerank-k", type=int, default=20)
+    parser.add_argument("--rerank-strategy", choices=["model", "rrf"], default="model")
     parser.add_argument("--dense-max-length", type=int, default=512)
     parser.add_argument("--dense-num-threads", type=int, default=4)
     parser.add_argument("--reranker-max-length", type=int, default=512)
@@ -59,12 +60,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    rerank_strategy = "rrf" if args.candidate_only_debug else args.rerank_strategy
     config = SolverConfig(
         kag_dir=args.kag_dir,
         embedding_model_dir=args.embedding_model_dir,
         reranker_model_dir=args.reranker_model_dir,
         enable_dense=not args.no_dense,
-        require_reranker=not args.candidate_only_debug,
+        rerank_strategy=rerank_strategy,
+        require_reranker=rerank_strategy == "model",
         dense_max_length=args.dense_max_length,
         dense_num_threads=args.dense_num_threads,
         reranker_max_length=args.reranker_max_length,

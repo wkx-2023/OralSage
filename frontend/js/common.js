@@ -7,6 +7,8 @@
   const NAV_ITEMS = [
     { key: 'home', name: '\u603b\u63a7\u5de5\u4f5c\u53f0', path: '/' },
     { key: 'master-chat', name: '\u667a\u80fd\u95ee\u7b54', path: '/pages/master-chat.html' },
+    { key: 'learning-plan', name: '学习计划', path: '/pages/learning-plan.html' },
+    { key: 'learning-profile', name: '\u5b66\u4e60\u753b\u50cf', path: '/pages/learning-profile.html' },
     { key: 'evidence', name: '\u77e5\u8bc6\u5e93\u67e5\u770b', path: '/pages/evidence.html' },
     { key: 'knowledge-graph', name: '\u77e5\u8bc6\u56fe\u8c31\u67e5\u770b', path: '/pages/knowledge-graph.html' },
   ];
@@ -22,6 +24,8 @@
     '/': { key: 'home', title: 'OralSage', subtitle: '\u53e3\u8154\u533b\u5b66\u667a\u80fd\u5b66\u4e60\u5de5\u4f5c\u53f0' },
     '/index.html': { key: 'home', title: 'OralSage', subtitle: '\u53e3\u8154\u533b\u5b66\u667a\u80fd\u5b66\u4e60\u5de5\u4f5c\u53f0' },
     '/pages/master-chat.html': { key: 'master-chat', title: '\u667a\u80fd\u95ee\u7b54', subtitle: TEXT.learningChatSubtitle },
+    '/pages/learning-plan.html': { key: 'learning-plan', title: '学习计划', subtitle: '按日记录学习计划、完成反馈和节奏记忆' },
+    '/pages/learning-profile.html': { key: 'learning-profile', title: '\u5b66\u4e60\u753b\u50cf', subtitle: '\u67e5\u770b\u957f\u671f\u8bb0\u5fc6\u3001\u638c\u63e1\u5ea6\u548c\u753b\u50cf\u8bc1\u636e' },
     '/pages/image.html': { key: 'image', title: '\u5f71\u50cf\u8bc6\u522b', subtitle: TEXT.shellSubtitle },
     '/pages/decision.html': { key: 'decision', title: '\u51b3\u7b56\u8f85\u52a9', subtitle: TEXT.shellSubtitle },
     '/pages/records.html': { key: 'records', title: '\u75c5\u5386\u751f\u6210', subtitle: TEXT.shellSubtitle },

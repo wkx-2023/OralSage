@@ -167,3 +167,50 @@ class LearningSubmitAnswerRequest(BaseModel):
     question: dict[str, Any]
     answer: str
     use_llm_policy: bool = False
+
+
+class LearningProfileSliceRequest(BaseModel):
+    user_id: str
+    role: str = "qa"
+    context: dict[str, Any] = Field(default_factory=dict)
+    limit: int = 6
+
+
+class LearningMemoryConsolidateRequest(BaseModel):
+    user_id: str
+    session_id: str | None = None
+    surface: str | None = None
+    surfaces: list[str] | None = None
+    slot: str | None = None
+    layer: str = "all"
+    limit: int = 200
+
+
+class LearningPlanCreateRequest(BaseModel):
+    user_id: str = "demo"
+    plan_date: str
+    title: str
+    notes: str | None = None
+    linked_course_id: str | None = None
+    linked_course_title: str | None = None
+    kg_node_ids: list[str] = Field(default_factory=list)
+
+
+class LearningPlanUpdateRequest(BaseModel):
+    user_id: str = "demo"
+    plan_date: str | None = None
+    title: str | None = None
+    notes: str | None = None
+    linked_course_id: str | None = None
+    linked_course_title: str | None = None
+    kg_node_ids: list[str] | None = None
+
+
+class LearningPlanCompleteRequest(BaseModel):
+    user_id: str = "demo"
+    completed: bool = True
+
+
+class LearningPlanDeferRequest(BaseModel):
+    user_id: str = "demo"
+    to_date: str | None = None
