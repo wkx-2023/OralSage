@@ -1498,7 +1498,13 @@
     toggle.id = 'style-dimension-toggle';
     toggle.className = 'style-dimension-toggle';
     toggle.innerHTML = '<summary>查看画像推理细节</summary>';
-    list.parentNode?.insertBefore(toggle, list);
+    const stylePanel = document.querySelector('.style-panel');
+    const styleLines = stylePanel?.querySelector('.style-lines');
+    if (stylePanel && styleLines) {
+      stylePanel.insertBefore(toggle, styleLines);
+    } else {
+      list.parentNode?.insertBefore(toggle, list);
+    }
     toggle.appendChild(list);
     return toggle;
   }
@@ -1641,7 +1647,13 @@
     toggle.id = 'style-dimension-toggle';
     toggle.className = 'style-dimension-toggle';
     toggle.innerHTML = '<summary>查看画像推理细节</summary>';
-    list.parentNode?.insertBefore(toggle, list);
+    const stylePanel = document.querySelector('.style-panel');
+    const styleLines = stylePanel?.querySelector('.style-lines');
+    if (stylePanel && styleLines) {
+      stylePanel.insertBefore(toggle, styleLines);
+    } else {
+      list.parentNode?.insertBefore(toggle, list);
+    }
     toggle.appendChild(list);
     return toggle;
   }
