@@ -12,8 +12,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-screen-webfont@1.7.0/style.css">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <link rel="stylesheet" href="/css/base.css?v=20260706-plan-nav">
-  <link rel="stylesheet" href="/css/learner-assessment.css?v=20260708-assessment-ui-v2">
-  <link rel="stylesheet" href="/css/learning-plan.css?v=20260706-calendar-boost">
+  <link rel="stylesheet" href="/css/learner-assessment.css?v=20260708-assessment-scroll-v5">
+  <link rel="stylesheet" href="/css/learning-plan.css?v=20260708-recommend-no-scroll-v1">
 </head>
 <body class="learning-plan-page">
   <div class="app-shell plan-shell">
@@ -67,7 +67,6 @@
           <aside class="todo-book" aria-label="计划本">
             <header class="todo-head">
               <div>
-                <span class="todo-kicker">To Do List</span>
                 <h2 id="todo-date"></h2>
               </div>
               <div id="todo-stats" class="todo-stats"></div>
@@ -77,22 +76,9 @@
               <button id="recommend-button" class="text-button recommend-button" type="button">系统推荐</button>
               <button id="recommend-clear" class="text-button recommend-clear" type="button" hidden>清空推荐</button>
             </div>
-            <section id="assessment-card" class="assessment-inline-card" aria-label="学习者测评入口">
-              <div class="assessment-inline-top">
-                <div>
-                  <span class="assessment-inline-kicker">Learner Assessment</span>
-                  <h3 id="assessment-card-title" class="assessment-inline-title">先完成学习者测评</h3>
-                </div>
-              </div>
-              <p id="assessment-card-copy" class="assessment-inline-copy">完成轻量测评后，系统会按你的时间预算和学习偏好生成更合适的学习计划。</p>
-              <div class="assessment-inline-actions">
-                <button id="assessment-open" class="assessment-inline-button primary" type="button">开始测评</button>
-              </div>
-            </section>
             <section id="recommend-panel" class="recommend-panel" aria-label="推荐计划预览" hidden>
               <div class="recommend-head">
                 <div>
-                  <span class="recommend-kicker">Suggested Plan</span>
                   <h3>系统推荐</h3>
                 </div>
                 <button id="recommend-accept-all" class="text-button recommend-accept-all" type="button">全部采纳</button>
@@ -114,7 +100,7 @@
   </div>
 
   <script src="/js/common.js?v=20260702-learning-shell"></script>
-  <script src="/js/learner-assessment-ui.js?v=20260708-assessment-ui-v2"></script>
-  <script src="/js/learning-plan.js?v=20260708-assessment-plan"></script>
+  <script src="/js/learner-assessment-ui.js?v=20260708-assessment-ui-v4"></script>
+  <script src="/js/learning-plan.js?v=20260708-plan-recommend-toast-v2"></script>
 </body>
 </html>

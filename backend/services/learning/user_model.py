@@ -57,6 +57,7 @@ def diagnose_profile(answers: dict[str, Any] | None = None) -> dict[str, Any]:
         "learner_type",
         "learner_type_summary",
         "assessment_source",
+        "review_need",
     ):
         val = answers.get(key)
         if isinstance(val, str) and val.strip():
@@ -75,6 +76,14 @@ def diagnose_profile(answers: dict[str, Any] | None = None) -> dict[str, Any]:
 
     if isinstance(answers.get("assessment_skipped"), bool):
         base["assessment_skipped"] = bool(answers["assessment_skipped"])
+
+    mastery_by_kg_node = answers.get("mastery_by_kg_node")
+    if isinstance(mastery_by_kg_node, dict):
+        base["mastery_by_kg_node"] = mastery_by_kg_node
+
+    plan_adherence = answers.get("plan_adherence")
+    if isinstance(plan_adherence, (int, float)):
+        base["plan_adherence"] = max(0.0, min(float(plan_adherence), 1.0))
 
     last_assessed_at = answers.get("last_assessed_at")
     if isinstance(last_assessed_at, str) and last_assessed_at.strip():

@@ -12,8 +12,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-screen-webfont@1.7.0/style.css">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <link rel="stylesheet" href="/css/base.css?v=20260706-plan-nav">
-  <link rel="stylesheet" href="/css/learner-assessment.css?v=20260708-assessment-ui-v3">
-  <link rel="stylesheet" href="/css/learning-profile.css?v=20260708-style-clean-v2">
+    <link rel="stylesheet" href="/css/learner-assessment.css?v=20260708-assessment-scroll-v5">
+    <link rel="stylesheet" href="/css/learning-profile.css?v=20260708-style-clean-v3">
 </head>
 <body class="learning-profile-page">
   <div class="app-shell profile-shell">
@@ -38,7 +38,7 @@
           <article class="metric-card tone-blue">
             <div class="metric-icon"><i data-lucide="network"></i></div>
             <div>
-              <span class="metric-label">本月计划</span>
+              <span class="metric-label">本日计划</span>
               <strong id="metric-knowledge">0</strong>
             </div>
           </article>
@@ -50,9 +50,9 @@
             </div>
           </article>
           <article class="metric-card tone-pink">
-            <div class="metric-icon"><i data-lucide="target"></i></div>
+            <div class="metric-icon"><i data-lucide="clock"></i></div>
             <div>
-              <span class="metric-label">画像信号</span>
+              <span class="metric-label">每日可用时间</span>
               <strong id="metric-accuracy">0</strong>
             </div>
           </article>
@@ -63,7 +63,7 @@
               </div>
               <span id="trend-range" class="panel-badge">近 7 天</span>
             </div>
-            <canvas id="learning-trend" class="trend-canvas" aria-label="每天学习事件与摘要数量折线图"></canvas>
+            <canvas id="learning-trend" class="trend-canvas" aria-label="每天完成事件数量折线图"></canvas>
           </section>
         </section>
 
@@ -75,7 +75,7 @@
               </div>
             </div>
             <div class="radar-wrap">
-              <canvas id="profile-radar" class="radar-canvas" aria-label="自主规划、执行反馈、学习节奏、薄弱修正、知识触达和练习反馈雷达图"></canvas>
+              <canvas id="profile-radar" class="radar-canvas" aria-label="自主规划、执行反馈、学习节奏、薄弱修正、知识掌握和练习反馈雷达图"></canvas>
             </div>
           </section>
 
@@ -97,14 +97,7 @@
                   <button id="profile-assessment-open" class="assessment-inline-button primary" type="button">进行测评</button>
                 </div>
               </section>
-              <div class="style-summary" aria-label="学习风格倾向">
-                <div class="style-summary-pill">
-                  <i id="style-summary-icon" data-lucide="lightbulb"></i>
-                  <strong id="style-summary-label">待形成学习风格</strong>
-                </div>
-                <p id="style-state-summary" class="style-state-summary">暂无足够稳定的画像证据，先采用标准讲解策略。</p>
-                <div id="style-dimension-list" class="style-dimension-list" aria-label="画像维度状态"></div>
-              </div>
+              <div id="style-dimension-list" class="style-dimension-list" aria-label="画像维度状态"></div>
               <div class="style-lines">
                 <p class="style-line">
                   <strong>易错点与错因：</strong>
@@ -149,7 +142,7 @@
   </div>
 
   <script src="/js/common.js?v=20260702-learning-shell"></script>
-  <script src="/js/learner-assessment-ui.js?v=20260708-assessment-ui-v3"></script>
-  <script src="/js/learning-profile.js?v=20260708-assessment-profile-v2"></script>
+  <script src="/js/learner-assessment-ui.js?v=20260708-assessment-ui-v4"></script>
+  <script src="/js/learning-profile.js?v=20260708-profile-metrics-v3"></script>
 </body>
 </html>

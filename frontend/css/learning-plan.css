@@ -450,13 +450,14 @@
 .todo-head {
   position: relative;
   z-index: 1;
+  grid-row: 1;
   min-width: 0;
-  min-height: calc(var(--todo-line-height) * 2);
+  min-height: calc(var(--todo-line-height) * 1.45);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  padding-top: 12px;
+  padding-top: 10px;
 }
 
 .todo-kicker {
@@ -498,11 +499,12 @@
 .todo-actions {
   position: relative;
   z-index: 1;
+  grid-row: 2;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  min-height: var(--todo-line-height);
+  min-height: 44px;
   padding-right: 2px;
 }
 
@@ -525,11 +527,18 @@
 .recommend-panel {
   position: relative;
   z-index: 1;
+  grid-row: 3;
   border: 1px solid rgba(91, 61, 184, 0.12);
   border-radius: 12px;
   background: linear-gradient(180deg, rgba(248, 246, 255, 0.88), rgba(255, 255, 255, 0.96));
   padding: 12px;
   margin-bottom: 10px;
+  display: grid;
+  grid-template-rows: auto auto;
+}
+
+.recommend-panel[hidden] {
+  display: none !important;
 }
 
 .recommend-head {
@@ -655,6 +664,8 @@
 .plan-form {
   position: relative;
   z-index: 1;
+  grid-row: 6;
+  align-self: end;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 36px;
   gap: 10px;
@@ -687,6 +698,7 @@
 .todo-list {
   position: relative;
   z-index: 1;
+  grid-row: 4;
   min-height: 0;
   display: grid;
   align-content: start;
@@ -696,14 +708,14 @@
   background:
     repeating-linear-gradient(
       to bottom,
-      var(--plan-paper-line) 0 1px,
-      transparent 1px calc(var(--todo-line-height) - 1px),
-      var(--plan-paper-line) calc(var(--todo-line-height) - 1px) var(--todo-line-height)
+      transparent 0 calc(var(--todo-line-height) - 1px),
+      rgba(103, 78, 146, 0.16) calc(var(--todo-line-height) - 1px) var(--todo-line-height)
     );
+  background-attachment: local;
 }
 
 .todo-empty {
-  margin: 8px 0 0;
+  margin: 2px 0 0;
   color: var(--plan-muted);
   font-size: 13px;
   font-weight: 700;
@@ -868,10 +880,44 @@
 .plan-status {
   position: relative;
   z-index: 1;
+  grid-row: 5;
   min-height: 18px;
   color: var(--plan-muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.plan-status:empty {
+  display: none;
+}
+
+.todo-toast {
+  position: absolute;
+  z-index: 5;
+  left: calc(50% + var(--todo-rule-left) / 2);
+  bottom: calc(16px + var(--todo-line-height) + 8px);
+  max-width: calc(100% - var(--todo-content-left) - 32px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  color: var(--plan-purple-dark);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 14px);
+  transition: opacity 180ms ease, transform 220ms ease;
+}
+
+.todo-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 @media (max-width: 1180px) {

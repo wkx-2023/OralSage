@@ -2010,15 +2010,15 @@ def _slot_items(memory: dict[str, Any], slot: str) -> list[dict[str, Any]]:
 def _infer_preferred_explanation(items: list[dict[str, Any]]) -> str | None:
     text = " ".join(str(item.get("text", "")) for item in items[:5])
     if any(word in text for word in ("病例", "案例", "临床")):
-        return "case_based"
+        return "case_first"
     if any(word in text for word in ("图", "表格", "结构")):
-        return "visual_structured"
+        return "concept_then_case"
     if any(word in text for word in ("概念", "原理", "机制")):
         return "concept_then_case"
-    if any(word in text for word in ("简洁", "短", "直接")):
-        return "concise"
+    if any(word in text for word in ("简洁", "短", "直接", "重点", "考点")):
+        return "exam_point_first"
     if any(word in text for word in ("详细", "展开", "一步步")):
-        return "detailed"
+        return "concept_then_case"
     return None
 
 

@@ -18,12 +18,14 @@
     selectedDate: dateKey(now.getFullYear(), now.getMonth() + 1, now.getDate()),
     monthData: null,
     profile: null,
+    assessmentState: null,
     editingId: '',
     loading: false,
     recommendations: [],
     recommendationDate: '',
     recommendationLoading: false,
     assessmentPrompted: false,
+    toastTimer: 0,
   };
 
   function pad(value) {
@@ -144,12 +146,38 @@
     node.dataset.tone = tone;
   }
 
+  function showPlanToast(message) {
+    const text = String(message || '').trim();
+    if (!text) return;
+    const book = document.querySelector('.todo-book');
+    if (!book) return;
+    let toast = byId('todo-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'todo-toast';
+      toast.className = 'todo-toast';
+      toast.setAttribute('role', 'status');
+      toast.setAttribute('aria-live', 'polite');
+      book.appendChild(toast);
+    }
+    window.clearTimeout(state.toastTimer);
+    toast.textContent = text;
+    toast.classList.remove('show');
+    void toast.offsetWidth;
+    toast.classList.add('show');
+    state.toastTimer = window.setTimeout(() => {
+      toast.classList.remove('show');
+      state.toastTimer = 0;
+    }, 1800);
+  }
+
   async function loadProfile({ silent = false } = {}) {
     try {
       const body = await apiGet(`/api/learning/profile/${encodeURIComponent(state.userId)}`);
       state.profile = body.result?.profile || {};
+      state.assessmentState = body.result?.assessment_state || null;
       renderAssessmentCard();
-      if (!silent && !state.assessmentPrompted && window.oralLearnerAssessment?.needsInitialAssessment(state.profile)) {
+      if (!silent && !state.assessmentPrompted && window.oralLearnerAssessment?.needsInitialAssessment(state.profile, state.assessmentState)) {
         state.assessmentPrompted = true;
         setTimeout(() => state.assessmentController?.open(), 120);
       }
@@ -322,11 +350,28 @@
     if (!card || !title || !copy || !button) return;
 
     const profile = state.profile || {};
-    const hasAssessment = Boolean(profile.assessment_source);
-    const skipped = Boolean(profile.assessment_skipped);
+    const assessmentState = state.assessmentState || {};
+    const hasAssessment = typeof assessmentState.has_assessment_record === 'boolean'
+      ? assessmentState.has_assessment_record
+      : Boolean(profile.assessment_source);
+    const skipped = typeof assessmentState.assessment_skipped === 'boolean'
+      ? assessmentState.assessment_skipped
+      : Boolean(profile.assessment_skipped);
+    const needs = typeof assessmentState.needs_initial_assessment === 'boolean'
+      ? assessmentState.needs_initial_assessment
+      : (!hasAssessment && !skipped);
+    const hasHistoryWithoutAssessment = assessmentState.reason === 'history_without_assessment';
     const learnerType = String(profile.learner_type || '').trim();
     const learnerSummary = String(profile.learner_type_summary || '').trim();
     const minutes = Number(profile.daily_available_minutes || 0);
+
+    if (skipped) {
+      title.textContent = '你已跳过初始测评';
+      copy.textContent = '当前系统使用默认画像生成计划。若想获得更精准推荐，可以随时补做测评。';
+      button.textContent = '立即测评';
+      card.hidden = false;
+      return;
+    }
 
     if (hasAssessment) {
       title.textContent = learnerType || '学习者画像已建立';
@@ -337,10 +382,18 @@
       return;
     }
 
-    if (skipped) {
-      title.textContent = '你已跳过初始测评';
-      copy.textContent = '当前系统使用默认画像生成计划。若想获得更精准推荐，可以随时补做测评。';
-      button.textContent = '立即测评';
+    if (hasHistoryWithoutAssessment) {
+      title.textContent = '学习画像已建立';
+      copy.textContent = '已检测到历史学习数据，当前不会自动重新初始化；如需校准计划偏好，可以手动重新测评。';
+      button.textContent = '重新测评';
+      card.hidden = false;
+      return;
+    }
+
+    if (!needs) {
+      title.textContent = '学习者画像已建立';
+      copy.textContent = `当前每日学习预算约 ${minutes || 45} 分钟，可继续基于此生成学习计划。`;
+      button.textContent = '重新测评';
       card.hidden = false;
       return;
     }
@@ -380,7 +433,6 @@
     };
     return mapping[String(learnerType || '').trim()] || {
       zh: '学习者画像已建立',
-      en: String(learnerType || '').trim() || 'Learner Profile Ready',
     };
   }
 
@@ -391,10 +443,7 @@
     const learnerType = String(profile.learner_type || '').trim();
     if (!title || !copy || !learnerType) return;
     const display = learnerTypeDisplay(learnerType);
-    title.innerHTML = `
-      <span class="assessment-inline-title-cn">${escapeHtml(display.zh)}</span>
-      <span class="assessment-inline-title-en">${escapeHtml(display.en)}</span>
-    `;
+    title.textContent = display.zh;
     copy.textContent = String(profile.learner_type_summary || '').trim()
       || '你更适合结构清晰、分层明确的学习组织方式。建议结合思维导图梳理重点，并在计划推进中有的放矢地抓住核心知识点。';
   }
@@ -516,10 +565,12 @@
       state.recommendations = Array.isArray(result.recommendations) ? result.recommendations : [];
       state.recommendationDate = state.selectedDate;
       if (state.recommendations.length) {
-        setStatus('已生成推荐计划，可以逐条采纳。');
+        setStatus('');
+        showPlanToast('已生成推荐计划，可以逐条采纳');
       } else {
         clearRecommendations();
-        setStatus('当前没有可推荐的计划项。');
+        setStatus('');
+        showPlanToast('当前没有可推荐的计划项');
       }
       renderRecommendations();
     } catch (err) {
@@ -537,7 +588,8 @@
     await apiPost('/api/learning/plan/items', recommendationPayload(item));
     state.recommendations = state.recommendations.filter((entry) => entry.recommendation_id !== recommendationId);
     if (!state.recommendations.length) clearRecommendations();
-    setStatus('已采纳一条推荐计划。');
+    setStatus('');
+    showPlanToast('已采纳一条推荐计划');
     await loadMonth({ silent: true });
     renderRecommendations();
   }
@@ -549,7 +601,8 @@
       await apiPost('/api/learning/plan/items', recommendationPayload(item));
     }
     clearRecommendations();
-    setStatus('已采纳全部推荐计划。');
+    setStatus('');
+    showPlanToast('已采纳全部推荐计划');
     await loadMonth({ silent: true });
     renderRecommendations();
   }
@@ -558,9 +611,11 @@
     state.recommendations = state.recommendations.filter((entry) => entry.recommendation_id !== recommendationId);
     if (!state.recommendations.length) {
       clearRecommendations();
-      setStatus('已清空推荐预览。');
+      setStatus('');
+      showPlanToast('已清空推荐预览');
     } else {
-      setStatus('已忽略一条推荐。');
+      setStatus('');
+      showPlanToast('已忽略一条推荐');
     }
     renderRecommendations();
   }
@@ -595,7 +650,8 @@
       title,
     });
     if (byId('plan-title')) byId('plan-title').value = '';
-    setStatus('已添加计划。');
+    setStatus('');
+    showPlanToast('增加计划成功');
     await loadMonth({ silent: true });
   }
 
@@ -615,7 +671,8 @@
 
   async function deleteItem(itemId) {
     await apiDelete(`/api/learning/plan/items/${encodeURIComponent(itemId)}?user_id=${encodeURIComponent(state.userId)}`);
-    setStatus('已删除计划。');
+    setStatus('');
+    showPlanToast('删除计划成功');
     await loadMonth({ silent: true });
   }
 
@@ -640,7 +697,8 @@
       kg_node_ids: kgIds,
     });
     state.editingId = '';
-    setStatus('已更新计划。');
+    setStatus('');
+    showPlanToast('修改计划成功');
     await loadMonth({ silent: true });
   }
 
@@ -670,7 +728,8 @@
     byId('recommend-clear')?.addEventListener('click', () => {
       clearRecommendations();
       renderRecommendations();
-      setStatus('已清空推荐预览。');
+      setStatus('');
+      showPlanToast('已清空推荐预览');
     });
 
     byId('recommend-accept-all')?.addEventListener('click', async () => {

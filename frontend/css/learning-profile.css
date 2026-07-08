@@ -527,6 +527,10 @@
   margin-bottom: 10px;
 }
 
+.style-summary[hidden] {
+  display: none !important;
+}
+
 .style-summary > span {
   color: var(--lp-muted);
   font-size: 11px;

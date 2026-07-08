@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .assessment import assess_answer
+from .audio import ensure_handout_audio, get_section_audio
 from .handout_cache import (
     get_handout_cache,
     list_handout_cache_status,
@@ -245,6 +246,10 @@ class LearningOrchestrator:
             "resources": resources,
             "current_outline_node_id": first_node_id,
             "first_handout_section_ready": first_section_ok,
+            "first_handout_audio": self._read_section_audio(
+                session_id,
+                first_node_id,
+            ),
             "outline_status": (
                 "initial_ready" if outline_completion_started else "complete"
             ),
@@ -370,6 +375,47 @@ class LearningOrchestrator:
     # Internal: handout section cache helpers
     # ------------------------------------------------------------------
 
+    def _ensure_handout_section_audio(
+        self,
+        *,
+        session_id: str,
+        outline_node_id: str,
+        handout_section: dict[str, Any],
+        source: str,
+    ) -> dict[str, Any]:
+        """Best-effort slide-level audio generation for a handout section."""
+        try:
+            return ensure_handout_audio(
+                session_id=session_id,
+                outline_node_id=outline_node_id,
+                handout_section=handout_section,
+                source=source,
+                resource_root=self.resource_root,
+            )
+        except Exception as exc:  # noqa: BLE001 - audio must not block handout
+            return {
+                "outline_node_id": outline_node_id,
+                "status": "failed",
+                "error": f"ensure_handout_audio_raised: {exc}",
+            }
+
+    def _read_section_audio(
+        self,
+        session_id: str,
+        outline_node_id: str | None,
+    ) -> dict[str, Any] | None:
+        """Read slide-level audio metadata for one section, if present."""
+        if not outline_node_id:
+            return None
+        try:
+            return get_section_audio(
+                session_id,
+                outline_node_id,
+                resource_root=self.resource_root,
+            )
+        except Exception:
+            return None
+
     def _prepare_first_handout_section_sync(
         self,
         session_id: str,
@@ -437,6 +483,12 @@ class LearningOrchestrator:
                 source="first_section_sync",
                 resource_root=self.resource_root,
             )
+            self._ensure_handout_section_audio(
+                session_id=session_id,
+                outline_node_id=first_node_id,
+                handout_section=hs,
+                source="first_section_sync",
+            )
             # Also populate in-memory cache for fast QA reads
             if first_node_id:
                 self._last_handout_sections[first_node_id] = hs
@@ -490,6 +542,12 @@ class LearningOrchestrator:
                 hs = existing.get("handout_section")
                 if hs and isinstance(hs, dict):
                     self._last_handout_sections[node_id] = hs
+                    self._ensure_handout_section_audio(
+                        session_id=session_id,
+                        outline_node_id=node_id,
+                        handout_section=hs,
+                        source="background_prefetch_cache_hit",
+                    )
                 return (node_id, True)
 
             # Mark pending
@@ -539,6 +597,12 @@ class LearningOrchestrator:
                     handout_section=hs,
                     source="background_prefetch",
                     resource_root=self.resource_root,
+                )
+                self._ensure_handout_section_audio(
+                    session_id=session_id,
+                    outline_node_id=node_id,
+                    handout_section=hs,
+                    source="background_prefetch",
                 )
                 self._last_handout_sections[node_id] = hs
 
@@ -758,6 +822,12 @@ class LearningOrchestrator:
             _ho_section = _ho_cache.get("handout_section")
             if _ho_section and current_node_id:
                 self._last_handout_sections[current_node_id] = _ho_section
+                self._ensure_handout_section_audio(
+                    session_id=session_id,
+                    outline_node_id=current_node_id,
+                    handout_section=_ho_section,
+                    source="tutor_cache_hit",
+                )
 
         exposure_recorded = False
         exposure_memory_update: dict[str, Any] | None = None
@@ -808,6 +878,7 @@ class LearningOrchestrator:
             tutor_cache_record.get("trace", {}).get("handout_source", "")
         )
         step["cache_miss_sync_generation"] = False
+        step["section_audio"] = self._read_section_audio(session_id, current_node_id)
 
         tutor_step_event_id = self.memory.record_event(
             session_id=session_id,
@@ -954,6 +1025,12 @@ class LearningOrchestrator:
                         _ho_section = _ho_cache.get("handout_section")
                         if _ho_section and current_node_id:
                             self._last_handout_sections[current_node_id] = _ho_section
+                            self._ensure_handout_section_audio(
+                                session_id=session_id,
+                                outline_node_id=current_node_id,
+                                handout_section=_ho_section,
+                                source="tutor_cache_hit",
+                            )
 
                     # Record exposure from cached step
                     _cached_kg = (
@@ -1008,6 +1085,10 @@ class LearningOrchestrator:
                         )
                     )
                     step["cache_miss_sync_generation"] = False
+                    step["section_audio"] = self._read_section_audio(
+                        session_id,
+                        current_node_id,
+                    )
 
                     # Record event
                     tutor_step_event_id = self.memory.record_event(
@@ -1066,6 +1147,13 @@ class LearningOrchestrator:
                 ):
                     # Cache hit — use cached handout section directly
                     hs = cache_record.get("handout_section") or {}
+                    if hs and current_node_id:
+                        self._ensure_handout_section_audio(
+                            session_id=session_id,
+                            outline_node_id=current_node_id,
+                            handout_section=hs,
+                            source="next_step_handout_cache_hit",
+                        )
                     handout_cache_hit = True
                     handout_generation_source = (
                         cache_record.get("trace", {}).get("source", "")
@@ -1092,6 +1180,12 @@ class LearningOrchestrator:
                             source="cache_miss_sync_generation",
                             resource_root=self.resource_root,
                         )
+                        self._ensure_handout_section_audio(
+                            session_id=session_id,
+                            outline_node_id=current_node_id or "",
+                            handout_section=hs,
+                            source="cache_miss_sync_generation",
+                        )
                 else:
                     # missing / failed — sync generation as fallback
                     try:
@@ -1112,6 +1206,12 @@ class LearningOrchestrator:
                             handout_section=hs,
                             source="cache_miss_sync_generation",
                             resource_root=self.resource_root,
+                        )
+                        self._ensure_handout_section_audio(
+                            session_id=session_id,
+                            outline_node_id=current_node_id or "",
+                            handout_section=hs,
+                            source="cache_miss_sync_generation",
                         )
 
                 if hs.get("section_status") != "llm_generated" and cache_miss_sync_generation:
@@ -1138,6 +1238,13 @@ class LearningOrchestrator:
                     )
                     if self._is_ready_handout_cache(refreshed_handout_cache):
                         hs = refreshed_handout_cache.get("handout_section") or {}
+                        if hs and current_node_id:
+                            self._ensure_handout_section_audio(
+                                session_id=session_id,
+                                outline_node_id=current_node_id,
+                                handout_section=hs,
+                                source="next_step_refreshed_handout_cache",
+                            )
                         handout_cache_hit = True
                         handout_generation_source = (
                             refreshed_handout_cache.get("trace", {}).get("source", "")
@@ -1239,6 +1346,10 @@ class LearningOrchestrator:
                         step["tutor_cache_hit"] = tutor_cache_hit
                         step["tutor_cache_miss_sync_generation"] = tutor_cache_miss_sync_generation
                         step["tutor_generation_source"] = tutor_generation_source
+                        step["section_audio"] = self._read_section_audio(
+                            session_id,
+                            current_node_id,
+                        )
                     else:
                         # LLM tutor failed — try rule-based below
                         refreshed_tutor_cache = get_tutor_cache(
@@ -1260,6 +1371,10 @@ class LearningOrchestrator:
                         step["tutor_cache_hit"] = tutor_cache_hit
                         step["tutor_cache_miss_sync_generation"] = tutor_cache_miss_sync_generation
                         step["tutor_generation_source"] = tutor_generation_source
+                        step["section_audio"] = self._read_section_audio(
+                            session_id,
+                            current_node_id,
+                        )
                         pass
                 else:
                     step = {"content_status": "failed",
@@ -1287,6 +1402,7 @@ class LearningOrchestrator:
             step.setdefault("tutor_cache_hit", False)
             step.setdefault("tutor_cache_miss_sync_generation", False)
             step.setdefault("tutor_generation_source", "")
+        step.setdefault("section_audio", self._read_section_audio(session_id, current_node_id))
 
         # ================================================================
         # Record event (common for both paths)

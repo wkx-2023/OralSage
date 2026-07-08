@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 from typing import Any
 
@@ -296,7 +297,13 @@ def submit_learner_assessment(
     if instrument_version != INSTRUMENT_VERSION:
         raise ValueError(f"unsupported instrument_version: {instrument_version}")
 
-    existing = memory.get_or_create_profile(user_id)
+    stored_existing = memory.get_profile(user_id)
+    state = memory.learner_assessment_state(user_id, profile=stored_existing)
+    if state.get("needs_initial_assessment"):
+        memory.ensure_user(user_id)
+        existing = copy.deepcopy(DEFAULT_PROFILE)
+    else:
+        existing = memory.get_or_create_profile(user_id)
     if skip_assessment:
         patch = {
             "assessment_skipped": True,

@@ -19,6 +19,9 @@ DEFAULT_PROFILE: dict[str, Any] = {
     "learner_type_summary": "",
     "known_weak_points": [],
     "mistake_patterns": [],
+    "mastery_by_kg_node": {},
+    "plan_adherence": 0.0,
+    "review_need": "normal",
     "target_exam": None,
     "assessment_skipped": False,
     "last_assessed_at": None,
@@ -64,6 +67,17 @@ class LearningProfile(BaseModel):
         default_factory=list,
         description="Recurring mistake patterns",
     )
+    mastery_by_kg_node: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Current mastery summary keyed by KG node id",
+    )
+    plan_adherence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Study-plan adherence summary",
+    )
+    review_need: str = Field(default="normal", description="Current review intensity need")
     target_exam: str | None = Field(default=None, description="Target exam, if any")
     assessment_skipped: bool = Field(
         default=False,

@@ -11,7 +11,7 @@ from .services.env_loader import load_project_env
 
 load_project_env()
 
-from fastapi import FastAPI, File, Form, Response, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -68,6 +68,7 @@ from .services.record_workflow import correct_asr, extract_fields, generate_reco
 from .services.stats.dashboard import run_stats_filter, stats_options
 from .services.stats import run_stats_query
 from .services.learning.orchestrator import LearningOrchestrator, decide_next_action
+from .services.learning.audio import get_audio_manifest
 from .services.learning.llm_policy import decide_next_action_with_llm
 from .services.learning.learner_assessment import (
     get_learner_assessment_definition,
@@ -253,6 +254,8 @@ def capabilities() -> dict[str, Any]:
             "/api/learning/session/start",
             "/api/learning/session/start/stream",
             "/api/learning/session/{session_id}/state",
+            "/api/learning/session/{session_id}/audio-manifest",
+            "/api/learning/session/{session_id}/audio/{outline_node_id}/{filename}",
             "/api/learning/assessment",
             "/api/learning/assessment/submit",
             "/api/learning/profile/{user_id}",
@@ -668,6 +671,9 @@ async def learning_session_start_stream(req: LearningStartRequest) -> StreamingR
                     for node in outline_nodes
                 ],
                 "first_handout_section_ready": start_result.get("first_handout_section_ready"),
+                "first_handout_audio_status": (
+                    start_result.get("first_handout_audio", {}) or {}
+                ).get("status"),
                 "outline_status": start_result.get("outline_status", "complete"),
                 "outline_completion_started": start_result.get(
                     "outline_completion_started",
@@ -724,6 +730,9 @@ async def learning_session_start_stream(req: LearningStartRequest) -> StreamingR
                 "outline_node_id": tutor_step.get("outline_node_id"),
                 "content_status": tutor_step.get("content_status"),
                 "question_count": len(tutor_step.get("questions") or []),
+                "section_audio_status": (
+                    tutor_step.get("section_audio", {}) or {}
+                ).get("status"),
                 "elapsed_seconds": _elapsed(started_at),
             },
         )
@@ -771,6 +780,40 @@ async def learning_session_state(session_id: str) -> JSONResponse:
             },
         }
     )
+
+
+@app.get("/api/learning/session/{session_id}/audio-manifest")
+async def learning_session_audio_manifest(session_id: str) -> JSONResponse:
+    """Return the slide-level audio manifest for a learning session."""
+    manifest = get_audio_manifest(
+        session_id,
+        resource_root=learning_orchestrator.resource_root,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "audio_manifest",
+            "result": manifest,
+        }
+    )
+
+
+@app.get("/api/learning/session/{session_id}/audio/{outline_node_id}/{filename}")
+async def learning_session_audio_file(
+    session_id: str,
+    outline_node_id: str,
+    filename: str,
+) -> FileResponse:
+    """Return one generated slide audio file."""
+    session_dir = Path(learning_orchestrator.resource_root) / session_id
+    audio_root = (session_dir / "audio_files").resolve()
+    candidate = (audio_root / outline_node_id / filename).resolve()
+    if audio_root not in candidate.parents:
+        raise HTTPException(status_code=404, detail="Audio file not found")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Audio file not found")
+    return FileResponse(candidate)
 
 
 @app.get("/api/learning/assessment")
@@ -836,6 +879,10 @@ async def learning_profile(user_id: str) -> JSONResponse:
         user_id,
         limit=100,
     )
+    assessment_state = learning_orchestrator.memory.learner_assessment_state(
+        user_id,
+        profile=profile,
+    )
     return JSONResponse(
         {
             "ok": True,
@@ -847,6 +894,7 @@ async def learning_profile(user_id: str) -> JSONResponse:
                 "learner_memory": learner_memory,
                 "learning_summaries": summaries,
                 "recent_events": recent_events,
+                "assessment_state": assessment_state,
             },
         }
     )

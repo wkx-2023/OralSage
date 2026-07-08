@@ -31,11 +31,25 @@
     return body;
   }
 
-  function needsInitialAssessment(profile = {}) {
+  function assessmentState(profile = {}, explicitState = null) {
+    if (explicitState && typeof explicitState === 'object') return explicitState;
+    if (profile?.assessment_state && typeof profile.assessment_state === 'object') return profile.assessment_state;
+    return null;
+  }
+
+  function needsInitialAssessment(profile = {}, explicitState = null) {
+    const state = assessmentState(profile, explicitState);
+    if (state && typeof state.needs_initial_assessment === 'boolean') {
+      return state.needs_initial_assessment;
+    }
     return !profile.assessment_source && !profile.assessment_skipped;
   }
 
-  function skippedAssessment(profile = {}) {
+  function skippedAssessment(profile = {}, explicitState = null) {
+    const state = assessmentState(profile, explicitState);
+    if (state && typeof state.assessment_skipped === 'boolean') {
+      return state.assessment_skipped;
+    }
     return Boolean(profile.assessment_skipped);
   }
 
@@ -70,7 +84,6 @@
         <div class="learner-assessment-dialog" role="dialog" aria-modal="true" aria-labelledby="learner-assessment-title">
           <div class="learner-assessment-head">
             <div>
-              <span class="learner-assessment-kicker">Onboarding</span>
               <h2 id="learner-assessment-title">${escapeHtml(config.title)}</h2>
               <p class="learner-assessment-subtitle">先花 1-2 分钟完成轻量测评，系统会据此生成更适合你的学习计划。</p>
             </div>

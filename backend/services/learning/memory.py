@@ -8,6 +8,7 @@ back with ``json.loads``.
 from __future__ import annotations
 
 import json
+import copy
 import sqlite3
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -187,6 +188,88 @@ def _json_list(value: Any) -> list[str]:
     return result
 
 
+_PROFILE_HISTORY_KEYS = (
+    "level",
+    "goal",
+    "preferred_explanation",
+    "pace",
+    "daily_available_minutes",
+    "assessment_preference",
+    "planning_support_need",
+    "learner_type",
+    "learner_type_summary",
+    "known_weak_points",
+    "mistake_patterns",
+    "mastery_by_kg_node",
+    "plan_adherence",
+    "review_need",
+    "target_exam",
+    "assessment_skipped",
+    "last_assessed_at",
+    "assessment_source",
+)
+
+
+def _profile_with_defaults(profile: dict[str, Any] | None) -> dict[str, Any]:
+    """Return a compact profile with all stable fields present."""
+    result = copy.deepcopy(DEFAULT_PROFILE)
+    if isinstance(profile, dict):
+        result.update(profile)
+    for key in ("known_weak_points", "mistake_patterns"):
+        if not isinstance(result.get(key), list):
+            result[key] = []
+    if not isinstance(result.get("mastery_by_kg_node"), dict):
+        result["mastery_by_kg_node"] = {}
+    return result
+
+
+def _profile_has_history_data(profile: dict[str, Any] | None) -> bool:
+    """Return True when a profile contains user-specific non-default data."""
+    if not isinstance(profile, dict):
+        return False
+    normalized = _profile_with_defaults(profile)
+    defaults = copy.deepcopy(DEFAULT_PROFILE)
+    for key in _PROFILE_HISTORY_KEYS:
+        if normalized.get(key) != defaults.get(key):
+            return True
+    try:
+        confidence = float(normalized.get("confidence", defaults["confidence"]))
+    except (TypeError, ValueError):
+        return True
+    return confidence > float(defaults["confidence"])
+
+
+def _learner_memory_row_has_history(slot: str, data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+    if slot == "profile_state":
+        if data.get("evidence_ids"):
+            return True
+        if data.get("weakness_summary") or data.get("mastery_summary"):
+            return True
+        style = data.get("style")
+        if isinstance(style, dict):
+            for dimension in style.values():
+                if not isinstance(dimension, dict):
+                    continue
+                options = dimension.get("options")
+                if not isinstance(options, dict):
+                    continue
+                for option in options.values():
+                    if not isinstance(option, dict):
+                        continue
+                    if option.get("evidence_ids"):
+                        return True
+                    try:
+                        if float(option.get("evidence_count", 0)) > 0:
+                            return True
+                    except (TypeError, ValueError):
+                        continue
+        return False
+    items = data.get("items")
+    return isinstance(items, list) and any(isinstance(item, dict) for item in items)
+
+
 class LearningMemory:
     """SQLite-backed memory store for the learning agent.
 
@@ -245,18 +328,25 @@ class LearningMemory:
     ) -> dict:
         """Return the stored profile dict or create one from DEFAULT_PROFILE."""
         self.ensure_user(user_id, display_name)
+        profile = self.get_profile(user_id)
+        if profile is not None:
+            return profile
+        return self.save_profile(user_id, copy.deepcopy(DEFAULT_PROFILE))
+
+    def get_profile(self, user_id: str) -> dict[str, Any] | None:
+        """Return the stored profile dict, or None without creating defaults."""
         row = self._conn.execute(
             "SELECT * FROM user_profiles WHERE user_id = ?", (user_id,)
         ).fetchone()
-        if row:
-            profile = json.loads(row["profile_json"])
-            profile["confidence"] = row["confidence"]
-            return profile
-        return self.save_profile(user_id, dict(DEFAULT_PROFILE))
+        if row is None:
+            return None
+        profile = json.loads(row["profile_json"])
+        profile["confidence"] = row["confidence"]
+        return _profile_with_defaults(profile)
 
     def save_profile(self, user_id: str, profile: dict) -> dict:
         """Persist a profile dict.  ``confidence`` is extracted to its own column."""
-        profile = {**profile}
+        profile = _profile_with_defaults(profile)
         confidence = float(profile.pop("confidence", DEFAULT_PROFILE["confidence"]))
         profile_json = json.dumps(profile, ensure_ascii=False)
         self._conn.execute(
@@ -269,6 +359,90 @@ class LearningMemory:
         # return the full dict as the caller would see it
         profile["confidence"] = confidence
         return profile
+
+    def user_has_history_data(
+        self,
+        user_id: str,
+        *,
+        profile: dict[str, Any] | None = None,
+        include_profile: bool = True,
+    ) -> bool:
+        """Return True when the user has persisted learning or profile history."""
+        if include_profile:
+            stored_profile = profile if profile is not None else self.get_profile(user_id)
+            if _profile_has_history_data(stored_profile):
+                return True
+
+        for table in (
+            "learning_sessions",
+            "lesson_events",
+            "mastery_records",
+            "answer_records",
+            "learning_summaries",
+            "study_plan_items",
+        ):
+            row = self._conn.execute(
+                f"SELECT 1 FROM {table} WHERE user_id = ? LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            if row is not None:
+                return True
+
+        rows = self._conn.execute(
+            "SELECT slot, data_json FROM learner_memory WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        for row in rows:
+            try:
+                data = json.loads(row["data_json"])
+            except json.JSONDecodeError:
+                continue
+            if _learner_memory_row_has_history(str(row["slot"]), data):
+                return True
+        return False
+
+    def learner_assessment_state(
+        self,
+        user_id: str,
+        *,
+        profile: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return onboarding state used by frontend gates."""
+        stored_profile = profile if profile is not None else self.get_profile(user_id)
+        normalized = _profile_with_defaults(stored_profile)
+        has_assessment_record = bool(
+            normalized.get("assessment_source")
+            or normalized.get("assessment_skipped")
+            or normalized.get("last_assessed_at")
+        )
+        is_default_profile = not _profile_has_history_data(stored_profile)
+        has_history_data = self.user_has_history_data(
+            user_id,
+            profile=stored_profile,
+            include_profile=True,
+        )
+        needs_initial_assessment = not has_assessment_record and not has_history_data
+        reason = "ready"
+        if needs_initial_assessment:
+            reason = "no_assessment_or_history"
+        elif not has_assessment_record and has_history_data:
+            reason = "history_without_assessment"
+        elif normalized.get("assessment_skipped"):
+            reason = "assessment_skipped"
+        elif has_assessment_record:
+            reason = "assessment_completed"
+        return {
+            "schema_version": "v1",
+            "has_assessment_record": has_assessment_record,
+            "assessment_skipped": bool(normalized.get("assessment_skipped")),
+            "assessment_source": normalized.get("assessment_source"),
+            "last_assessed_at": normalized.get("last_assessed_at"),
+            "has_history_data": has_history_data,
+            "is_default_profile": is_default_profile,
+            "needs_initial_assessment": needs_initial_assessment,
+            "can_retake": True,
+            "reason": reason,
+        }
 
     # -- study plan ----------------------------------------------------
 

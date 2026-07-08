@@ -33,6 +33,10 @@
     clinical: '临床应用',
     concept_then_case: '概念后接病例',
     case_first: '病例导入',
+    exam_point_first: '考点优先',
+    practice_first: '练习优先',
+    clinical_application: '临床应用',
+    gap_repair: '查漏补缺',
     concise: '简洁要点',
     detailed: '详细推导',
     standard: '标准节奏',
@@ -75,6 +79,7 @@
     entry_mode: '进入方式',
     interaction_tendency: '交互倾向',
     pace: '节奏偏好',
+    planning_support_need: '计划引导',
   };
 
   const STYLE_OPTION_LABELS = {
@@ -90,6 +95,9 @@
     asks_exam_points: '关注考点',
     passive: '较少互动',
     slow: '偏慢',
+    normal: '正常',
+    low: '低',
+    high: '高',
     fast: '偏快',
   };
 
@@ -289,12 +297,12 @@
     return profileStateEvidenceCount(stateSnapshot) > 0;
   }
 
-  function needsInitialAssessment(profile = {}) {
-    return window.oralLearnerAssessment?.needsInitialAssessment(profile) || false;
+  function needsInitialAssessment(profile = {}, assessmentState = null) {
+    return window.oralLearnerAssessment?.needsInitialAssessment(profile, assessmentState) || false;
   }
 
-  function skippedAssessment(profile = {}) {
-    return window.oralLearnerAssessment?.skippedAssessment(profile) || false;
+  function skippedAssessment(profile = {}, assessmentState = null) {
+    return window.oralLearnerAssessment?.skippedAssessment(profile, assessmentState) || false;
   }
 
   function planItemsFromEvents() {
@@ -342,6 +350,13 @@
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${date.getFullYear()}-${month}-${day}`;
+  }
+
+  function itemDateKey(item = {}) {
+    const raw = item.plan_date || item.updated_at || item.created_at || '';
+    const text = String(raw || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+    return dateKey(text);
   }
 
   function displayDay(key) {
@@ -412,7 +427,8 @@
       render();
       renderAssessmentCard();
       const profile = state.data?.profile || {};
-      if (!silent && !state.assessmentPrompted && needsInitialAssessment(profile)) {
+      const assessmentState = state.data?.assessment_state || null;
+      if (!silent && !state.assessmentPrompted && needsInitialAssessment(profile, assessmentState)) {
         state.assessmentPrompted = true;
         setTimeout(() => state.assessmentController?.open(), 120);
       }
@@ -451,6 +467,8 @@
     const events = allEvents();
     const summaries = allSummaries();
     const profile = state.data?.profile || {};
+    const stateSnapshot = profileState();
+    const stateEvidenceCount = profileStateEvidenceCount(stateSnapshot);
     const masteryItems = slotItems('mastery');
     const weaknessItems = slotItems('weaknesses');
     const rhythmItems = slotItems('rhythm');
@@ -534,6 +552,10 @@
       ? planItems.filter((item) => item.status === 'completed').length
       : completedPlanIdsFromEvents.size;
     const planPending = planTotal ? Math.max(0, planTotal - planCompleted) : 0;
+    const todayKey = dateKey(new Date());
+    const todayPlanItems = planItems.filter((item) => itemDateKey(item) === todayKey);
+    const todayPlanTotal = todayPlanItems.length;
+    const todayPlanCompleted = todayPlanItems.filter((item) => item.status === 'completed').length;
     const completedPlanEventCount = planEvents.filter((event) => event.event_type === 'study_plan_item_completed').length;
     const deferredPlanEventCount = planEvents.filter((event) => event.event_type === 'study_plan_item_deferred').length;
 
@@ -553,27 +575,30 @@
     const completedCourseRate = startedCourses ? clamp01(completedCourses / startedCourses) : 0;
     const courseProgress = clamp01(Math.max(completedCourseRate, nodeProgressRate));
 
-    const masteryAverage = average(
-      masteryItems.map((item) => item.score ?? item.confidence),
-      clamp01(profile.confidence ?? 0),
-    );
-    const confidenceAverage = average(
-      [...masteryItems, ...weaknessItems, ...slotItems('preferences'), ...slotItems('goals'), ...rhythmItems]
-        .map((item) => item.confidence),
-      clamp01(profile.confidence ?? 0),
-    );
-    const weaknessSeverity = average(
-      weaknessItems.map((item) => item.severity ?? item.confidence),
-      weaknessItems.length ? 0.5 : 0,
-    );
-    const rhythmAverage = average(
-      rhythmItems.map((item) => item.confidence),
-      profile.pace === 'fast' ? 0.7 : profile.pace === 'slow' ? 0.62 : 0.66,
-    );
+    const masteryAverage = masteryItems.length
+      ? average(masteryItems.map((item) => item.score ?? item.confidence), 0)
+      : 0;
+    const confidenceItems = [
+      ...masteryItems,
+      ...weaknessItems,
+      ...slotItems('preferences'),
+      ...slotItems('goals'),
+      ...rhythmItems,
+    ];
+    const confidenceAverage = confidenceItems.length
+      ? average(confidenceItems.map((item) => item.confidence), 0)
+      : 0;
+    const weaknessSeverity = weaknessItems.length
+      ? average(weaknessItems.map((item) => item.severity ?? item.confidence), 0.5)
+      : 0;
+    const weaknessControl = weaknessItems.length ? clamp01(1 - weaknessSeverity * 0.8) : 0;
+    const rhythmAverage = rhythmItems.length
+      ? average(rhythmItems.map((item) => item.confidence), 0)
+      : 0;
     const planActivity = planTotal
       ? clamp01((planCompleted + planPending * 0.35 + deferredPlanEventCount * 0.2) / planTotal)
       : clamp01(planEvents.length / 6);
-    const memorySignalCount = memoryItems.length;
+    const memorySignalCount = memoryItems.length + stateEvidenceCount;
     const backendSignalCount = events.length + summaries.length + memorySignalCount;
     const recentSignalCount = backendSignalCount + planTotal;
     const planCompletionEvidence = planTotal
@@ -601,7 +626,7 @@
       qaEngagement: clamp01(qaCount / 5),
       masteryAverage: clamp01(masteryAverage),
       confidenceAverage: clamp01(confidenceAverage),
-      weaknessControl: clamp01(1 - weaknessSeverity * 0.8),
+      weaknessControl,
       rhythmAverage: clamp01(rhythmAverage),
       profileConfidence: clamp01(profile.confidence ?? 0),
       eventsCount: events.length,
@@ -609,6 +634,8 @@
       planTotal,
       planCompleted,
       planPending,
+      todayPlanTotal,
+      todayPlanCompleted,
       planEventCount: planEvents.length,
       completedPlanEventCount,
       deferredPlanEventCount,
@@ -625,49 +652,33 @@
 
   function buildDailyTrend() {
     const events = allEvents();
-    const summaries = allSummaries();
-    const dates = [
-      ...events.map((event) => timestamp(event.created_at)),
-      ...summaries.map((summary) => timestamp(summary.created_at)),
-    ].filter(Boolean);
+    const dates = events.map((event) => timestamp(event.created_at)).filter(Boolean);
     const endDate = dates.length ? new Date(Math.max(...dates)) : new Date();
     const keys = Array.from({ length: 7 }, (_, index) => dateKey(addDays(endDate, index - 6)));
-    const byDay = new Map(keys.map((key) => [key, new Set()]));
-    const fallbackCounts = new Map(keys.map((key) => [key, 0]));
+    const eventCounts = new Map(keys.map((key) => [key, 0]));
 
     events.forEach((event) => {
       const key = dateKey(event.created_at);
-      if (!byDay.has(key)) return;
-      const kgIds = kgIdsFromPayload(event.payload || {});
-      if (kgIds.length) {
-        kgIds.forEach((id) => byDay.get(key).add(id));
-      }
-      fallbackCounts.set(key, (fallbackCounts.get(key) || 0) + 1);
-    });
-    summaries.forEach((summary) => {
-      const key = dateKey(summary.created_at);
-      if (!fallbackCounts.has(key)) return;
-      fallbackCounts.set(key, (fallbackCounts.get(key) || 0) + 1);
+      if (!eventCounts.has(key)) return;
+      eventCounts.set(key, (eventCounts.get(key) || 0) + 1);
     });
 
     return keys.map((key) => {
-      const kgCount = byDay.get(key)?.size || 0;
       return {
         key,
         label: displayDay(key),
-        count: kgCount || fallbackCounts.get(key) || 0,
-        isFallback: kgCount === 0,
+        count: eventCounts.get(key) || 0,
       };
     });
   }
 
   function buildRadarData(stats) {
     const values = [
-      { label: '自主规划', value: clamp01(stats.planTotal / 6) },
+      { label: '自主规划', value: stats.planActivity },
       { label: '执行反馈', value: stats.planCompletionEvidence },
       { label: '学习节奏', value: stats.rhythmAverage },
       { label: '薄弱修正', value: stats.weaknessControl },
-      { label: '知识触达', value: stats.knowledgeCoverage },
+      { label: '知识掌握', value: stats.masteryAverage },
       { label: '练习反馈', value: stats.answerCount ? stats.averageScore : 0 },
     ];
     const score = average(values.map((item) => item.value), 0);
@@ -682,9 +693,9 @@
     const courses = byId('metric-courses');
     const accuracy = byId('metric-accuracy');
     if (days) days.textContent = String(stats.learningDays);
-    if (knowledge) knowledge.textContent = stats.planTotal ? String(stats.planTotal) : '0';
+    if (knowledge) knowledge.textContent = `${stats.todayPlanCompleted}/${stats.todayPlanTotal}`;
     if (courses) courses.textContent = `${stats.completedPlanEventCount} 次`;
-    if (accuracy) accuracy.textContent = String(stats.recentSignalCount);
+    if (accuracy) accuracy.textContent = `${num(state.data?.profile?.daily_available_minutes, 45)} 分钟`;
     const trendRange = byId('trend-range');
     if (trendRange) trendRange.textContent = '近 7 天';
   }
@@ -733,105 +744,6 @@
       .filter((value) => Number.isFinite(value));
     if (matchedScores.length) return clamp01(average(matchedScores, 0));
     return clamp01(item.score ?? item.confidence ?? fallback);
-  }
-
-  function renderLearningStyle() {
-    const profile = state.data?.profile || {};
-    const stateSnapshot = profileState();
-    const hasStateEvidence = hasProfileStateEvidence(stateSnapshot);
-    const weaknesses = slotTexts('weaknesses', 4);
-    const preferences = slotTexts('preferences', 4);
-    const goals = slotTexts('goals', 4);
-    const rhythm = slotTexts('rhythm', 4);
-    const legacyWeaknesses = [
-      ...asArray(profile.known_weak_points),
-      ...asArray(profile.mistake_patterns),
-    ].filter(Boolean);
-    const stateWeaknessRows = asArray(stateSnapshot?.weakness_summary)
-      .map(formatWeaknessSummary)
-      .filter(Boolean);
-    const weaknessRows = stateWeaknessRows.length
-      ? stateWeaknessRows
-      : weaknesses.length ? weaknesses : legacyWeaknesses;
-    const statePreferenceRows = buildStyleDimensionRows(stateSnapshot)
-      .map((item) => `${item.label}：${item.value}（${item.status}）`);
-    const preferenceRows = preferences.length
-      ? preferences
-      : statePreferenceRows.length ? statePreferenceRows : hasStateEvidence ? [`解释偏好：${human(profile.preferred_explanation)}`] : [];
-    const goalRows = goals.length
-      ? goals
-      : hasStateEvidence ? [`目标导向：${human(profile.goal)}`] : [];
-    const paceRow = styleDimensionText(stateSnapshot, 'pace');
-    const rhythmRows = rhythm.length
-      ? rhythm
-      : [paceRow || (hasStateEvidence ? `默认节奏：${human(profile.pace)}` : '')].filter(Boolean);
-
-    renderLearningStyleSummary(stateSnapshot);
-    renderStyleDimensions(stateSnapshot);
-    renderStyleText('profile-weaknesses', weaknessRows, '暂无易错点记录');
-    renderStyleText('profile-preferences', preferenceRows);
-    renderStyleText('profile-goals', goalRows);
-    renderStyleText('profile-rhythm', rhythmRows);
-  }
-
-  function renderLearningStyleSummary(stateSnapshot = profileState()) {
-    const target = byId('style-summary-label');
-    const summary = byId('style-state-summary');
-    const stateSummary = String(stateSnapshot?.summary || '').trim();
-    const evidenceCount = profileStateEvidenceCount(stateSnapshot);
-    const hasEvidence = evidenceCount > 0;
-
-    if (summary) {
-      summary.textContent = stateSummary || '暂无足够稳定的画像证据，先采用标准讲解策略。';
-    }
-
-    if (!target) return;
-    if (stateSnapshot && hasEvidence) {
-      const topStyle = topStyleDimension(stateSnapshot);
-      target.textContent = topStyle
-        ? `${topStyle.label} · ${topStyle.value}`
-        : '画像状态已建立';
-      target.title = stateSummary || `画像置信度 ${pct(stateSnapshot.confidence ?? 0)}`;
-      return;
-    }
-
-    if (stateSnapshot && !hasEvidence) {
-      target.textContent = '待形成学习风格';
-      target.title = '暂无稳定画像证据';
-      return;
-    }
-
-    const item = findMemoryItem('profile', 'learning_style_tendency');
-    if (item) {
-      target.textContent = item.label || item.text || '画像信号已形成';
-      target.title = `${item.text || item.label || ''}${item.confidence ? `｜置信度 ${pct(item.confidence)}` : ''}`;
-      return;
-    }
-    target.textContent = '待形成学习风格';
-    target.title = '暂无稳定画像证据';
-  }
-
-  function renderStyleDimensions(stateSnapshot = profileState()) {
-    const target = byId('style-dimension-list');
-    if (!target) return;
-    const rows = buildStyleDimensionRows(stateSnapshot);
-    if (!rows.length) {
-      target.innerHTML = '<div class="style-dimension-empty">等待更多交互证据</div>';
-      return;
-    }
-    target.innerHTML = rows.map((row) => `
-      <div class="style-dimension-item">
-        <div class="style-dimension-top">
-          <span>${escapeHtml(row.label)}</span>
-          <strong>${escapeHtml(row.value)}</strong>
-        </div>
-        <div class="style-dimension-meta">
-          <span>${escapeHtml(row.status)}</span>
-          <span>${escapeHtml(row.confidence)}</span>
-          <span>${escapeHtml(row.evidence)}</span>
-        </div>
-      </div>
-    `).join('');
   }
 
   function buildStyleDimensionRows(stateSnapshot = profileState()) {
@@ -1401,49 +1313,6 @@
     }
   }
 
-  function renderAssessmentCard() {
-    const title = byId('profile-assessment-title');
-    const copy = byId('profile-assessment-copy');
-    const button = byId('profile-assessment-open');
-    if (!title || !copy || !button) return;
-    const profile = state.data?.profile || {};
-    const learnerType = String(profile.learner_type || '').trim();
-    const summary = String(profile.learner_type_summary || '').trim();
-    const skipped = skippedAssessment(profile);
-    const needs = needsInitialAssessment(profile);
-    const minutes = num(profile.daily_available_minutes, 45);
-
-    if (learnerType) {
-      const display = LEARNER_TYPE_LABELS[learnerType] || {
-        zh: '学习画像已建立',
-        en: learnerType || 'Learner Profile Ready',
-        advice: `当前画像已建立，每日学习预算约 ${minutes} 分钟。`,
-      };
-      title.innerHTML = `
-        <span class="assessment-inline-title-cn">${escapeHtml(display.zh)}</span>
-        <span class="assessment-inline-title-en">${escapeHtml(display.en)}</span>
-      `;
-      copy.textContent = summary || display.advice;
-      button.textContent = '重新测评';
-      return;
-    }
-    if (skipped) {
-      title.textContent = '你已跳过初始测评';
-      copy.textContent = '当前画像使用默认值。若想获得更贴合你的学习计划，可以随时重新测评。';
-      button.textContent = '立即测评';
-      return;
-    }
-    if (needs) {
-      title.textContent = '学习者标签待建立';
-      copy.textContent = '完成轻量测评后，这里会展示你的学习者类型、时间预算和计划引导偏好。';
-      button.textContent = '进行测评';
-      return;
-    }
-    title.textContent = '学习画像已建立';
-    copy.textContent = `当前画像已可用，每日学习预算约 ${minutes} 分钟。`;
-    button.textContent = '重新测评';
-  }
-
   function initAssessmentController() {
     if (!window.oralLearnerAssessment) return;
     state.assessmentController = window.oralLearnerAssessment.createController({
@@ -1456,126 +1325,6 @@
         await loadProfile({ silent: true });
       },
     });
-  }
-
-  function renderLearningStyle() {
-    const profile = state.data?.profile || {};
-    const stateSnapshot = profileState();
-    const hasStateEvidence = hasProfileStateEvidence(stateSnapshot);
-    const weaknesses = slotTexts('weaknesses', 4);
-    const goals = slotTexts('goals', 4);
-    const legacyWeaknesses = [
-      ...asArray(profile.known_weak_points),
-      ...asArray(profile.mistake_patterns),
-    ].filter(Boolean);
-    const stateWeaknessRows = asArray(stateSnapshot?.weakness_summary)
-      .map(formatWeaknessSummary)
-      .filter(Boolean);
-    const weaknessRows = stateWeaknessRows.length
-      ? stateWeaknessRows
-      : weaknesses.length ? weaknesses : legacyWeaknesses;
-    const preferenceRows = hasStateEvidence ? [`解释偏好：${human(profile.preferred_explanation)}`] : [];
-    const goalRows = goals.length
-      ? goals
-      : hasStateEvidence ? [`目标导向：${human(profile.goal)}`] : [];
-    const paceRow = styleDimensionText(stateSnapshot, 'pace');
-    const rhythmRows = [paceRow || (hasStateEvidence ? `学习节奏：${human(profile.pace)}` : '')].filter(Boolean);
-
-    renderLearningStyleSummary(stateSnapshot);
-    renderStyleDimensions(stateSnapshot);
-    renderStyleText('profile-weaknesses', weaknessRows, '暂无易错点记录');
-    renderStyleText('profile-preferences', preferenceRows, '暂无画像信号');
-    renderStyleText('profile-goals', goalRows, '暂无画像信号');
-    renderStyleText('profile-rhythm', rhythmRows, '暂无画像信号');
-  }
-
-  function ensureStyleDimensionToggle() {
-    const list = byId('style-dimension-list');
-    if (!list) return null;
-    let toggle = byId('style-dimension-toggle');
-    if (toggle) return toggle;
-    toggle = document.createElement('details');
-    toggle.id = 'style-dimension-toggle';
-    toggle.className = 'style-dimension-toggle';
-    toggle.innerHTML = '<summary>查看画像推理细节</summary>';
-    const stylePanel = document.querySelector('.style-panel');
-    const styleLines = stylePanel?.querySelector('.style-lines');
-    if (stylePanel && styleLines) {
-      stylePanel.insertBefore(toggle, styleLines);
-    } else {
-      list.parentNode?.insertBefore(toggle, list);
-    }
-    toggle.appendChild(list);
-    return toggle;
-  }
-
-  function renderStyleDimensions(stateSnapshot = profileState()) {
-    const target = byId('style-dimension-list');
-    if (!target) return;
-    const toggle = ensureStyleDimensionToggle();
-    const rows = buildStyleDimensionRows(stateSnapshot);
-    if (!rows.length) {
-      if (toggle) toggle.hidden = true;
-      target.innerHTML = '<div class="style-dimension-empty">等待更多交互证据</div>';
-      return;
-    }
-    if (toggle) toggle.hidden = false;
-    target.innerHTML = rows.map((row) => `
-      <div class="style-dimension-item">
-        <div class="style-dimension-top">
-          <span>${escapeHtml(row.label)}</span>
-          <strong>${escapeHtml(row.value)}</strong>
-        </div>
-        <div class="style-dimension-meta">
-          <span>${escapeHtml(row.status)}</span>
-          <span>${escapeHtml(row.confidence)}</span>
-          <span>${escapeHtml(row.evidence)}</span>
-        </div>
-      </div>
-    `).join('');
-  }
-
-  function renderAssessmentCard() {
-    const title = byId('profile-assessment-title');
-    const copy = byId('profile-assessment-copy');
-    const button = byId('profile-assessment-open');
-    if (!title || !copy || !button) return;
-    const profile = state.data?.profile || {};
-    const learnerType = String(profile.learner_type || '').trim();
-    const summary = String(profile.learner_type_summary || '').trim();
-    const skipped = skippedAssessment(profile);
-    const needs = needsInitialAssessment(profile);
-    const minutes = num(profile.daily_available_minutes, 45);
-
-    if (learnerType) {
-      const display = LEARNER_TYPE_LABELS[learnerType] || {
-        zh: '学习画像已建立',
-        en: learnerType || 'Learner Profile Ready',
-        advice: `当前画像已建立，每日学习预算约 ${minutes} 分钟。`,
-      };
-      title.innerHTML = `
-        <span class="assessment-inline-title-cn">${escapeHtml(display.zh)}</span>
-        <span class="assessment-inline-title-en">${escapeHtml(display.en)}</span>
-      `;
-      copy.textContent = summary || display.advice;
-      button.textContent = '重新测评';
-      return;
-    }
-    if (skipped) {
-      title.textContent = '你已跳过初始测评';
-      copy.textContent = '当前画像使用默认值。若想获得更贴合你的学习计划，可以随时重新测评。';
-      button.textContent = '立即测评';
-      return;
-    }
-    if (needs) {
-      title.textContent = '学习者标签待建立';
-      copy.textContent = '完成轻量测评后，这里会展示你的学习者类型、时间预算和计划引导偏好。';
-      button.textContent = '进行测评';
-      return;
-    }
-    title.textContent = '学习画像已建立';
-    copy.textContent = `当前画像已可用，每日学习预算约 ${minutes} 分钟。`;
-    button.textContent = '重新测评';
   }
 
   function startTimer() {
@@ -1619,25 +1368,6 @@
     });
   }
 
-  function renderLearningStyleSummary(stateSnapshot = profileState()) {
-    const target = byId('style-summary-label');
-    const summary = byId('style-state-summary');
-    const evidenceCount = profileStateEvidenceCount(stateSnapshot);
-    const hasEvidence = evidenceCount > 0;
-
-    if (summary) {
-      summary.textContent = hasEvidence
-        ? '画像推理细节已折叠，按需展开查看。'
-        : '暂无足够稳定的画像证据，先采用标准讲解策略。';
-    }
-
-    if (!target) return;
-    target.textContent = hasEvidence ? '画像推理摘要' : '待形成学习风格';
-    target.title = hasEvidence
-      ? `点击下方按钮查看细节，当前证据数 ${evidenceCount}`
-      : '暂无稳定画像证据';
-  }
-
   function ensureStyleDimensionToggle() {
     const list = byId('style-dimension-list');
     if (!list) return null;
@@ -1707,7 +1437,6 @@
     const paceRow = styleDimensionText(stateSnapshot, 'pace');
     const rhythmRows = [paceRow || (hasStateEvidence ? `学习节奏：${human(profile.pace)}` : '')].filter(Boolean);
 
-    renderLearningStyleSummary(stateSnapshot);
     renderStyleDimensions(stateSnapshot);
     renderStyleText('profile-weaknesses', weaknessRows, '暂无易错点记录');
     renderStyleText('profile-preferences', preferenceRows, '暂无画像信号');
@@ -1721,22 +1450,20 @@
     const button = byId('profile-assessment-open');
     if (!title || !copy || !button) return;
     const profile = state.data?.profile || {};
+    const assessmentState = state.data?.assessment_state || {};
     const learnerType = String(profile.learner_type || '').trim();
     const summary = String(profile.learner_type_summary || '').trim();
-    const skipped = skippedAssessment(profile);
-    const needs = needsInitialAssessment(profile);
+    const skipped = skippedAssessment(profile, assessmentState);
+    const needs = needsInitialAssessment(profile, assessmentState);
+    const hasHistoryWithoutAssessment = assessmentState.reason === 'history_without_assessment';
     const minutes = num(profile.daily_available_minutes, 45);
 
     if (learnerType) {
       const display = LEARNER_TYPE_LABELS[learnerType] || {
         zh: '学习画像已建立',
-        en: learnerType || 'Learner Profile Ready',
         advice: `当前画像已建立，每日学习预算约 ${minutes} 分钟。`,
       };
-      title.innerHTML = `
-        <span class="assessment-inline-title-cn">${escapeHtml(display.zh)}</span>
-        <span class="assessment-inline-title-en">${escapeHtml(display.en)}</span>
-      `;
+      title.textContent = display.zh;
       copy.textContent = summary || display.advice;
       button.textContent = '重新测评';
       return;
@@ -1745,6 +1472,12 @@
       title.textContent = '你已跳过初始测评';
       copy.textContent = '当前画像使用默认值。若想获得更贴合你的学习计划，可以随时重新测评。';
       button.textContent = '立即测评';
+      return;
+    }
+    if (hasHistoryWithoutAssessment) {
+      title.textContent = '学习画像已建立';
+      copy.textContent = '已检测到历史学习数据，当前不会自动重新初始化；如需校准偏好，可以手动重新测评。';
+      button.textContent = '重新测评';
       return;
     }
     if (needs) {
