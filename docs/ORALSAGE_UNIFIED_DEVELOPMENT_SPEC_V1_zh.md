@@ -583,6 +583,7 @@ PPT 是**可选任务**，不默认生成。
       "tutor_step_ref": "node_2",
       "narration_ref": {
         "source": "tutor_step.teaching_text",
+        "optional": true,
         "outline_node_id": "node_2"
       },
       "quiz_ref": {
@@ -603,7 +604,7 @@ PPT 是**可选任务**，不默认生成。
 - 默认粒度为一节一页：一个 `outline_node_id` / `handout_section` / `tutor_step` 对应一张内容 slide
 - `section_id` 在学习主链路中等同于 `outline_node_id`
 - PPT 内容来自 `handout_section.content`
-- 前端播放讲稿时通过同一个 `outline_node_id` 绑定 `tutor_step.teaching_text`
+- 前端播放讲稿时可通过同一个 `outline_node_id` 绑定 `tutor_step.teaching_text`；`narration_ref` 是可选同步引用，不是 PPT 内容来源
 - 小测展示复用 `tutor_step.questions`，PPT 不重新生成题目
 - `slide_type` 是模板类型，不是固定页面顺序
 - 不做无限自由 PPT 模板生成
@@ -755,6 +756,7 @@ PPT 接口返回：
 
 - 第一版直接返回或引用现有 `tutor_step.teaching_text`
 - 如需 `script_segments`，仅作为从 `tutor_step` 映射出的兼容视图，不作为新的讲稿生成源
+- `script_segments` 主要服务 TTS、字幕、导出或跨端播放同步；当前讲稿真源仍是按 `outline_node_id` 划分的 `tutor_step.teaching_text`
 
 音频接口返回：
 
@@ -872,6 +874,15 @@ PPT 接口返回：
 唯一写入者：
 
 - `Resource Factory`
+
+说明：
+
+- 当前代码真实状态以每个 `handout_sections/{outline_node_id}.json` 的 cache `status`、`section_status` 和 `evidence_status` 为准
+- `handout_status` 是目标聚合字段，用于描述一个 session / lesson 的整体讲义生成进度，当前暂不作为已落库真源
+- 如后续实现，可由所有小节状态计算：
+  - `generated`：所有必需 handout section 已生成完成
+  - `partial`：部分小节已生成，仍有 pending / generating / failed / missing
+  - `failed`：核心小节生成失败，无法形成可用讲义
 
 ### 8.10.4 Tutor 状态
 
@@ -1207,6 +1218,8 @@ PPT 接口返回：
 - `created_at`
 - `updated_at`
 - `download_path` 可选
+
+`resource_type` 的当前实现枚举和未来业务展示映射以 `ORALSAGE_FIELD_AND_VIEW_MODEL_SPEC_V1_zh.md` 第 9.10 节为准；不要在任务接口中另起一套枚举。
 
 建议状态枚举：
 

@@ -491,9 +491,16 @@
 
 ### 9.4 `handout_status`
 
+`handout_status` 是目标聚合字段，用于描述一个 session / lesson 的整体讲义生成状态。当前代码的真实状态仍以每个 `handout_sections/{outline_node_id}.json` 内的 `section_status` 和 cache `status` 为准，`handout_status` 暂不作为已落库真源。
+
+建议后续如需前端整体进度展示，可由所有小节状态计算：
+
 - `generated`
+  - 所有必需 handout section 已生成完成
 - `partial`
+  - 部分 handout section 已生成，仍有 pending / generating / failed / missing
 - `failed`
+  - 核心小节生成失败，无法形成可用讲义
 
 ### 9.5 `slides.json`
 
@@ -511,6 +518,7 @@ PPT 内容来源：
 - `bullets` / `content` 来自 `handout_section.content.overview`、`key_points`、`clinical_example`、`common_confusions`、`transition_to_next`
 - `quiz` 如需展示，复用 `tutor_step.questions`，不由 PPT 重新生成
 - 讲稿按 `outline_node_id` / `handout_section` 划分；当前实现中，每节讲稿保存在对应 `tutor_step.teaching_text`
+- `narration_ref` 为可选同步引用；PPT 内容本身来自讲义，不从讲稿生成
 
 建议最小结构：
 
@@ -540,6 +548,7 @@ PPT 内容来源：
       "tutor_step_ref": "node_2",
       "narration_ref": {
         "source": "tutor_step.teaching_text",
+        "optional": true,
         "outline_node_id": "node_2"
       },
       "quiz_ref": {
@@ -578,6 +587,8 @@ PPT 内容来源：
 
 `script_segments` 仅作为 TTS、导出或前端同步所需的兼容视图：从已有 `tutor_step` 映射得到，而不是新的内容生成源。
 
+当前实际讲稿真源仍是 `tutor_step.teaching_text`。后续如果做 TTS、字幕或跨端播放同步，可按 `outline_node_id` 将每节讲稿包装为 `script_segments`。
+
 建议最小结构：
 
 ```json
@@ -614,7 +625,29 @@ PPT 内容来源：
 
 ### 9.10 `generated_resources.resource_type`
 
-建议正式枚举：
+当前代码已经使用的实现枚举：
+
+- `handout_md`
+- `slides_json`
+- `base_questions_json`
+- `reading_list_json`
+- `mindmap_json`
+- `pptx_status_json`
+
+这些名称偏向“文件/实现产物”，不能在没有兼容层的情况下直接替换，否则旧 DB 记录、smoke test 和按旧 `resource_type` 查询资源的代码可能失效。
+
+未来资源页或对外业务展示可以使用更清晰的业务名称，但建议通过映射实现，而不是直接覆盖当前枚举：
+
+| 当前实现枚举 | 业务展示 / 目标语义 |
+| --- | --- |
+| `handout_md` | `handout` |
+| `slides_json` | `slides` |
+| `mindmap_json` | `mindmap` |
+| `pptx_status_json` | `pptx_status` |
+| `base_questions_json` | `base_questions` |
+| `reading_list_json` | `reading_list` |
+
+目标业务资源名可包括：
 
 - `handout`
 - `mindmap`
@@ -623,6 +656,8 @@ PPT 内容来源：
 - `script`
 - `audio`
 - `stage_exam`
+
+建议：当前阶段保留旧枚举作为存储真源；资源页或新 API 如需业务名，增加展示映射字段。
 
 ## 10. 任务与状态字段
 
