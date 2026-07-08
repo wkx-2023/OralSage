@@ -183,6 +183,12 @@ plan_item
 - `catch_up`
 - `custom`
 
+当前实现说明：
+
+- `study_plan_items` 当前尚未落库 `type` 字段
+- 现有推荐 preview 使用 `category` 表达推荐类别
+- 本节枚举是目标业务语义，落地前需要由计划模块补兼容层或数据库迁移方案
+
 说明：
 
 - `section_quiz`：每个小节后的即时小测
@@ -199,7 +205,7 @@ plan_item
 - `practice`
 - `review_summary`
 
-但 `recommendation_category` 不替代正式 `plan_item.type`。
+但 `recommendation_category` 不替代目标正式 `plan_item.type`。
 
 ### 4.4 五小节固定触发阶段卷
 
@@ -361,7 +367,7 @@ style_dimensions
 
 当前阶段先约定接口，不固定具体量表。
 
-建议输入：
+当前已实现提交接口输入：
 
 ```text
 LearnerAssessmentSubmission
@@ -373,9 +379,14 @@ LearnerAssessmentSubmission
 - `instrument_name`
 - `instrument_version`
 - `answers`
-- `daily_available_minutes`
-- `goal_topic`
+- `skip_assessment`
 - `target_exam` 可选
+
+说明：
+
+- 当前 submit request 不直接接收 `daily_available_minutes` 或 `goal_topic`
+- `daily_available_minutes` 由量表题目映射到 profile，默认值为 `45`
+- `goal_topic` 属于学习 session / start lesson 的主题，不是 Learner Assessment submit 的当前输入字段
 
 建议输出：
 
@@ -414,6 +425,11 @@ LearnerAssessmentResult
 - `type`
 - `recommendation_category`
 - `source` (`manual` / `recommended` / `rollover`)
+
+说明：
+
+- 当前推荐 preview 的类别字段名是 `category`
+- `type`、`recommendation_category`、`source` 是目标业务视图字段，未完成兼容层前不要直接作为数据库或前端必需字段
 
 ### 6.2 推荐规则（当前阶段）
 
@@ -524,6 +540,12 @@ PPT 是**可选任务**，不默认生成。
 - 优先生成 `slides.json`
 - 前端基于 `slides.json` 渲染 PPT
 - 如用户需要下载，再导出 `pptx`
+
+兼容说明：
+
+- 当前代码中的旧 `resource_factory.build_slides()` 是 outline-based 占位实现，只适合早期资源草稿
+- 新 PPT 功能必须从 `handout_section.content` 派生 `slides.v1`，不要复用旧 `build_slides()` 生成医学正文
+- 如保留旧 `slides.json` 文件，应标注为 legacy / placeholder，避免和新 PPT schema 混用
 
 统一生成链：
 
@@ -660,6 +682,12 @@ PPT 是**可选任务**，不默认生成。
 - `module`
 - `action`
 - `result.error` 或 `message`
+
+当前实现说明：
+
+- 现有学习 API 多数已经采用 `{ ok, module, action, result }` 包裹
+- 并非所有旧 HTTP 响应都已经带 `schema_version`
+- 新增稳定 JSON / API 应先带 `schema_version`；旧接口按兼容方式逐步补齐
 
 ### 8.4 稳定主标识
 
@@ -878,7 +906,7 @@ PPT 接口返回：
 说明：
 
 - 当前代码真实状态以每个 `handout_sections/{outline_node_id}.json` 的 cache `status`、`section_status` 和 `evidence_status` 为准
-- `handout_status` 是目标聚合字段，用于描述一个 session / lesson 的整体讲义生成进度，当前暂不作为已落库真源
+- `handout_status` 是多节讲义构建器已有返回字段，也是目标聚合字段，用于描述一个 session / lesson 的整体讲义生成进度；主学习会话当前暂不把它作为已落库真源
 - 如后续实现，可由所有小节状态计算：
   - `generated`：所有必需 handout section 已生成完成
   - `partial`：部分小节已生成，仍有 pending / generating / failed / missing
@@ -1026,9 +1054,15 @@ PPT 接口返回：
 
 前端不得自行缓存并长期覆盖这些真源。
 
+当前实现说明：
+
+- `generated_resources` 表已建 schema，但主学习流程当前没有把 `generate_resources()` 返回值写入该表
+- 现阶段资源更多体现为 session 目录下的文件和接口返回中的 `resources`
+- 后续如启用资源登记表，需要先补写入/查询接口，再把它作为前端资源页真源
+
 ## 9. 前端规范
 
-### 8.1 当前阶段前端原则
+### 9.1 当前阶段前端原则
 
 当前阶段先统一：
 
@@ -1038,7 +1072,7 @@ PPT 接口返回：
 
 当前阶段不强行先定最终视觉风格。
 
-### 8.2 学习计划页
+### 9.2 学习计划页
 
 学习计划页允许实时联调与迭代。
 
@@ -1048,7 +1082,7 @@ PPT 接口返回：
 - 主要围绕已有后端接口展开
 - 与微信打卡主线关系最近
 
-### 8.3 用户画像页
+### 9.3 用户画像页
 
 用户画像页允许和字段确认同步推进，但必须遵守：
 
@@ -1063,7 +1097,7 @@ PPT 接口返回：
 - 读取 profile_state / style_dimensions 摘要
 - 不直接原样渲染三元组记忆
 
-### 8.4 资源展示页
+### 9.4 资源展示页
 
 当前阶段暂缓统一最终视觉方案，但需提前约定数据契约：
 
@@ -1074,7 +1108,7 @@ PPT 接口返回：
 
 ## 10. 微信机器人规范
 
-### 9.1 本期目标
+### 10.1 本期目标
 
 仅做：
 
@@ -1082,7 +1116,7 @@ PPT 接口返回：
 - 打卡反馈
 - 日报推送
 
-### 9.2 建议固定指令
+### 10.2 建议固定指令
 
 建议命令集：
 
@@ -1175,6 +1209,8 @@ PPT 接口返回：
 
 原则：
 
+- 新增稳定 JSON / API 必须带 `schema_version`
+- 当前已存在旧接口不要求一次性破坏式改造，应在兼容旧字段的前提下逐步补齐
 - 小改但不破坏旧字段，可保留同一主版本
 - 字段含义变化、枚举变化、结构重排，必须提升版本
 

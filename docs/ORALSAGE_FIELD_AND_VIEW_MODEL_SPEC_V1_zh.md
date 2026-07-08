@@ -60,7 +60,7 @@
 
 ### 3.1 Learner Assessment 输入
 
-建议输入对象：
+当前已实现的提交接口输入对象：
 
 ```json
 {
@@ -68,8 +68,7 @@
   "instrument_name": "learning_onboarding_v1",
   "instrument_version": "v1",
   "answers": [],
-  "daily_available_minutes": 40,
-  "goal_topic": "牙周炎",
+  "skip_assessment": false,
   "target_exam": "口腔执业医师"
 }
 ```
@@ -82,12 +81,16 @@
   - 量表版本
 - `answers`
   - 原始作答结果
-- `daily_available_minutes`
-  - 每日计划可投入分钟数
-- `goal_topic`
-  - 目标学习主题
+- `skip_assessment`
+  - 是否跳过初始测评
 - `target_exam`
   - 目标考试，可选
+
+说明：
+
+- 当前 submit request 不直接接收 `daily_available_minutes` 或 `goal_topic`
+- `daily_available_minutes` 由量表题目映射到 profile，当前默认值为 `45`
+- `goal_topic` 属于学习 session / start lesson 的主题，不是 Learner Assessment submit 的当前输入字段
 
 ### 3.2 Learner Assessment 输出
 
@@ -128,7 +131,7 @@
   "goal": "course_learning",
   "preferred_explanation": "concept_then_case",
   "pace": "standard",
-  "daily_available_minutes": 40,
+  "daily_available_minutes": 45,
   "target_exam": null,
   "assessment_preference": "moderate",
   "planning_support_need": "normal",
@@ -315,6 +318,10 @@
 
 ### 7.1 `plan_item` 最小结构
 
+当前 `study_plan_items` 数据库表已经落库的字段是：`id`、`user_id`、`plan_date`、`title`、`notes`、`status`、`linked_course_id`、`linked_course_title`、`kg_node_ids`、`sort_order`、`deferred_count`、`completed_at`。
+
+下面结构是目标业务视图模型，其中 `type`、`source`、`recommendation_category` 目前不作为已落库字段；推荐预览当前使用 `category` 字段表达推荐类别。
+
 ```json
 {
   "plan_item_id": "plan_xxx",
@@ -337,6 +344,8 @@
 
 ### 7.2 `plan_item.type`
 
+目标业务类型枚举，当前尚未落库为正式字段：
+
 - `learn_section`
 - `review_section`
 - `section_quiz`
@@ -351,6 +360,8 @@
 - `completed`
 
 ### 7.4 `plan_item.source`
+
+目标来源字段，当前尚未落库为正式字段：
 
 - `manual`
 - `recommended`
@@ -369,8 +380,9 @@
 
 说明：
 
-- `plan_item.type` 是正式业务类型
-- `recommendation_category` 是推荐来源 / 推荐逻辑标签
+- `plan_item.type` 是目标正式业务类型
+- `recommendation_category` 是推荐来源 / 推荐逻辑标签；当前推荐接口字段名仍是 `category`
+- 在未完成兼容层前，不要直接要求前端或数据库依赖 `plan_item.type/source/recommendation_category`
 
 ## 8. 小测与阶段卷字段
 
@@ -461,7 +473,13 @@
 
 当前代码中，单节讲义以 `session_id + outline_node_id` 缓存在 `handout_sections/{outline_node_id}.json`。`handout_section.content` 是 PPT、Tutor、QA、Assessment 的内容母本。
 
-建议最小关心字段：
+补充说明：
+
+- 主学习会话当前以 per-section cache 为真源，而不是一个已落库的 `handout_sections.json`
+- `generate_handout()` 多节构建器可以返回包含 `handout_status`、`sections`、`generation_summary` 的完整 handout dict
+- 前端或新资源任务如需整体讲义状态，应从每节 cache 聚合，或显式调用多节构建器后再保存聚合结果
+
+多节 handout dict 建议最小关心字段：
 
 - `topic`
 - `handout_status`
@@ -491,7 +509,7 @@
 
 ### 9.4 `handout_status`
 
-`handout_status` 是目标聚合字段，用于描述一个 session / lesson 的整体讲义生成状态。当前代码的真实状态仍以每个 `handout_sections/{outline_node_id}.json` 内的 `section_status` 和 cache `status` 为准，`handout_status` 暂不作为已落库真源。
+`handout_status` 是多节讲义构建器已有返回字段，也是目标聚合字段，用于描述一个 session / lesson 的整体讲义生成状态。主学习会话当前真实状态仍以每个 `handout_sections/{outline_node_id}.json` 内的 `section_status`、`evidence_status` 和 cache `status` 为准，`handout_status` 暂不作为已落库真源。
 
 建议后续如需前端整体进度展示，可由所有小节状态计算：
 
@@ -511,6 +529,13 @@ slide.outline_node_id == slide.section_id == handout_section.outline_node_id == 
 ```
 
 默认粒度为**一节一页**：一个 outline node / handout section / tutor step 对应一张内容 slide。`slide_type` 只是前端模板类型，不代表固定生成顺序，也不要求每种类型都出现。
+
+重要兼容说明：
+
+- 当前代码中已有的 `resource_factory.build_slides()` 是早期 outline-based 占位实现，只从 outline title / learning objectives 生成简单 slides
+- 新 PPT 开发不得复用旧 `build_slides()` 作为正文生成逻辑
+- 第一版新 PPT 应新增 handout-section-driven 生成函数，从 `handout_section.content` 派生 `slides.v1`
+- 如继续保留旧 `slides.json` 资源文件，应标注为 legacy / placeholder，避免和新 PPT schema 混用
 
 PPT 内容来源：
 
@@ -625,7 +650,7 @@ PPT 内容来源：
 
 ### 9.10 `generated_resources.resource_type`
 
-当前代码已经使用的实现枚举：
+当前 `generate_resources()` 返回和写资源文件时使用的实现枚举：
 
 - `handout_md`
 - `slides_json`
@@ -634,7 +659,9 @@ PPT 内容来源：
 - `mindmap_json`
 - `pptx_status_json`
 
-这些名称偏向“文件/实现产物”，不能在没有兼容层的情况下直接替换，否则旧 DB 记录、smoke test 和按旧 `resource_type` 查询资源的代码可能失效。
+这些名称偏向“文件/实现产物”。当前 `generated_resources` 表已建 schema，但主流程没有把 `generate_resources()` 的结果作为资源登记真源写入该表；现阶段主要体现为返回值、资源文件名和 smoke 脚本依赖。
+
+因此不要在没有兼容层的情况下直接替换枚举名，否则现有返回值、资源文件约定、smoke test，以及后续可能接入的资源登记查询会失效。
 
 未来资源页或对外业务展示可以使用更清晰的业务名称，但建议通过映射实现，而不是直接覆盖当前枚举：
 
@@ -657,7 +684,7 @@ PPT 内容来源：
 - `audio`
 - `stage_exam`
 
-建议：当前阶段保留旧枚举作为存储真源；资源页或新 API 如需业务名，增加展示映射字段。
+建议：当前阶段保留旧枚举作为实现兼容层；资源页或新 API 如需业务名，增加展示映射字段。新 PPT 任务可以使用业务层 `slides` / `pptx`，但落到旧资源工厂或资源登记时必须有明确映射。
 
 ## 10. 任务与状态字段
 
@@ -802,11 +829,12 @@ PPT 内容来源：
 - `pace`
 - `assessment_preference`
 - `planning_support_need`
-- `plan_item.type`
-- `plan_item.source`
-- `recommendation_category`
+- `plan_item.status`
+- `recommendation.category`
 - `question.type`
 - `generated_resources.resource_type`
+
+说明：`plan_item.type`、`plan_item.source`、`recommendation_category` 是目标业务字段，当前未作为 `study_plan_items` 落库真源；当前推荐预览真实字段名是 `category`。
 
 ### 13.2 仍需你继续查量表后细化的
 
@@ -830,6 +858,8 @@ PPT 内容来源：
 - `plan_item.type`
 - `recommendation_category`
 - `today_plan / tomorrow_plan` 视图模型
+
+说明：其中 `plan_item.type` 与 `recommendation_category` 当前属于目标业务视图字段，计划开发者需要先做兼容层或落库方案；PPT 开发只需避免依赖这些字段。
 
 也就是说，她除了看总规范文档，**最应该看这份字段清单的第 7、8、9、10、11、12 节**。
 
