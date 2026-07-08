@@ -47,7 +47,17 @@ def diagnose_profile(answers: dict[str, Any] | None = None) -> dict[str, Any]:
         return base
 
     # --- string fields ------------------------------------------------
-    for key in ("level", "goal", "preferred_explanation", "pace"):
+    for key in (
+        "level",
+        "goal",
+        "preferred_explanation",
+        "pace",
+        "assessment_preference",
+        "planning_support_need",
+        "learner_type",
+        "learner_type_summary",
+        "assessment_source",
+    ):
         val = answers.get(key)
         if isinstance(val, str) and val.strip():
             base[key] = val.strip()
@@ -58,6 +68,19 @@ def diagnose_profile(answers: dict[str, Any] | None = None) -> dict[str, Any]:
         base["target_exam"] = target_exam.strip()
     else:
         base["target_exam"] = None
+
+    daily_minutes = answers.get("daily_available_minutes")
+    if isinstance(daily_minutes, (int, float)):
+        base["daily_available_minutes"] = max(10, min(int(daily_minutes), 240))
+
+    if isinstance(answers.get("assessment_skipped"), bool):
+        base["assessment_skipped"] = bool(answers["assessment_skipped"])
+
+    last_assessed_at = answers.get("last_assessed_at")
+    if isinstance(last_assessed_at, str) and last_assessed_at.strip():
+        base["last_assessed_at"] = last_assessed_at.strip()
+    else:
+        base["last_assessed_at"] = None
 
     # --- list fields --------------------------------------------------
     for key in ("known_weak_points", "mistake_patterns"):

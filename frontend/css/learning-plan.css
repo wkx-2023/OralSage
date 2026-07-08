@@ -431,7 +431,7 @@
   height: 100%;
   padding: 18px 16px 16px var(--todo-content-left);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
   gap: 0;
   overflow: hidden;
   background: var(--plan-paper);
@@ -493,6 +493,157 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.todo-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: var(--todo-line-height);
+  padding-right: 2px;
+}
+
+.recommend-button,
+.recommend-clear,
+.recommend-accept-all {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.recommend-button,
+.recommend-accept-all {
+  border-color: rgba(91, 61, 184, 0.24);
+  color: var(--plan-purple-dark);
+}
+
+.recommend-panel {
+  position: relative;
+  z-index: 1;
+  border: 1px solid rgba(91, 61, 184, 0.12);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(248, 246, 255, 0.88), rgba(255, 255, 255, 0.96));
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.recommend-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.recommend-kicker {
+  display: block;
+  color: var(--plan-muted);
+  font-family: 'Rajdhani', 'Noto Sans SC', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.recommend-head h3 {
+  margin: 2px 0 0;
+  color: var(--plan-ink);
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.recommend-list {
+  display: grid;
+  gap: 10px;
+}
+
+.recommend-empty {
+  margin: 0;
+  color: var(--plan-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.recommend-card {
+  border: 1px solid rgba(91, 61, 184, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 10px 12px;
+}
+
+.recommend-card.accepted {
+  opacity: 0.72;
+}
+
+.recommend-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recommend-title {
+  margin: 0;
+  color: var(--plan-purple-dark);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.recommend-chip {
+  min-width: max-content;
+  border-radius: 999px;
+  background: rgba(125, 102, 216, 0.12);
+  color: var(--plan-purple-dark);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.recommend-reason {
+  margin: 8px 0 0;
+  color: rgba(70, 57, 121, 0.9);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.recommend-meta {
+  margin-top: 8px;
+  color: rgba(95, 76, 173, 0.72);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.recommend-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.recommend-action {
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(91, 61, 184, 0.18);
+  background: #ffffff;
+  color: var(--plan-purple-dark);
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.recommend-action.primary {
+  border-color: var(--plan-purple);
+  background: var(--plan-purple);
+  color: #ffffff;
 }
 
 .quick-day.active {
@@ -905,5 +1056,15 @@
   .todo-tool {
     width: 32px;
     height: 32px;
+  }
+
+  .recommend-head,
+  .recommend-top {
+    flex-direction: column;
+  }
+
+  .recommend-tools {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }

@@ -5,6 +5,10 @@ from .planner import (
     plan_lesson,
     refine_outline_with_llm,
 )
+from .learner_assessment import (
+    get_learner_assessment_definition,
+    submit_learner_assessment,
+)
 from .resource_factory import generate_resources
 from .tutor import build_tutor_feedback, build_tutor_step
 from .qa import answer_interruption_question, classify_interruption_question
@@ -46,6 +50,8 @@ __all__ = [
     "plan_lesson",
     "find_relevant_nodes",
     "refine_outline_with_llm",
+    "get_learner_assessment_definition",
+    "submit_learner_assessment",
     "generate_resources",
     "build_tutor_step",
     "build_tutor_feedback",

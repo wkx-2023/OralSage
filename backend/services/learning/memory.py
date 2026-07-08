@@ -523,6 +523,23 @@ class LearningMemory:
             raise KeyError(f"Session not found: {session_id}")
         return dict(row)
 
+    def list_sessions_for_user(
+        self,
+        user_id: str,
+        *,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Return recent learning sessions for a user, newest first."""
+        self.ensure_user(user_id)
+        rows = self._conn.execute(
+            """SELECT * FROM learning_sessions
+               WHERE user_id = ?
+               ORDER BY updated_at DESC, created_at DESC
+               LIMIT ?""",
+            (user_id, max(1, min(int(limit), 100))),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def set_current_outline_node(
         self, session_id: str, node_id: str | None
     ) -> None:

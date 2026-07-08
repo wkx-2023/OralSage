@@ -27,11 +27,13 @@ from .schemas import (
     KnowledgeGraphNeighborhoodRequest,
     KnowledgeViewRequest,
     LearningContinueRequest,
+    LearnerAssessmentSubmitRequest,
     LearningExecuteRequest,
     LearningMemoryConsolidateRequest,
     LearningPlanCompleteRequest,
     LearningPlanCreateRequest,
     LearningPlanDeferRequest,
+    LearningPlanRecommendRequest,
     LearningPlanUpdateRequest,
     LearningProfileSliceRequest,
     LearningInterruptionRequest,
@@ -67,6 +69,10 @@ from .services.stats.dashboard import run_stats_filter, stats_options
 from .services.stats import run_stats_query
 from .services.learning.orchestrator import LearningOrchestrator, decide_next_action
 from .services.learning.llm_policy import decide_next_action_with_llm
+from .services.learning.learner_assessment import (
+    get_learner_assessment_definition,
+    submit_learner_assessment,
+)
 from .services.learning.profile_memory import (
     build_profile_slice,
     consolidate_l2,
@@ -80,6 +86,7 @@ from .services.learning.study_plan import (
     delete_study_plan_item,
     get_study_plan_day,
     get_study_plan_month,
+    recommend_study_plan,
     update_study_plan_item,
 )
 
@@ -205,6 +212,7 @@ def capabilities() -> dict[str, Any]:
             "learning_router_placeholder",
             "learning_agent_mvp",
             "learning_study_plan",
+            "learning_learner_assessment",
         ],
         "modules": [
             "pathology_qa",
@@ -245,11 +253,14 @@ def capabilities() -> dict[str, Any]:
             "/api/learning/session/start",
             "/api/learning/session/start/stream",
             "/api/learning/session/{session_id}/state",
+            "/api/learning/assessment",
+            "/api/learning/assessment/submit",
             "/api/learning/profile/{user_id}",
             "/api/learning/profile/slice",
             "/api/learning/memory/consolidate",
             "/api/learning/plan/{user_id}/month",
             "/api/learning/plan/{user_id}/day/{plan_date}",
+            "/api/learning/plan/recommend",
             "/api/learning/plan/items",
             "/api/learning/plan/items/{item_id}/update",
             "/api/learning/plan/items/{item_id}/complete",
@@ -762,6 +773,52 @@ async def learning_session_state(session_id: str) -> JSONResponse:
     )
 
 
+@app.get("/api/learning/assessment")
+async def learning_assessment_definition() -> JSONResponse:
+    """Return the stable learner-assessment question set."""
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "learner_assessment_definition",
+            "result": get_learner_assessment_definition(),
+        }
+    )
+
+
+@app.post("/api/learning/assessment/submit")
+async def learning_assessment_submit(req: LearnerAssessmentSubmitRequest) -> JSONResponse:
+    """Submit onboarding assessment answers and persist the initial profile."""
+    try:
+        result = submit_learner_assessment(
+            learning_orchestrator.memory,
+            user_id=req.user_id,
+            answers=[item.model_dump() for item in req.answers],
+            target_exam=req.target_exam,
+            skip_assessment=req.skip_assessment,
+            instrument_name=req.instrument_name,
+            instrument_version=req.instrument_version,
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "module": "learning",
+                "action": "learner_assessment_submit",
+                "result": {"error": str(exc)},
+            },
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "learner_assessment_submit",
+            "result": result,
+        }
+    )
+
+
 @app.get("/api/learning/profile/{user_id}")
 async def learning_profile(user_id: str) -> JSONResponse:
     """Return compact profile + L3 learner memory for a user."""
@@ -898,6 +955,21 @@ async def learning_plan_day(user_id: str, plan_date: str) -> JSONResponse:
     except ValueError as exc:
         return _learning_plan_error("study_plan_day", exc, 400)
     return _learning_plan_response("study_plan_day", result)
+
+
+@app.post("/api/learning/plan/recommend")
+async def learning_plan_recommend(req: LearningPlanRecommendRequest) -> JSONResponse:
+    """Return preview recommendations for one study-plan day."""
+    try:
+        result = recommend_study_plan(
+            learning_orchestrator.memory,
+            user_id=req.user_id,
+            plan_date=req.plan_date,
+            max_items=req.max_items,
+        )
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_recommend", exc, 400)
+    return _learning_plan_response("study_plan_recommend", result)
 
 
 @app.post("/api/learning/plan/items")

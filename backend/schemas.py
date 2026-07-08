@@ -186,6 +186,20 @@ class LearningMemoryConsolidateRequest(BaseModel):
     limit: int = 200
 
 
+class LearnerAssessmentAnswer(BaseModel):
+    question_id: str
+    selected_option: str
+
+
+class LearnerAssessmentSubmitRequest(BaseModel):
+    user_id: str = "demo"
+    instrument_name: str = "learning_onboarding_v1"
+    instrument_version: str = "v1"
+    answers: list[LearnerAssessmentAnswer] = Field(default_factory=list)
+    target_exam: str | None = None
+    skip_assessment: bool = False
+
+
 class LearningPlanCreateRequest(BaseModel):
     user_id: str = "demo"
     plan_date: str
@@ -214,3 +228,9 @@ class LearningPlanCompleteRequest(BaseModel):
 class LearningPlanDeferRequest(BaseModel):
     user_id: str = "demo"
     to_date: str | None = None
+
+
+class LearningPlanRecommendRequest(BaseModel):
+    user_id: str = "demo"
+    plan_date: str
+    max_items: int = 4

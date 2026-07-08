@@ -109,6 +109,39 @@
     strong: '强个性化',
   };
 
+  const LEARNER_TYPE_LABELS = {
+    visual_structured_learner: {
+      zh: '结构化学习者',
+      en: 'Visual Structured Learner',
+      advice: '你更适合结构清晰、分层明确的学习组织方式。建议结合思维导图梳理重点，并在学习过程中抓住核心知识点。',
+    },
+    text_depth_learner: {
+      zh: '深度理解学习者',
+      en: 'Text Depth Learner',
+      advice: '你更偏好机制和原理层面的深入拆解。建议多关注讲义中的因果链条，再配合阶段性总结巩固理解。',
+    },
+    case_driven_learner: {
+      zh: '病例驱动学习者',
+      en: 'Case-Driven Learner',
+      advice: '你更适合从病例或临床情境进入，再回到概念理解。建议先抓住典型病例，再回看核心概念。',
+    },
+    exam_oriented_learner: {
+      zh: '考试导向学习者',
+      en: 'Exam-Oriented Learner',
+      advice: '你更关注重点与考点。建议在学习过程中同步整理高频考点，并结合小测及时校准薄弱环节。',
+    },
+    practice_driven_learner: {
+      zh: '练习驱动学习者',
+      en: 'Practice-Driven Learner',
+      advice: '你更适合边做边学。建议主动利用每小节的小测和阶段卷，在练习反馈中建立理解。',
+    },
+    steady_paced_learner: {
+      zh: '稳步推进学习者',
+      en: 'Steady-Paced Learner',
+      advice: '你更适合循序渐进的学习节奏。建议把任务拆小，按天完成，再定期回顾已学内容。',
+    },
+  };
+
   const state = {
     userId: new URLSearchParams(window.location.search).get('user_id')
       || localStorage.getItem('oralsage.learningProfile.userId')
@@ -127,6 +160,7 @@
     newEventIds: new Set(),
     firstLoad: true,
     loading: false,
+    assessmentPrompted: false,
   };
 
   function asArray(value) {
@@ -255,6 +289,14 @@
     return profileStateEvidenceCount(stateSnapshot) > 0;
   }
 
+  function needsInitialAssessment(profile = {}) {
+    return window.oralLearnerAssessment?.needsInitialAssessment(profile) || false;
+  }
+
+  function skippedAssessment(profile = {}) {
+    return window.oralLearnerAssessment?.skippedAssessment(profile) || false;
+  }
+
   function planItemsFromEvents() {
     const byIdMap = new Map();
     allEvents().forEach((event) => {
@@ -368,6 +410,12 @@
       };
       updateNewEventState(asArray(state.data.recent_events));
       render();
+      renderAssessmentCard();
+      const profile = state.data?.profile || {};
+      if (!silent && !state.assessmentPrompted && needsInitialAssessment(profile)) {
+        state.assessmentPrompted = true;
+        setTimeout(() => state.assessmentController?.open(), 120);
+      }
       state.firstLoad = false;
     } catch (err) {
       renderError(err);
@@ -393,6 +441,7 @@
     state.trend = buildDailyTrend();
     state.radar = buildRadarData(state.stats);
     renderMetrics(state.stats);
+    renderAssessmentCard();
     renderLearningStyle();
     renderTimeline();
     renderCharts();
@@ -1352,6 +1401,177 @@
     }
   }
 
+  function renderAssessmentCard() {
+    const title = byId('profile-assessment-title');
+    const copy = byId('profile-assessment-copy');
+    const button = byId('profile-assessment-open');
+    if (!title || !copy || !button) return;
+    const profile = state.data?.profile || {};
+    const learnerType = String(profile.learner_type || '').trim();
+    const summary = String(profile.learner_type_summary || '').trim();
+    const skipped = skippedAssessment(profile);
+    const needs = needsInitialAssessment(profile);
+    const minutes = num(profile.daily_available_minutes, 45);
+
+    if (learnerType) {
+      const display = LEARNER_TYPE_LABELS[learnerType] || {
+        zh: '学习画像已建立',
+        en: learnerType || 'Learner Profile Ready',
+        advice: `当前画像已建立，每日学习预算约 ${minutes} 分钟。`,
+      };
+      title.innerHTML = `
+        <span class="assessment-inline-title-cn">${escapeHtml(display.zh)}</span>
+        <span class="assessment-inline-title-en">${escapeHtml(display.en)}</span>
+      `;
+      copy.textContent = summary || display.advice;
+      button.textContent = '重新测评';
+      return;
+    }
+    if (skipped) {
+      title.textContent = '你已跳过初始测评';
+      copy.textContent = '当前画像使用默认值。若想获得更贴合你的学习计划，可以随时重新测评。';
+      button.textContent = '立即测评';
+      return;
+    }
+    if (needs) {
+      title.textContent = '学习者标签待建立';
+      copy.textContent = '完成轻量测评后，这里会展示你的学习者类型、时间预算和计划引导偏好。';
+      button.textContent = '进行测评';
+      return;
+    }
+    title.textContent = '学习画像已建立';
+    copy.textContent = `当前画像已可用，每日学习预算约 ${minutes} 分钟。`;
+    button.textContent = '重新测评';
+  }
+
+  function initAssessmentController() {
+    if (!window.oralLearnerAssessment) return;
+    state.assessmentController = window.oralLearnerAssessment.createController({
+      getUserId: () => state.userId,
+      title: '学习者测评',
+      onComplete: async () => {
+        await loadProfile({ silent: true });
+      },
+      onSkip: async () => {
+        await loadProfile({ silent: true });
+      },
+    });
+  }
+
+  function renderLearningStyle() {
+    const profile = state.data?.profile || {};
+    const stateSnapshot = profileState();
+    const hasStateEvidence = hasProfileStateEvidence(stateSnapshot);
+    const weaknesses = slotTexts('weaknesses', 4);
+    const goals = slotTexts('goals', 4);
+    const legacyWeaknesses = [
+      ...asArray(profile.known_weak_points),
+      ...asArray(profile.mistake_patterns),
+    ].filter(Boolean);
+    const stateWeaknessRows = asArray(stateSnapshot?.weakness_summary)
+      .map(formatWeaknessSummary)
+      .filter(Boolean);
+    const weaknessRows = stateWeaknessRows.length
+      ? stateWeaknessRows
+      : weaknesses.length ? weaknesses : legacyWeaknesses;
+    const preferenceRows = hasStateEvidence ? [`解释偏好：${human(profile.preferred_explanation)}`] : [];
+    const goalRows = goals.length
+      ? goals
+      : hasStateEvidence ? [`目标导向：${human(profile.goal)}`] : [];
+    const paceRow = styleDimensionText(stateSnapshot, 'pace');
+    const rhythmRows = [paceRow || (hasStateEvidence ? `学习节奏：${human(profile.pace)}` : '')].filter(Boolean);
+
+    renderLearningStyleSummary(stateSnapshot);
+    renderStyleDimensions(stateSnapshot);
+    renderStyleText('profile-weaknesses', weaknessRows, '暂无易错点记录');
+    renderStyleText('profile-preferences', preferenceRows, '暂无画像信号');
+    renderStyleText('profile-goals', goalRows, '暂无画像信号');
+    renderStyleText('profile-rhythm', rhythmRows, '暂无画像信号');
+  }
+
+  function ensureStyleDimensionToggle() {
+    const list = byId('style-dimension-list');
+    if (!list) return null;
+    let toggle = byId('style-dimension-toggle');
+    if (toggle) return toggle;
+    toggle = document.createElement('details');
+    toggle.id = 'style-dimension-toggle';
+    toggle.className = 'style-dimension-toggle';
+    toggle.innerHTML = '<summary>查看画像推理细节</summary>';
+    list.parentNode?.insertBefore(toggle, list);
+    toggle.appendChild(list);
+    return toggle;
+  }
+
+  function renderStyleDimensions(stateSnapshot = profileState()) {
+    const target = byId('style-dimension-list');
+    if (!target) return;
+    const toggle = ensureStyleDimensionToggle();
+    const rows = buildStyleDimensionRows(stateSnapshot);
+    if (!rows.length) {
+      if (toggle) toggle.hidden = true;
+      target.innerHTML = '<div class="style-dimension-empty">等待更多交互证据</div>';
+      return;
+    }
+    if (toggle) toggle.hidden = false;
+    target.innerHTML = rows.map((row) => `
+      <div class="style-dimension-item">
+        <div class="style-dimension-top">
+          <span>${escapeHtml(row.label)}</span>
+          <strong>${escapeHtml(row.value)}</strong>
+        </div>
+        <div class="style-dimension-meta">
+          <span>${escapeHtml(row.status)}</span>
+          <span>${escapeHtml(row.confidence)}</span>
+          <span>${escapeHtml(row.evidence)}</span>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function renderAssessmentCard() {
+    const title = byId('profile-assessment-title');
+    const copy = byId('profile-assessment-copy');
+    const button = byId('profile-assessment-open');
+    if (!title || !copy || !button) return;
+    const profile = state.data?.profile || {};
+    const learnerType = String(profile.learner_type || '').trim();
+    const summary = String(profile.learner_type_summary || '').trim();
+    const skipped = skippedAssessment(profile);
+    const needs = needsInitialAssessment(profile);
+    const minutes = num(profile.daily_available_minutes, 45);
+
+    if (learnerType) {
+      const display = LEARNER_TYPE_LABELS[learnerType] || {
+        zh: '学习画像已建立',
+        en: learnerType || 'Learner Profile Ready',
+        advice: `当前画像已建立，每日学习预算约 ${minutes} 分钟。`,
+      };
+      title.innerHTML = `
+        <span class="assessment-inline-title-cn">${escapeHtml(display.zh)}</span>
+        <span class="assessment-inline-title-en">${escapeHtml(display.en)}</span>
+      `;
+      copy.textContent = summary || display.advice;
+      button.textContent = '重新测评';
+      return;
+    }
+    if (skipped) {
+      title.textContent = '你已跳过初始测评';
+      copy.textContent = '当前画像使用默认值。若想获得更贴合你的学习计划，可以随时重新测评。';
+      button.textContent = '立即测评';
+      return;
+    }
+    if (needs) {
+      title.textContent = '学习者标签待建立';
+      copy.textContent = '完成轻量测评后，这里会展示你的学习者类型、时间预算和计划引导偏好。';
+      button.textContent = '进行测评';
+      return;
+    }
+    title.textContent = '学习画像已建立';
+    copy.textContent = `当前画像已可用，每日学习预算约 ${minutes} 分钟。`;
+    button.textContent = '重新测评';
+  }
+
   function startTimer() {
     window.clearInterval(state.timer);
     if (!state.auto) return;
@@ -1388,9 +1608,146 @@
       renderCharts();
       startTimelineAutoScroll(byId('event-timeline'));
     });
+    byId('profile-assessment-open')?.addEventListener('click', () => {
+      state.assessmentController?.open({ resetAnswers: true });
+    });
+  }
+
+  function renderLearningStyleSummary(stateSnapshot = profileState()) {
+    const target = byId('style-summary-label');
+    const summary = byId('style-state-summary');
+    const evidenceCount = profileStateEvidenceCount(stateSnapshot);
+    const hasEvidence = evidenceCount > 0;
+
+    if (summary) {
+      summary.textContent = hasEvidence
+        ? '画像推理细节已折叠，按需展开查看。'
+        : '暂无足够稳定的画像证据，先采用标准讲解策略。';
+    }
+
+    if (!target) return;
+    target.textContent = hasEvidence ? '画像推理摘要' : '待形成学习风格';
+    target.title = hasEvidence
+      ? `点击下方按钮查看细节，当前证据数 ${evidenceCount}`
+      : '暂无稳定画像证据';
+  }
+
+  function ensureStyleDimensionToggle() {
+    const list = byId('style-dimension-list');
+    if (!list) return null;
+    let toggle = byId('style-dimension-toggle');
+    if (toggle) return toggle;
+    toggle = document.createElement('details');
+    toggle.id = 'style-dimension-toggle';
+    toggle.className = 'style-dimension-toggle';
+    toggle.innerHTML = '<summary>查看画像推理细节</summary>';
+    list.parentNode?.insertBefore(toggle, list);
+    toggle.appendChild(list);
+    return toggle;
+  }
+
+  function renderStyleDimensions(stateSnapshot = profileState()) {
+    const target = byId('style-dimension-list');
+    if (!target) return;
+    const toggle = ensureStyleDimensionToggle();
+    const rows = buildStyleDimensionRows(stateSnapshot);
+    if (!rows.length) {
+      if (toggle) toggle.hidden = true;
+      target.innerHTML = '<div class="style-dimension-empty">等待更多交互证据</div>';
+      return;
+    }
+    if (toggle) toggle.hidden = false;
+    target.innerHTML = rows.map((row) => `
+      <div class="style-dimension-item">
+        <div class="style-dimension-top">
+          <span>${escapeHtml(row.label)}</span>
+          <strong>${escapeHtml(row.value)}</strong>
+        </div>
+        <div class="style-dimension-meta">
+          <span>${escapeHtml(row.status)}</span>
+          <span>${escapeHtml(row.confidence)}</span>
+          <span>${escapeHtml(row.evidence)}</span>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function renderLearningStyle() {
+    const profile = state.data?.profile || {};
+    const stateSnapshot = profileState();
+    const hasStateEvidence = hasProfileStateEvidence(stateSnapshot);
+    const weaknesses = slotTexts('weaknesses', 4);
+    const goals = slotTexts('goals', 4);
+    const legacyWeaknesses = [
+      ...asArray(profile.known_weak_points),
+      ...asArray(profile.mistake_patterns),
+    ].filter(Boolean);
+    const stateWeaknessRows = asArray(stateSnapshot?.weakness_summary)
+      .map(formatWeaknessSummary)
+      .filter(Boolean);
+    const weaknessRows = stateWeaknessRows.length
+      ? stateWeaknessRows
+      : weaknesses.length ? weaknesses : legacyWeaknesses;
+    const preferenceRows = hasStateEvidence ? [`解释偏好：${human(profile.preferred_explanation)}`] : [];
+    const goalRows = goals.length
+      ? goals
+      : hasStateEvidence ? [`目标导向：${human(profile.goal)}`] : [];
+    const paceRow = styleDimensionText(stateSnapshot, 'pace');
+    const rhythmRows = [paceRow || (hasStateEvidence ? `学习节奏：${human(profile.pace)}` : '')].filter(Boolean);
+
+    renderLearningStyleSummary(stateSnapshot);
+    renderStyleDimensions(stateSnapshot);
+    renderStyleText('profile-weaknesses', weaknessRows, '暂无易错点记录');
+    renderStyleText('profile-preferences', preferenceRows, '暂无画像信号');
+    renderStyleText('profile-goals', goalRows, '暂无画像信号');
+    renderStyleText('profile-rhythm', rhythmRows, '暂无画像信号');
+  }
+
+  function renderAssessmentCard() {
+    const title = byId('profile-assessment-title');
+    const copy = byId('profile-assessment-copy');
+    const button = byId('profile-assessment-open');
+    if (!title || !copy || !button) return;
+    const profile = state.data?.profile || {};
+    const learnerType = String(profile.learner_type || '').trim();
+    const summary = String(profile.learner_type_summary || '').trim();
+    const skipped = skippedAssessment(profile);
+    const needs = needsInitialAssessment(profile);
+    const minutes = num(profile.daily_available_minutes, 45);
+
+    if (learnerType) {
+      const display = LEARNER_TYPE_LABELS[learnerType] || {
+        zh: '学习画像已建立',
+        en: learnerType || 'Learner Profile Ready',
+        advice: `当前画像已建立，每日学习预算约 ${minutes} 分钟。`,
+      };
+      title.innerHTML = `
+        <span class="assessment-inline-title-cn">${escapeHtml(display.zh)}</span>
+        <span class="assessment-inline-title-en">${escapeHtml(display.en)}</span>
+      `;
+      copy.textContent = summary || display.advice;
+      button.textContent = '重新测评';
+      return;
+    }
+    if (skipped) {
+      title.textContent = '你已跳过初始测评';
+      copy.textContent = '当前画像使用默认值。若想获得更贴合你的学习计划，可以随时重新测评。';
+      button.textContent = '立即测评';
+      return;
+    }
+    if (needs) {
+      title.textContent = '学习者标签待建立';
+      copy.textContent = '完成轻量测评后，这里会展示你的学习者类型、时间预算和计划引导偏好。';
+      button.textContent = '进行测评';
+      return;
+    }
+    title.textContent = '学习画像已建立';
+    copy.textContent = `当前画像已可用，每日学习预算约 ${minutes} 分钟。`;
+    button.textContent = '重新测评';
   }
 
   function boot() {
+    initAssessmentController();
     bindEvents();
     loadProfile();
     startTimer();

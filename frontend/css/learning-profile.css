@@ -513,11 +513,18 @@
   overflow: hidden;
 }
 
+.style-panel .assessment-inline-card {
+  margin-bottom: 12px;
+}
+
 .style-summary {
   min-width: 0;
   display: grid;
   gap: 6px;
   color: var(--lp-ink);
+  position: relative;
+  z-index: 2;
+  margin-bottom: 10px;
 }
 
 .style-summary > span {
@@ -628,6 +635,29 @@
   background: rgba(255, 255, 255, 0.54);
 }
 
+.style-dimension-toggle {
+  border: 1px dashed rgba(73, 58, 164, 0.14);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.style-dimension-toggle summary {
+  cursor: pointer;
+  color: var(--lp-logo-purple);
+  font-size: 12px;
+  font-weight: 400;
+  list-style: none;
+}
+
+.style-dimension-toggle summary::-webkit-details-marker {
+  display: none;
+}
+
+.style-dimension-toggle[open] summary {
+  margin-bottom: 8px;
+}
+
 .style-lines {
   min-height: 0;
   display: grid;
@@ -635,6 +665,9 @@
   gap: 0;
   border-top: 1px solid rgba(73, 58, 164, 0.13);
   overflow: auto;
+  position: relative;
+  z-index: 1;
+  margin-top: 8px;
   padding-right: 4px;
   scrollbar-width: thin;
   scrollbar-color: rgba(73, 58, 164, 0.22) transparent;
