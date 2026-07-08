@@ -55,7 +55,7 @@ OralSage 是一个面向口腔医学学习的个性化学习系统。
 大纲 -> 讲义 -> 讲稿
 讲义 -> 思维导图
 讲义 -> slides.json -> 前端渲染 PPT / 可选导出 pptx
-讲稿(按 slide 分段) -> TTS 音频
+讲稿(按 outline_node_id / handout_section 划分，当前保存在 tutor_step.teaching_text) -> TTS 音频
 ```
 
 注意：
@@ -63,6 +63,8 @@ OralSage 是一个面向口腔医学学习的个性化学习系统。
 - PPT 不直接从 outline 生成
 - 思维导图不直接从 outline 生成
 - 语音不直接从 handout 生成
+- 讲稿按 `outline_node_id` / `handout_section` 划分；当前实现中，每节讲稿保存在对应 `tutor_step.teaching_text`，不得为了 PPT 重写讲稿生成链路
+- `outline_node_id` 是大纲、讲义 section、Tutor 讲稿、小测和 slide 对齐的主键
 - 所有资源均以 canonical handout 为核心中间层
 
 ### 2.3 记忆层与应用层分离
@@ -458,19 +460,25 @@ handout_sections.json
 
 讲稿从讲义生成。
 
-讲稿统一：
+讲稿按 `outline_node_id` / `handout_section` 划分；当前实现中，每节讲稿保存在对应 `tutor_step.teaching_text`：
 
-- 按 `slide` 分段
-- 每个 `slide` 对应一个 `script segment`
+- 输入：当前 `outline_node` + `handout_section.content`
+- 输出承载对象：`tutor_step`
+- 核心字段：`outline_node_id`、`teaching_text`、`questions`、`quiz_scope`、`quiz_timing`、`signals`、`trace`
+- 粒度：一个 `outline_node_id` / handout section 对应一节讲稿
 
-建议结构：
+现阶段不新增独立讲稿生成源。若 TTS、导出或前端同步需要 `script_segments`，应从已有 `tutor_step.teaching_text` 映射得到。
+
+兼容视图建议结构：
 
 ```json
 {
-  "segment_id": "script_seg_1",
-  "slide_id": "slide_1",
+  "segment_id": "script_node_2",
+  "slide_id": "slide_node_2",
+  "outline_node_id": "node_2",
   "section_id": "node_2",
-  "narration_text": "这一页我们先看牙周炎的定义……",
+  "source": "tutor_step.teaching_text",
+  "narration_text": "这里保存或引用 tutor_step.teaching_text 的内容……",
   "estimated_seconds": 28,
   "related_kg_node_ids": ["kg://..."]
 }
@@ -551,18 +559,36 @@ PPT 是**可选任务**，不默认生成。
 
 ```json
 {
+  "schema_version": "slides.v1",
   "deck_id": "deck_001",
+  "session_id": "lesson_001",
   "deck_title": "牙周炎学习讲义",
   "theme_id": "clean_light",
   "slides": [
     {
-      "slide_id": "slide_1",
+      "slide_id": "slide_node_2",
+      "outline_node_id": "node_2",
       "section_id": "node_2",
       "slide_type": "concept",
       "title": "牙周炎的定义",
       "subtitle": "",
       "bullets": ["定义", "核心特征", "临床意义"],
-      "speaker_notes_ref": "script_seg_1",
+      "content": {
+        "overview": "本节概述……",
+        "key_points": [],
+        "clinical_example": "",
+        "common_confusions": [],
+        "transition_to_next": ""
+      },
+      "tutor_step_ref": "node_2",
+      "narration_ref": {
+        "source": "tutor_step.teaching_text",
+        "outline_node_id": "node_2"
+      },
+      "quiz_ref": {
+        "source": "tutor_step.questions",
+        "outline_node_id": "node_2"
+      },
       "related_kg_node_ids": ["kg://..."],
       "visual_hint": {
         "diagram_type": "concept_card"
@@ -574,6 +600,12 @@ PPT 是**可选任务**，不默认生成。
 
 统一原则：
 
+- 默认粒度为一节一页：一个 `outline_node_id` / `handout_section` / `tutor_step` 对应一张内容 slide
+- `section_id` 在学习主链路中等同于 `outline_node_id`
+- PPT 内容来自 `handout_section.content`
+- 前端播放讲稿时通过同一个 `outline_node_id` 绑定 `tutor_step.teaching_text`
+- 小测展示复用 `tutor_step.questions`，PPT 不重新生成题目
+- `slide_type` 是模板类型，不是固定页面顺序
 - 不做无限自由 PPT 模板生成
 - 先固定 schema
 - 再由前端对不同 `slide_type` 做组件化渲染
@@ -721,7 +753,8 @@ PPT 接口返回：
 
 讲稿接口返回：
 
-- `script_segments`
+- 第一版直接返回或引用现有 `tutor_step.teaching_text`
+- 如需 `script_segments`，仅作为从 `tutor_step` 映射出的兼容视图，不作为新的讲稿生成源
 
 音频接口返回：
 
@@ -1089,7 +1122,7 @@ PPT 接口返回：
 ### 第三优先级
 
 - PPT 可选导出
-- 讲稿按 slide 分段
+- 讲稿 / slide 按 `outline_node_id` 对齐
 - TTS 音频生成
 - 未来总控 Agent 接入
 

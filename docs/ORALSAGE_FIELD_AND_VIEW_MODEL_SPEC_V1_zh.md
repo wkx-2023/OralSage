@@ -51,7 +51,8 @@
 
 说明：
 
-- `section_id` 在学习主链路中默认等同于当前 `outline_node_id`
+- `outline_node_id` 是学习主链路中连接大纲、讲义 section、Tutor 讲稿、小测和 slide 的稳定主键
+- `section_id` 在学习主链路中默认等同于当前 `outline_node_id`；新增资源不得引入与 `outline_node_id` 脱钩的第三套 section id
 - `deck_id` 用于 PPT / slide 资源集合
 - `task_id` 用于异步可选资源任务
 
@@ -458,6 +459,8 @@
 
 手册 / 讲义 canonical source。
 
+当前代码中，单节讲义以 `session_id + outline_node_id` 缓存在 `handout_sections/{outline_node_id}.json`。`handout_section.content` 是 PPT、Tutor、QA、Assessment 的内容母本。
+
 建议最小关心字段：
 
 - `topic`
@@ -494,22 +497,55 @@
 
 ### 9.5 `slides.json`
 
+当前阶段 PPT 的直接控制对象是 `slides.json`。每张内容页必须绑定一个已有学习小节：
+
+```text
+slide.outline_node_id == slide.section_id == handout_section.outline_node_id == tutor_step.outline_node_id
+```
+
+默认粒度为**一节一页**：一个 outline node / handout section / tutor step 对应一张内容 slide。`slide_type` 只是前端模板类型，不代表固定生成顺序，也不要求每种类型都出现。
+
+PPT 内容来源：
+
+- `title` 优先来自 `handout_section.title`，可回退到 outline node title
+- `bullets` / `content` 来自 `handout_section.content.overview`、`key_points`、`clinical_example`、`common_confusions`、`transition_to_next`
+- `quiz` 如需展示，复用 `tutor_step.questions`，不由 PPT 重新生成
+- 讲稿按 `outline_node_id` / `handout_section` 划分；当前实现中，每节讲稿保存在对应 `tutor_step.teaching_text`
+
 建议最小结构：
 
 ```json
 {
+  "schema_version": "slides.v1",
   "deck_id": "deck_001",
+  "session_id": "lesson_001",
   "deck_title": "牙周炎学习讲义",
   "theme_id": "clean_light",
   "slides": [
     {
-      "slide_id": "slide_1",
+      "slide_id": "slide_node_2",
+      "outline_node_id": "node_2",
       "section_id": "node_2",
       "slide_type": "concept",
       "title": "牙周炎的定义",
       "subtitle": "",
       "bullets": ["定义", "核心特征", "临床意义"],
-      "speaker_notes_ref": "script_seg_1",
+      "content": {
+        "overview": "本节概述……",
+        "key_points": [],
+        "clinical_example": "",
+        "common_confusions": [],
+        "transition_to_next": ""
+      },
+      "tutor_step_ref": "node_2",
+      "narration_ref": {
+        "source": "tutor_step.teaching_text",
+        "outline_node_id": "node_2"
+      },
+      "quiz_ref": {
+        "source": "tutor_step.questions",
+        "outline_node_id": "node_2"
+      },
       "related_kg_node_ids": ["kg://..."],
       "visual_hint": {
         "diagram_type": "concept_card"
@@ -538,16 +574,20 @@
 
 ### 9.8 `script_segments`
 
-讲稿按 slide 分段。
+讲稿按 `outline_node_id` / `handout_section` 划分；当前实现中，每节讲稿保存在对应 `tutor_step.teaching_text`。第一版不得为了 PPT 重新定义或重写讲稿生成链路。
+
+`script_segments` 仅作为 TTS、导出或前端同步所需的兼容视图：从已有 `tutor_step` 映射得到，而不是新的内容生成源。
 
 建议最小结构：
 
 ```json
 {
-  "segment_id": "script_seg_1",
-  "slide_id": "slide_1",
+  "segment_id": "script_node_2",
+  "slide_id": "slide_node_2",
+  "outline_node_id": "node_2",
   "section_id": "node_2",
-  "narration_text": "这一页我们先看牙周炎的定义……",
+  "source": "tutor_step.teaching_text",
+  "narration_text": "这里保存或引用 tutor_step.teaching_text 的内容……",
   "estimated_seconds": 28,
   "related_kg_node_ids": ["kg://..."]
 }
