@@ -1,19 +1,17 @@
 (() => {
   const TEXT = {
-    shellSubtitle: '\u63a5\u53e3\u5df2\u4fdd\u7559\uff0c\u529f\u80fd\u5f85\u91cd\u5199',
+    shellSubtitle: '\u5de5\u5177\u7bb1\u6a21\u5757\uff0c\u4f9b\u5b66\u4e60\u5de5\u4f5c\u6d41\u6309\u9700\u8c03\u7528',
+    learningChatSubtitle: '\u5b66\u4e60\u578b\u667a\u80fd\u95ee\u7b54\u603b\u63a7\u5f85\u63a5\u5165',
   };
 
   const NAV_ITEMS = [
     { key: 'home', name: '\u603b\u63a7\u5de5\u4f5c\u53f0', path: '/' },
     { key: 'master-chat', name: '\u667a\u80fd\u95ee\u7b54', path: '/pages/master-chat.html' },
-    { key: 'image', name: '\u5f71\u50cf\u8bc6\u522b', path: '/pages/image.html' },
-    { key: 'decision', name: '\u51b3\u7b56\u8f85\u52a9', path: '/pages/decision.html' },
-    { key: 'records', name: '\u75c5\u5386\u751f\u6210', path: '/pages/records.html' },
-    { key: 'stats', name: '\u95e8\u8bca\u7edf\u8ba1', path: '/pages/stats.html' },
-    { key: 'literature', name: '\u524d\u6cbf\u6587\u732e', path: '/pages/literature.html' },
-    { key: 'pathology', name: '\u75c5\u7406\u95ee\u7b54', path: '/pages/pathology.html' },
+    { key: 'weixin-account', name: '微信连接', path: '/pages/weixin-account.html' },
+    { key: 'learning-plan', name: '学习计划', path: '/pages/learning-plan.html' },
+    { key: 'learning-profile', name: '\u5b66\u4e60\u753b\u50cf', path: '/pages/learning-profile.html' },
     { key: 'evidence', name: '\u77e5\u8bc6\u5e93\u67e5\u770b', path: '/pages/evidence.html' },
-    { key: 'knowledge-graph', name: '\u8bfe\u7a0b\u77e5\u8bc6\u56fe\u8c31', path: '/pages/knowledge-graph.html' },
+    { key: 'knowledge-graph', name: '\u77e5\u8bc6\u56fe\u8c31\u67e5\u770b', path: '/pages/knowledge-graph.html' },
   ];
 
   const BRAND_HTML = `
@@ -24,17 +22,20 @@
   `;
 
   const PAGE_META = {
-    '/': { key: 'home', title: 'OralSage', subtitle: '\u53e3\u8154\u5168\u6d41\u7a0b\u667a\u80fd\u8bca\u7597\u8f85\u52a9\u7cfb\u7edf' },
-    '/index.html': { key: 'home', title: 'OralSage', subtitle: '\u53e3\u8154\u5168\u6d41\u7a0b\u667a\u80fd\u8bca\u7597\u8f85\u52a9\u7cfb\u7edf' },
-    '/pages/master-chat.html': { key: 'master-chat', title: '\u667a\u80fd\u95ee\u7b54', subtitle: TEXT.shellSubtitle },
+    '/': { key: 'home', title: 'OralSage', subtitle: '\u53e3\u8154\u533b\u5b66\u667a\u80fd\u5b66\u4e60\u5de5\u4f5c\u53f0' },
+    '/index.html': { key: 'home', title: 'OralSage', subtitle: '\u53e3\u8154\u533b\u5b66\u667a\u80fd\u5b66\u4e60\u5de5\u4f5c\u53f0' },
+    '/pages/master-chat.html': { key: 'master-chat', title: '\u667a\u80fd\u95ee\u7b54', subtitle: TEXT.learningChatSubtitle },
+    '/pages/weixin-account.html': { key: 'weixin-account', title: '微信连接', subtitle: '连接 ClawBot，用微信接收每日计划、打卡和修改计划' },
+    '/pages/learning-plan.html': { key: 'learning-plan', title: '学习计划', subtitle: '按日记录学习计划、完成反馈和节奏记忆' },
+    '/pages/learning-profile.html': { key: 'learning-profile', title: '\u5b66\u4e60\u753b\u50cf', subtitle: '\u67e5\u770b\u957f\u671f\u8bb0\u5fc6\u3001\u638c\u63e1\u5ea6\u548c\u753b\u50cf\u8bc1\u636e' },
     '/pages/image.html': { key: 'image', title: '\u5f71\u50cf\u8bc6\u522b', subtitle: TEXT.shellSubtitle },
     '/pages/decision.html': { key: 'decision', title: '\u51b3\u7b56\u8f85\u52a9', subtitle: TEXT.shellSubtitle },
     '/pages/records.html': { key: 'records', title: '\u75c5\u5386\u751f\u6210', subtitle: TEXT.shellSubtitle },
     '/pages/stats.html': { key: 'stats', title: '\u95e8\u8bca\u7edf\u8ba1', subtitle: TEXT.shellSubtitle },
     '/pages/literature.html': { key: 'literature', title: '\u524d\u6cbf\u6587\u732e', subtitle: TEXT.shellSubtitle },
     '/pages/pathology.html': { key: 'pathology', title: '\u75c5\u7406\u95ee\u7b54', subtitle: TEXT.shellSubtitle },
-    '/pages/evidence.html': { key: 'evidence', title: '\u77e5\u8bc6\u5e93\u67e5\u770b', subtitle: '\u6309\u53e3\u8154\u95ee\u9898\u7ec4\u7ec7\u77e5\u8bc6\u70b9\u4e0e\u539f\u6587\u4f9d\u636e' },
-    '/pages/knowledge-graph.html': { key: 'knowledge-graph', title: '', subtitle: '' },
+    '/pages/evidence.html': { key: 'evidence', title: '\u77e5\u8bc6\u5e93\u67e5\u770b', subtitle: '\u6309\u4e3b\u9898\u548c\u7ef4\u5ea6\u67e5\u770b\u53e3\u8154\u533b\u5b66\u77e5\u8bc6\u70b9\u4e0e\u539f\u6587\u4f9d\u636e' },
+    '/pages/knowledge-graph.html': { key: 'knowledge-graph', title: '\u77e5\u8bc6\u56fe\u8c31\u67e5\u770b', subtitle: '\u67e5\u770b\u6559\u6750\u7ae0\u8282\u3001\u6838\u5fc3\u8282\u70b9\u548c\u77e5\u8bc6\u5173\u7cfb' },
   };
 
   function byId(id) {

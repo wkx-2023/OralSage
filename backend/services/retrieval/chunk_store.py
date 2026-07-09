@@ -14,6 +14,28 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "retrieval.yaml"
 DEFAULT_KB_DIR = PROJECT_ROOT / "data" / "processed" / "knowledge_base"
 
+_OLD_KAG_PREFIX = Path("data/kb/kag_bge_m3")
+_NEW_KAG_PREFIX = Path("data/data/kb/kag_bge_m3")
+
+
+def _resolve_existing_path(rel_path: str) -> Path:
+    """Resolve a config-sourced relative path, falling back from the old
+    ``data/kb/kag_bge_m3`` prefix to the current ``data/data/kb/kag_bge_m3``
+    when the old path does not exist on disk.
+    """
+    candidate = PROJECT_ROOT / rel_path
+    if candidate.exists():
+        return candidate
+    rel = Path(rel_path)
+    try:
+        suffix = rel.relative_to(_OLD_KAG_PREFIX)
+        fallback = PROJECT_ROOT / _NEW_KAG_PREFIX / suffix
+        if fallback.exists():
+            return fallback
+    except ValueError:
+        pass
+    return candidate
+
 
 def _load_config() -> dict[str, Any]:
     if not DEFAULT_CONFIG.exists():
@@ -139,7 +161,7 @@ def load_chunks() -> tuple[EvidenceChunk, ...]:
     chunks: list[EvidenceChunk] = []
     for source in _configured_sources(config):
         rel_path = str(source.get("path") or "")
-        path = PROJECT_ROOT / rel_path
+        path = _resolve_existing_path(rel_path)
         chunks.extend(
             _load_jsonl(
                 path,

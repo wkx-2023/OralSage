@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OralSage 微信连接</title>
+  <link rel="icon" href="/assets/images/oralsage-logo.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/weixin-account.css">
+</head>
+<body>
+  <div class="app-shell weixin-shell">
+    <header class="topbar">
+      <div>
+        <h1 id="page-title" class="page-title"></h1>
+        <p id="page-subtitle" class="page-subtitle"></p>
+      </div>
+    </header>
+
+    <main class="weixin-main">
+      <section class="weixin-panel">
+        <div>
+          <p class="eyebrow">Weixin ClawBot</p>
+          <h2>连接微信学习计划助手</h2>
+          <p class="summary">
+            连接后，ClawBot 可以在微信里推送每日计划，接收打卡，并支持修改或延期计划。
+          </p>
+        </div>
+
+        <div class="login-row">
+          <label>
+            <span>账号 ID</span>
+            <input id="user-id" value="demo" autocomplete="username">
+          </label>
+          <label>
+            <span>显示名称</span>
+            <input id="display-name" value="demo" autocomplete="name">
+          </label>
+          <button id="login-btn" type="button">登录</button>
+        </div>
+
+        <div class="status-card">
+          <div>
+            <span class="status-label">当前账号</span>
+            <strong id="current-user">未登录</strong>
+          </div>
+          <div>
+            <span class="status-label">微信状态</span>
+            <strong id="bind-state">未连接</strong>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="qr-btn" type="button">获取二维码</button>
+          <button id="push-btn" type="button">推送今日计划</button>
+          <button id="unbind-btn" type="button">解绑微信</button>
+        </div>
+
+        <div id="qr-box" class="qr-box" hidden>
+          <a id="qr-link" href="#" target="_blank" rel="noreferrer">
+            <img id="qr-img" alt="微信扫码二维码">
+          </a>
+          <p id="qr-note">请用微信扫描二维码完成连接。</p>
+        </div>
+
+        <pre id="output" class="output" aria-live="polite"></pre>
+      </section>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/weixin-account.js"></script>
+</body>
+</html>

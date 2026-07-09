@@ -120,3 +120,117 @@ class ImageRequest(BaseModel):
     query: str | None = None
     image_base64: str
     allow_web: bool = True
+
+
+# ============================================================================
+# Learning Orchestrator API schemas
+# ============================================================================
+
+
+class LearningStartRequest(BaseModel):
+    user_id: str = "demo"
+    topic: str
+    display_name: str | None = None
+    profile_input: dict[str, Any] = Field(default_factory=dict)
+
+
+class LearningRouteRequest(BaseModel):
+    session_id: str
+    user_input: dict[str, Any] | None = None
+    use_llm_policy: bool = False
+
+
+class LearningExecuteRequest(BaseModel):
+    session_id: str
+    decision: dict[str, Any]
+    user_input: dict[str, Any] | None = None
+
+
+class LearningStepRequest(BaseModel):
+    session_id: str
+    use_llm_policy: bool = False
+
+
+class LearningInterruptionRequest(BaseModel):
+    session_id: str
+    question: str
+    use_llm_policy: bool = False
+
+
+class LearningContinueRequest(BaseModel):
+    session_id: str
+    use_llm_policy: bool = False
+
+
+class LearningSubmitAnswerRequest(BaseModel):
+    session_id: str
+    question: dict[str, Any]
+    answer: str
+    use_llm_policy: bool = False
+
+
+class LearningProfileSliceRequest(BaseModel):
+    user_id: str
+    role: str = "qa"
+    context: dict[str, Any] = Field(default_factory=dict)
+    limit: int = 6
+
+
+class LearningMemoryConsolidateRequest(BaseModel):
+    user_id: str
+    session_id: str | None = None
+    surface: str | None = None
+    surfaces: list[str] | None = None
+    slot: str | None = None
+    layer: str = "all"
+    limit: int = 200
+
+
+class LearnerAssessmentAnswer(BaseModel):
+    question_id: str
+    selected_option: str
+
+
+class LearnerAssessmentSubmitRequest(BaseModel):
+    user_id: str = "demo"
+    instrument_name: str = "learning_onboarding_v1"
+    instrument_version: str = "v1"
+    answers: list[LearnerAssessmentAnswer] = Field(default_factory=list)
+    target_exam: str | None = None
+    skip_assessment: bool = False
+
+
+class LearningPlanCreateRequest(BaseModel):
+    user_id: str = "demo"
+    plan_date: str
+    title: str
+    notes: str | None = None
+    linked_course_id: str | None = None
+    linked_course_title: str | None = None
+    kg_node_ids: list[str] = Field(default_factory=list)
+
+
+class LearningPlanUpdateRequest(BaseModel):
+    user_id: str = "demo"
+    plan_date: str | None = None
+    title: str | None = None
+    notes: str | None = None
+    linked_course_id: str | None = None
+    linked_course_title: str | None = None
+    kg_node_ids: list[str] | None = None
+
+
+class LearningPlanCompleteRequest(BaseModel):
+    user_id: str = "demo"
+    completed: bool = True
+
+
+class LearningPlanDeferRequest(BaseModel):
+    user_id: str = "demo"
+    to_date: str | None = None
+
+
+class LearningPlanRecommendRequest(BaseModel):
+    user_id: str = "demo"
+    plan_date: str
+    max_items: int = 4

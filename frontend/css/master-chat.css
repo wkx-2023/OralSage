@@ -3,11 +3,12 @@
 }
 
 .chat-product-shell {
-  height: calc(100vh - var(--nav-height));
+  height: 100vh;
   min-height: 0;
-  margin-top: var(--nav-height);
-  padding-top: 0;
+  margin: 0 auto;
+  padding-top: var(--nav-height);
   background: var(--bg);
+  overflow: hidden;
 }
 
 .chat-history-panel {
@@ -78,10 +79,6 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-}
-
-.chat-topbar {
-  padding: 12px 18px 10px;
 }
 
 .chat-stage {
@@ -194,6 +191,32 @@
 
 .assistant-markdown > :last-child {
   margin-bottom: 0;
+}
+
+.learning-placeholder {
+  display: grid;
+  gap: 10px;
+}
+
+.learning-placeholder h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #3f3697;
+}
+
+.learning-placeholder p {
+  margin: 0;
+}
+
+.learning-placeholder-actions {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.learning-placeholder-actions .btn {
+  text-decoration: none;
 }
 
 .assistant-markdown p,

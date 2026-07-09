@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+import os
 from pathlib import Path
 from typing import Any
 import base64
 import json
+import time
+from uuid import uuid4
 
 from .services.env_loader import load_project_env
 
 load_project_env()
 
-from fastapi import FastAPI, File, Form, Response, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,6 +28,21 @@ from .schemas import (
     ImageRequest,
     KnowledgeGraphNeighborhoodRequest,
     KnowledgeViewRequest,
+    LearningContinueRequest,
+    LearnerAssessmentSubmitRequest,
+    LearningExecuteRequest,
+    LearningMemoryConsolidateRequest,
+    LearningPlanCompleteRequest,
+    LearningPlanCreateRequest,
+    LearningPlanDeferRequest,
+    LearningPlanRecommendRequest,
+    LearningPlanUpdateRequest,
+    LearningProfileSliceRequest,
+    LearningInterruptionRequest,
+    LearningRouteRequest,
+    LearningStartRequest,
+    LearningStepRequest,
+    LearningSubmitAnswerRequest,
     LiteratureRequest,
     LiteratureTranslateRequest,
     PathologyRequest,
@@ -48,10 +67,38 @@ from .services.literature import run_article_translation, run_literature_search,
 from .services.mcp_tools import invoke_local_mcp_tool
 from .services.pathology import run_pathology_ask
 from .services.record_workflow import correct_asr, extract_fields, generate_record, run_workflow
-from .services.router import run_master_router
 from .services.stats.dashboard import run_stats_filter, stats_options
 from .services.stats import run_stats_query
+from .services.learning.orchestrator import LearningOrchestrator, decide_next_action
+from .services.learning.audio import get_audio_manifest
+from .services.learning.llm_policy import decide_next_action_with_llm
+from .services.learning.learner_assessment import (
+    get_learner_assessment_definition,
+    submit_learner_assessment,
+)
+from .services.learning.profile_memory import (
+    build_profile_slice,
+    consolidate_l2,
+    consolidate_l3,
+    refresh_profile_state_from_l3,
+)
+from .services.learning.study_plan import (
+    complete_study_plan_item,
+    create_study_plan_item,
+    defer_study_plan_item,
+    delete_study_plan_item,
+    get_study_plan_day,
+    get_study_plan_month,
+    recommend_study_plan,
+    update_study_plan_item,
+)
+from .services.clawbridge_client import ClawBridgeClient, ClawBridgeError
+from .services.weixin_auth import WeixinAuthStore, session_cookie_name
+from .services.weixin_plan_bot import build_daily_plan_text, handle_weixin_plan_message
 
+
+learning_orchestrator = LearningOrchestrator()
+weixin_auth_store = WeixinAuthStore()
 
 app = FastAPI(title="OralPath API Interfaces", version="0.1.0")
 app.add_middleware(
@@ -62,9 +109,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def _sse(event: str, data: dict[str, Any]) -> str:
+    payload = json.dumps(data, ensure_ascii=False, default=str)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+def _stream_headers() -> dict[str, str]:
+    return {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+
+
+def _elapsed(started_at: float) -> float:
+    return round(time.perf_counter() - started_at, 3)
+
+
+def _progress_event(
+    *,
+    action: str,
+    phase: str,
+    message: str,
+    started_at: float,
+    tick: int,
+) -> str:
+    return _sse(
+        "progress",
+        {
+            "ok": True,
+            "module": "learning",
+            "action": action,
+            "phase": phase,
+            "message": message,
+            "elapsed_seconds": _elapsed(started_at),
+            "tick": tick,
+        },
+    )
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 INTERFACE_REMOVED_MESSAGE = "Interface retained; implementation removed for rebuild."
+LEARNING_ROUTER_REBUILD_MESSAGE = "旧总控 agent 已停用；学习型总控 agent 待重建。"
 
 
 def _stub(module: str, payload: dict[str, Any] | None = None) -> JSONResponse:
@@ -77,6 +164,29 @@ def _stub(module: str, payload: dict[str, Any] | None = None) -> JSONResponse:
             "payload": payload or {},
         },
     )
+
+
+def _learning_router_stub(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "module": "learning_router_placeholder",
+        "answer": LEARNING_ROUTER_REBUILD_MESSAGE,
+        "message": LEARNING_ROUTER_REBUILD_MESSAGE,
+        "route": {
+            "mode": "placeholder",
+            "intent": "learning_router_rebuild",
+            "target_agent": None,
+            "reason": "当前版本已将旧医疗总控从调用链中摘除，现有专业 agent 作为工具箱能力独立保留。",
+        },
+        "steps": [],
+        "final_result": {},
+        "payload": payload or {},
+        "trace": {
+            "route_source": "disabled",
+            "selected_agent": None,
+            "errors": [],
+        },
+    }
 
 
 @app.get("/api/system/health")
@@ -106,7 +216,10 @@ def capabilities() -> dict[str, Any]:
             "clinic_stats",
             "pathology_qa",
             "image_analysis",
-            "master_router",
+            "learning_router_placeholder",
+            "learning_agent_mvp",
+            "learning_study_plan",
+            "learning_learner_assessment",
         ],
         "modules": [
             "pathology_qa",
@@ -144,6 +257,33 @@ def capabilities() -> dict[str, Any]:
             "/api/records/workflow-upload",
             "/api/image/analyze",
             "/api/image/analyze-upload",
+            "/api/learning/session/start",
+            "/api/learning/session/start/stream",
+            "/api/learning/session/{session_id}/state",
+            "/api/learning/session/{session_id}/audio-manifest",
+            "/api/learning/session/{session_id}/audio/{outline_node_id}/{filename}",
+            "/api/learning/assessment",
+            "/api/learning/assessment/submit",
+            "/api/learning/profile/{user_id}",
+            "/api/learning/profile/slice",
+            "/api/learning/memory/consolidate",
+            "/api/learning/plan/{user_id}/month",
+            "/api/learning/plan/{user_id}/day/{plan_date}",
+            "/api/learning/plan/recommend",
+            "/api/learning/plan/items",
+            "/api/learning/plan/items/{item_id}/update",
+            "/api/learning/plan/items/{item_id}/complete",
+            "/api/learning/plan/items/{item_id}/defer",
+            "/api/learning/plan/items/{item_id}",
+            "/api/learning/route",
+            "/api/learning/execute",
+            "/api/learning/step",
+            "/api/learning/interruption",
+            "/api/learning/interruption/stream",
+            "/api/learning/continue",
+            "/api/learning/continue/stream",
+            "/api/learning/answer",
+            "/api/learning/answer/stream",
             "/api/router/chat",
             "/api/agents/{agent_name}/invoke",
             "/api/agents/{agent_name}/stream",
@@ -409,26 +549,1388 @@ async def image_analyze_upload(
     return JSONResponse(result, status_code=200 if result.get("ok", False) else 422)
 
 
+# ============================================================================
+# Learning Orchestrator API
+# ============================================================================
+
+
+def _learning_route(
+    session_id: str,
+    user_input: dict[str, Any] | None,
+    use_llm_policy: bool,
+) -> dict[str, Any]:
+    """Produce a policy decision — does NOT execute.
+
+    When *use_llm_policy* is True, the LLM policy agent is used (with
+    automatic fallback to the rule-based policy on error / invalid output).
+    Otherwise the orchestrator's current policy_fn is used (default:
+    rule-based).
+    """
+    state = learning_orchestrator.get_policy_state(session_id)
+    if use_llm_policy:
+        decision = decide_next_action_with_llm(
+            state,
+            user_input,
+            fallback_policy=decide_next_action,
+        )
+    else:
+        decision = learning_orchestrator.policy_fn(state, user_input)
+    return {"state": state, "decision": decision}
+
+
+@app.post("/api/learning/session/start")
+async def learning_session_start(req: LearningStartRequest) -> JSONResponse:
+    """Start a new learning session — no policy routing needed for creation."""
+    result = learning_orchestrator.start_lesson(
+        user_id=req.user_id,
+        topic=req.topic,
+        display_name=req.display_name,
+        profile_input=req.profile_input,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "start_lesson",
+            "result": result,
+        }
+    )
+
+
+@app.post("/api/learning/session/start/stream")
+async def learning_session_start_stream(req: LearningStartRequest) -> StreamingResponse:
+    """Start a lesson and stream long-running progress events via SSE."""
+
+    async def event_stream():
+        action = "start_lesson_stream"
+        started_at = time.perf_counter()
+        yield _sse(
+            "start",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "received",
+                "topic": req.topic,
+                "user_id": req.user_id,
+                "message": "已收到学习请求，开始检索知识库并规划课程。",
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+
+        start_task = asyncio.create_task(
+            asyncio.to_thread(
+                learning_orchestrator.start_lesson,
+                user_id=req.user_id,
+                topic=req.topic,
+                display_name=req.display_name,
+                profile_input=req.profile_input,
+            )
+        )
+        start_messages = [
+            "正在检索 KAG 证据并生成第一节大纲。",
+            "正在为第一节绑定 evidence / KG node。",
+            "正在生成第一节 handout_section，后续标题先占位。",
+            "正在启动完整大纲后台补全。",
+        ]
+        tick = 0
+        while not start_task.done():
+            await asyncio.sleep(5)
+            tick += 1
+            yield _progress_event(
+                action=action,
+                phase="start_lesson",
+                message=start_messages[(tick - 1) % len(start_messages)],
+                started_at=started_at,
+                tick=tick,
+            )
+
+        try:
+            start_result = await start_task
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "start_lesson",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        session_id = start_result["session"]["id"]
+        outline_nodes = start_result.get("outline", {}).get("nodes", [])
+        yield _sse(
+            "outline_ready",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "outline_ready",
+                "session_id": session_id,
+                "outline_node_count": len(outline_nodes),
+                "outline": [
+                    {"id": node.get("id"), "title": node.get("title")}
+                    for node in outline_nodes
+                ],
+                "first_handout_section_ready": start_result.get("first_handout_section_ready"),
+                "first_handout_audio_status": (
+                    start_result.get("first_handout_audio", {}) or {}
+                ).get("status"),
+                "outline_status": start_result.get("outline_status", "complete"),
+                "outline_completion_started": start_result.get(
+                    "outline_completion_started",
+                    False,
+                ),
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+
+        tutor_task = asyncio.create_task(
+            asyncio.to_thread(learning_orchestrator.next_step, session_id)
+        )
+        tutor_messages = [
+            "正在基于第一节 handout 生成 Tutor 讲解。",
+            "正在生成本节 quiz 与教学信号。",
+            "正在写入学习事件与掌握度信号。",
+        ]
+        while not tutor_task.done():
+            await asyncio.sleep(5)
+            tick += 1
+            yield _progress_event(
+                action=action,
+                phase="first_tutor_step",
+                message=tutor_messages[(tick - 1) % len(tutor_messages)],
+                started_at=started_at,
+                tick=tick,
+            )
+
+        try:
+            tutor_step = await tutor_task
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "first_tutor_step",
+                    "session_id": session_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "tutor_ready",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "tutor_ready",
+                "session_id": session_id,
+                "outline_node_id": tutor_step.get("outline_node_id"),
+                "content_status": tutor_step.get("content_status"),
+                "question_count": len(tutor_step.get("questions") or []),
+                "section_audio_status": (
+                    tutor_step.get("section_audio", {}) or {}
+                ).get("status"),
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        yield _sse(
+            "complete",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "elapsed_seconds": _elapsed(started_at),
+                "result": {
+                    "start": start_result,
+                    "tutor_step": tutor_step,
+                },
+            },
+        )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=_stream_headers(),
+    )
+
+
+@app.get("/api/learning/session/{session_id}/state")
+async def learning_session_state(session_id: str) -> JSONResponse:
+    """Return policy state + session summary for a learning session."""
+    session = learning_orchestrator.memory.get_session(session_id)
+    try:
+        refresh_profile_state_from_l3(
+            learning_orchestrator.memory,
+            session["user_id"],
+        )
+    except Exception:
+        pass
+    summary = learning_orchestrator.memory.session_summary(session_id)
+    policy_state = learning_orchestrator.get_policy_state(session_id)
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "result": {
+                "policy_state": policy_state,
+                "summary": summary,
+            },
+        }
+    )
+
+
+@app.get("/api/learning/session/{session_id}/audio-manifest")
+async def learning_session_audio_manifest(session_id: str) -> JSONResponse:
+    """Return the slide-level audio manifest for a learning session."""
+    manifest = get_audio_manifest(
+        session_id,
+        resource_root=learning_orchestrator.resource_root,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "audio_manifest",
+            "result": manifest,
+        }
+    )
+
+
+@app.get("/api/learning/session/{session_id}/audio/{outline_node_id}/{filename}")
+async def learning_session_audio_file(
+    session_id: str,
+    outline_node_id: str,
+    filename: str,
+) -> FileResponse:
+    """Return one generated slide audio file."""
+    session_dir = Path(learning_orchestrator.resource_root) / session_id
+    audio_root = (session_dir / "audio_files").resolve()
+    candidate = (audio_root / outline_node_id / filename).resolve()
+    if audio_root not in candidate.parents:
+        raise HTTPException(status_code=404, detail="Audio file not found")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Audio file not found")
+    return FileResponse(candidate)
+
+
+@app.get("/api/learning/assessment")
+async def learning_assessment_definition() -> JSONResponse:
+    """Return the stable learner-assessment question set."""
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "learner_assessment_definition",
+            "result": get_learner_assessment_definition(),
+        }
+    )
+
+
+@app.post("/api/learning/assessment/submit")
+async def learning_assessment_submit(req: LearnerAssessmentSubmitRequest) -> JSONResponse:
+    """Submit onboarding assessment answers and persist the initial profile."""
+    try:
+        result = submit_learner_assessment(
+            learning_orchestrator.memory,
+            user_id=req.user_id,
+            answers=[item.model_dump() for item in req.answers],
+            target_exam=req.target_exam,
+            skip_assessment=req.skip_assessment,
+            instrument_name=req.instrument_name,
+            instrument_version=req.instrument_version,
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "module": "learning",
+                "action": "learner_assessment_submit",
+                "result": {"error": str(exc)},
+            },
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "learner_assessment_submit",
+            "result": result,
+        }
+    )
+
+
+@app.get("/api/learning/profile/{user_id}")
+async def learning_profile(user_id: str) -> JSONResponse:
+    """Return compact profile + L3 learner memory for a user."""
+    profile = learning_orchestrator.memory.get_or_create_profile(user_id)
+    try:
+        refresh_profile_state_from_l3(learning_orchestrator.memory, user_id)
+    except Exception:
+        pass
+    learner_memory = learning_orchestrator.memory.get_learner_memory(user_id)
+    summaries = learning_orchestrator.memory.list_learning_summaries(
+        user_id,
+        limit=50,
+    )
+    recent_events = learning_orchestrator.memory.list_recent_events(
+        user_id,
+        limit=100,
+    )
+    assessment_state = learning_orchestrator.memory.learner_assessment_state(
+        user_id,
+        profile=profile,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "profile",
+            "result": {
+                "user_id": user_id,
+                "profile": profile,
+                "learner_memory": learner_memory,
+                "learning_summaries": summaries,
+                "recent_events": recent_events,
+                "assessment_state": assessment_state,
+            },
+        }
+    )
+
+
+@app.post("/api/learning/profile/slice")
+async def learning_profile_slice(req: LearningProfileSliceRequest) -> JSONResponse:
+    """Return a role-specific learner-memory slice."""
+    result = build_profile_slice(
+        learning_orchestrator.memory,
+        user_id=req.user_id,
+        role=req.role,
+        context=req.context,
+        limit=req.limit,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "profile_slice",
+            "result": result,
+        }
+    )
+
+
+@app.post("/api/learning/memory/consolidate")
+async def learning_memory_consolidate(
+    req: LearningMemoryConsolidateRequest,
+) -> JSONResponse:
+    """Manually run L2 and/or L3 learner-memory consolidation."""
+    layer = req.layer.lower().strip()
+    result: dict[str, Any] = {}
+    if layer in {"all", "l2"}:
+        result["l2"] = consolidate_l2(
+            learning_orchestrator.memory,
+            user_id=req.user_id,
+            session_id=req.session_id,
+            surface=req.surface,
+            surfaces=req.surfaces,
+            limit=req.limit,
+        )
+    if layer in {"all", "l3"}:
+        result["l3"] = consolidate_l3(
+            learning_orchestrator.memory,
+            user_id=req.user_id,
+            session_id=req.session_id,
+            slot=req.slot,
+            limit=req.limit,
+        )
+    if not result:
+        result["error"] = "layer must be one of: all, l2, l3"
+    return JSONResponse(
+        {
+            "ok": "error" not in result,
+            "module": "learning",
+            "action": "memory_consolidate",
+            "result": result,
+        }
+    )
+
+
+def _learning_plan_response(action: str, result: dict[str, Any], status_code: int = 200) -> JSONResponse:
+    return JSONResponse(
+        {
+            "ok": status_code < 400,
+            "module": "learning",
+            "action": action,
+            "result": result,
+        },
+        status_code=status_code,
+    )
+
+
+def _learning_plan_error(action: str, exc: Exception, status_code: int) -> JSONResponse:
+    return _learning_plan_response(
+        action,
+        {"error": str(exc)},
+        status_code=status_code,
+    )
+
+
+@app.get("/api/learning/plan/{user_id}/month")
+async def learning_plan_month(user_id: str, year: int, month: int) -> JSONResponse:
+    """Return study-plan items grouped by calendar day for one month."""
+    try:
+        result = get_study_plan_month(
+            learning_orchestrator.memory,
+            user_id=user_id,
+            year=year,
+            month=month,
+        )
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_month", exc, 400)
+    return _learning_plan_response("study_plan_month", result)
+
+
+@app.get("/api/learning/plan/{user_id}/day/{plan_date}")
+async def learning_plan_day(user_id: str, plan_date: str) -> JSONResponse:
+    """Return study-plan items for one day."""
+    try:
+        result = get_study_plan_day(
+            learning_orchestrator.memory,
+            user_id=user_id,
+            plan_date=plan_date,
+        )
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_day", exc, 400)
+    return _learning_plan_response("study_plan_day", result)
+
+
+@app.post("/api/learning/plan/recommend")
+async def learning_plan_recommend(req: LearningPlanRecommendRequest) -> JSONResponse:
+    """Return preview recommendations for one study-plan day."""
+    try:
+        result = recommend_study_plan(
+            learning_orchestrator.memory,
+            user_id=req.user_id,
+            plan_date=req.plan_date,
+            max_items=req.max_items,
+        )
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_recommend", exc, 400)
+    return _learning_plan_response("study_plan_recommend", result)
+
+
+@app.post("/api/learning/plan/items")
+async def learning_plan_create_item(req: LearningPlanCreateRequest) -> JSONResponse:
+    """Create one study-plan to-do item."""
+    try:
+        result = create_study_plan_item(
+            learning_orchestrator.memory,
+            user_id=req.user_id,
+            plan_date=req.plan_date,
+            title=req.title,
+            notes=req.notes,
+            linked_course_id=req.linked_course_id,
+            linked_course_title=req.linked_course_title,
+            kg_node_ids=req.kg_node_ids,
+        )
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_create_item", exc, 400)
+    return _learning_plan_response("study_plan_create_item", result)
+
+
+@app.post("/api/learning/plan/items/{item_id}/update")
+async def learning_plan_update_item(
+    item_id: str,
+    req: LearningPlanUpdateRequest,
+) -> JSONResponse:
+    """Update one study-plan item."""
+    try:
+        updates = req.model_dump(exclude={"user_id"}, exclude_unset=True)
+        result = update_study_plan_item(
+            learning_orchestrator.memory,
+            item_id=item_id,
+            user_id=req.user_id,
+            updates=updates,
+        )
+    except KeyError as exc:
+        return _learning_plan_error("study_plan_update_item", exc, 404)
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_update_item", exc, 400)
+    return _learning_plan_response("study_plan_update_item", result)
+
+
+@app.post("/api/learning/plan/items/{item_id}/complete")
+async def learning_plan_complete_item(
+    item_id: str,
+    req: LearningPlanCompleteRequest,
+) -> JSONResponse:
+    """Toggle completion. Completed items feed a deterministic learner-memory signal."""
+    try:
+        result = complete_study_plan_item(
+            learning_orchestrator.memory,
+            item_id=item_id,
+            user_id=req.user_id,
+            completed=req.completed,
+        )
+    except KeyError as exc:
+        return _learning_plan_error("study_plan_complete_item", exc, 404)
+    return _learning_plan_response("study_plan_complete_item", result)
+
+
+@app.post("/api/learning/plan/items/{item_id}/defer")
+async def learning_plan_defer_item(
+    item_id: str,
+    req: LearningPlanDeferRequest,
+) -> JSONResponse:
+    """Move a plan item to another day, defaulting to the next day."""
+    try:
+        result = defer_study_plan_item(
+            learning_orchestrator.memory,
+            item_id=item_id,
+            user_id=req.user_id,
+            to_date=req.to_date,
+        )
+    except KeyError as exc:
+        return _learning_plan_error("study_plan_defer_item", exc, 404)
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_defer_item", exc, 400)
+    return _learning_plan_response("study_plan_defer_item", result)
+
+
+@app.delete("/api/learning/plan/items/{item_id}")
+async def learning_plan_delete_item(item_id: str, user_id: str = "demo") -> JSONResponse:
+    """Delete one study-plan item."""
+    try:
+        result = delete_study_plan_item(
+            learning_orchestrator.memory,
+            item_id=item_id,
+            user_id=user_id,
+        )
+    except KeyError as exc:
+        return _learning_plan_error("study_plan_delete_item", exc, 404)
+    return _learning_plan_response("study_plan_delete_item", result)
+
+
+def _clawbridge_secret() -> str:
+    return (
+        os.getenv("ORALSAGE_CLAWBRIDGE_INTERNAL_SECRET")
+        or os.getenv("CLAWBRIDGE_INTERNAL_SECRET")
+        or os.getenv("AUTH_INTERNAL_OPENCLAW_SECRET")
+        or ""
+    ).strip()
+
+
+def _require_web_user(request: Request) -> dict[str, Any]:
+    user = weixin_auth_store.get_user_by_session(request.cookies.get(session_cookie_name()))
+    if user is None:
+        raise HTTPException(status_code=401, detail={"message": "Web login is required."})
+    return user
+
+
+def _resolve_internal_weixin_user(
+    *,
+    x_newproject_internal_secret: str | None,
+    x_clawbot_instance_id: str | None,
+    x_legacy_clawbot_instance_id: str | None,
+    x_weixin_account_id: str | None,
+    x_weixin_user_id: str | None,
+) -> dict[str, Any] | None:
+    if not any([x_newproject_internal_secret, x_clawbot_instance_id, x_legacy_clawbot_instance_id, x_weixin_account_id, x_weixin_user_id]):
+        return None
+    if str(x_newproject_internal_secret or "").strip() != _clawbridge_secret():
+        raise HTTPException(status_code=401, detail={"message": "Weixin internal authentication failed."})
+    instance_id = str(x_clawbot_instance_id or x_legacy_clawbot_instance_id or "").strip() or None
+    if not instance_id and not (x_weixin_account_id and x_weixin_user_id):
+        raise HTTPException(status_code=401, detail={"message": "Weixin identity headers are missing."})
+    return weixin_auth_store.get_bound_user(
+        clawbot_instance_id=instance_id,
+        weixin_account_id=x_weixin_account_id,
+        weixin_user_id=x_weixin_user_id,
+    )
+
+
+@app.post("/api/auth/web-login")
+async def web_login(payload: dict[str, Any] | None = None) -> JSONResponse:
+    """Create a lightweight web session for the account page.
+
+    The project did not have a login module before the Weixin migration, so this
+    endpoint provides the minimal cookie session needed by the QR bind flow.
+    """
+    data = payload or {}
+    user, token = weixin_auth_store.login(
+        user_id=str(data.get("user_id") or "demo"),
+        display_name=str(data.get("display_name") or data.get("user_id") or "demo"),
+    )
+    json_response = JSONResponse({"ok": True, "module": "weixin_auth", "user": user})
+    json_response.set_cookie(
+        key=session_cookie_name(),
+        value=token,
+        httponly=True,
+        samesite="lax",
+        path="/",
+        max_age=30 * 24 * 3600,
+    )
+    return json_response
+
+
+@app.post("/api/auth/logout")
+async def web_logout(request: Request) -> JSONResponse:
+    weixin_auth_store.logout(request.cookies.get(session_cookie_name()))
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(session_cookie_name(), path="/")
+    return response
+
+
+@app.get("/api/auth/me")
+async def web_me(request: Request) -> JSONResponse:
+    user = weixin_auth_store.get_user_by_session(request.cookies.get(session_cookie_name()))
+    return JSONResponse({"ok": True, "user": user, "authenticated": user is not None})
+
+
+@app.post("/api/auth/weixin/qr/start")
+async def weixin_qr_start(request: Request) -> JSONResponse:
+    user = _require_web_user(request)
+    session_id = uuid4().hex
+    try:
+        result = ClawBridgeClient().start_qr_login(session_id=session_id)
+    except ClawBridgeError as exc:
+        raise HTTPException(status_code=503, detail={"message": str(exc)}) from exc
+    session = weixin_auth_store.create_bind_session(
+        user_id=str(user["user_id"]),
+        session_id=result.session_id,
+        qr_data_url=result.qr_data_url,
+        message=result.message,
+    )
+    return JSONResponse(
+        {
+            "session_id": session["session_id"],
+            "status": session["status"],
+            "qr_data_url": session["qr_data_url"],
+            "expires_at": session["expires_at"],
+            "message": session["message"],
+        }
+    )
+
+
+@app.get("/api/auth/weixin/qr/status")
+async def weixin_qr_status(request: Request, session_id: str = Query(min_length=1)) -> JSONResponse:
+    user = _require_web_user(request)
+    session = weixin_auth_store.get_bind_session(session_id)
+    if not session or session.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=404, detail={"message": "The requested Weixin QR session was not found."})
+    if session.get("status") == "bound":
+        return JSONResponse(
+            {
+                "session_id": session_id,
+                "status": "bound",
+                "bound": True,
+                "qr_data_url": session.get("qr_data_url"),
+                "expires_at": session.get("expires_at"),
+                "message": session.get("message"),
+                "binding": weixin_auth_store.get_bind_status_for_user(str(user["user_id"])),
+            }
+        )
+    try:
+        status = ClawBridgeClient(timeout_seconds=40).get_qr_status(session_id=session_id, timeout_ms=35000)
+    except ClawBridgeError as exc:
+        updated = weixin_auth_store.update_bind_session(session_id, {"status": "error", "message": str(exc)})
+        return JSONResponse(
+            {
+                "session_id": session_id,
+                "status": "error",
+                "bound": False,
+                "qr_data_url": (updated or session).get("qr_data_url"),
+                "expires_at": (updated or session).get("expires_at"),
+                "message": str(exc),
+                "binding": weixin_auth_store.get_bind_status_for_user(str(user["user_id"])),
+            }
+        )
+
+    if not status.connected:
+        next_status = status.status if status.status in {"waiting", "expired", "error"} else "waiting"
+        updated = weixin_auth_store.update_bind_session(
+            session_id,
+            {
+                "status": next_status,
+                "message": status.message,
+                **({"qr_data_url": status.qr_data_url} if status.qr_data_url else {}),
+            },
+        )
+        return JSONResponse(
+            {
+                "session_id": session_id,
+                "status": next_status,
+                "bound": False,
+                "qr_data_url": (updated or session).get("qr_data_url"),
+                "expires_at": (updated or session).get("expires_at"),
+                "message": status.message,
+                "binding": weixin_auth_store.get_bind_status_for_user(str(user["user_id"])),
+            }
+        )
+
+    binding = weixin_auth_store.bind_weixin_identity(
+        user_id=str(user["user_id"]),
+        weixin_account_id=status.weixin_account_id or "",
+        weixin_user_id=status.weixin_user_id or "",
+        clawbot_instance_id=status.clawbot_instance_id,
+    )
+    updated = weixin_auth_store.update_bind_session(
+        session_id,
+        {
+            "status": "bound",
+            "message": status.message,
+            "weixin_account_id": status.weixin_account_id,
+            "weixin_user_id": status.weixin_user_id,
+            "clawbot_instance_id": binding.get("clawbot_instance_id"),
+            "binding_revision": binding.get("binding_revision"),
+        },
+    )
+    return JSONResponse(
+        {
+            "session_id": session_id,
+            "status": "bound",
+            "bound": True,
+            "qr_data_url": (updated or session).get("qr_data_url"),
+            "expires_at": (updated or session).get("expires_at"),
+            "message": status.message,
+            "binding": binding,
+        }
+    )
+
+
+@app.get("/api/auth/weixin/bind-status")
+async def weixin_bind_status(
+    request: Request,
+    x_newproject_internal_secret: str | None = Header(default=None, alias="X-NewProject-Internal-Secret"),
+    x_clawbot_instance_id: str | None = Header(default=None, alias="X-AlertClaw-ClawBot-Instance-Id"),
+    x_legacy_clawbot_instance_id: str | None = Header(default=None, alias="X-OpenSensus-ClawBot-Instance-Id"),
+    x_weixin_account_id: str | None = Header(default=None, alias="X-Weixin-Account-Id"),
+    x_weixin_user_id: str | None = Header(default=None, alias="X-Weixin-User-Id"),
+) -> JSONResponse:
+    internal_user = _resolve_internal_weixin_user(
+        x_newproject_internal_secret=x_newproject_internal_secret,
+        x_clawbot_instance_id=x_clawbot_instance_id,
+        x_legacy_clawbot_instance_id=x_legacy_clawbot_instance_id,
+        x_weixin_account_id=x_weixin_account_id,
+        x_weixin_user_id=x_weixin_user_id,
+    )
+    if internal_user is not None:
+        return JSONResponse(weixin_auth_store.get_bind_status_for_user(str(internal_user["user_id"])))
+    user = _require_web_user(request)
+    return JSONResponse(weixin_auth_store.get_bind_status_for_user(str(user["user_id"])))
+
+
+@app.delete("/api/auth/weixin/bind")
+async def weixin_unbind(
+    request: Request,
+    x_newproject_internal_secret: str | None = Header(default=None, alias="X-NewProject-Internal-Secret"),
+    x_clawbot_instance_id: str | None = Header(default=None, alias="X-AlertClaw-ClawBot-Instance-Id"),
+    x_legacy_clawbot_instance_id: str | None = Header(default=None, alias="X-OpenSensus-ClawBot-Instance-Id"),
+    x_weixin_account_id: str | None = Header(default=None, alias="X-Weixin-Account-Id"),
+    x_weixin_user_id: str | None = Header(default=None, alias="X-Weixin-User-Id"),
+) -> JSONResponse:
+    if any([x_newproject_internal_secret, x_clawbot_instance_id, x_legacy_clawbot_instance_id, x_weixin_account_id, x_weixin_user_id]):
+        if str(x_newproject_internal_secret or "").strip() != _clawbridge_secret():
+            raise HTTPException(status_code=401, detail={"message": "Weixin internal authentication failed."})
+        result = weixin_auth_store.unbind_identity(
+            clawbot_instance_id=str(x_clawbot_instance_id or x_legacy_clawbot_instance_id or "").strip() or None,
+            weixin_account_id=x_weixin_account_id,
+            weixin_user_id=x_weixin_user_id,
+        )
+        return JSONResponse(result)
+    user = _require_web_user(request)
+    return JSONResponse(weixin_auth_store.unbind_user(str(user["user_id"])))
+
+
+@app.get("/api/v1/internal/clawbridge/bootstrap")
+async def clawbridge_bootstrap(
+    x_clawbridge_secret: str | None = Header(default=None, alias="X-AlertClaw-ClawBridge-Secret"),
+    x_clawbridge_instance_id: str | None = Header(default=None, alias="X-AlertClaw-ClawBridge-Instance-Id"),
+) -> JSONResponse:
+    if str(x_clawbridge_secret or "").strip() != _clawbridge_secret():
+        raise HTTPException(status_code=401, detail={"message": "ClawBridge internal authentication failed."})
+    return JSONResponse(
+        {
+            "service": "OralSage",
+            "version": "0.1.0",
+            "bridge_name": "OralSage ClawBridge",
+            "bridge_instance_id": x_clawbridge_instance_id,
+            "backend_base_url": os.getenv("CLAWBRIDGE_BACKEND_BASE_URL", "http://127.0.0.1:8000"),
+            "headers": {
+                "clawbridge_secret": "X-AlertClaw-ClawBridge-Secret",
+                "clawbridge_instance_id": "X-AlertClaw-ClawBridge-Instance-Id",
+                "clawbot_instance_id": "X-AlertClaw-ClawBot-Instance-Id",
+                "weixin_account_id": "X-Weixin-Account-Id",
+                "weixin_user_id": "X-Weixin-User-Id",
+            },
+            "endpoints": {
+                "bind_status": "/api/auth/weixin/bind-status",
+                "unbind": "/api/auth/weixin/bind",
+                "internal_chatbox_messages": "/api/v1/internal/clawbridge/chatbox/messages",
+                "weixin_qr_start": "/api/v1/weixin/qr/start",
+                "weixin_qr_status": "/api/v1/weixin/qr/status",
+                "weixin_account_status": "/api/v1/weixin/accounts/{account_id}",
+            },
+        }
+    )
+
+
+@app.post("/api/v1/internal/clawbridge/chatbox/messages")
+async def clawbridge_chatbox_messages(
+    payload: dict[str, Any],
+    x_clawbridge_secret: str | None = Header(default=None, alias="X-AlertClaw-ClawBridge-Secret"),
+) -> JSONResponse:
+    if str(x_clawbridge_secret or "").strip() != _clawbridge_secret():
+        raise HTTPException(status_code=401, detail={"message": "ClawBridge internal authentication failed."})
+    user = weixin_auth_store.get_bound_user(
+        clawbot_instance_id=str(payload.get("clawbot_instance_id") or "").strip() or None,
+        weixin_account_id=str(payload.get("weixin_account_id") or "").strip() or None,
+        weixin_user_id=str(payload.get("weixin_user_id") or "").strip() or None,
+    )
+    if user is None:
+        raise HTTPException(status_code=404, detail={"error_code": "auth_weixin_not_bound", "message": "The Weixin sender is not bound to an OralSage account."})
+    result = handle_weixin_plan_message(
+        learning_orchestrator.memory,
+        user_id=str(user["user_id"]),
+        text=str(payload.get("text") or ""),
+    )
+    return JSONResponse(
+        {
+            "thread_id": f"weixin-plan-{user['user_id']}",
+            "reply_text": result.get("reply_text", ""),
+            "reply_attachments": result.get("reply_attachments", []),
+            "reply_actions": result.get("reply_actions", []),
+            "pending_action": None,
+            "last_event_candidates": [],
+            "last_report_query": None,
+        }
+    )
+
+
+@app.post("/api/weixin/plan/push-daily")
+async def weixin_push_daily_plan(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
+    user = _require_web_user(request)
+    data = payload or {}
+    plan_date = str(data.get("plan_date") or "").strip() or None
+    binding = weixin_auth_store.get_bind_status_for_user(str(user["user_id"]))
+    if not binding.get("bound"):
+        raise HTTPException(status_code=409, detail={"message": "Current account is not connected to Weixin ClawBot."})
+    text = build_daily_plan_text(learning_orchestrator.memory, user_id=str(user["user_id"]), plan_date=plan_date)
+    try:
+        sent = ClawBridgeClient().send_text(
+            text=text,
+            clawbot_instance_id=binding.get("clawbot_instance_id"),
+            weixin_account_id=binding.get("weixin_account_id"),
+        )
+    except ClawBridgeError as exc:
+        raise HTTPException(status_code=503, detail={"message": str(exc)}) from exc
+    return JSONResponse({"ok": True, "module": "weixin_plan", "action": "push_daily", "sent": sent, "text": text})
+
+
+@app.post("/api/learning/route")
+async def learning_route(req: LearningRouteRequest) -> JSONResponse:
+    """Policy-only route — returns decision, does NOT execute.
+
+    Set ``use_llm_policy=true`` to use the LLM policy agent (with automatic
+    fallback to rule-based on error).
+    """
+    result = _learning_route(req.session_id, req.user_input, req.use_llm_policy)
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "route",
+            "result": result,
+        }
+    )
+
+
+@app.post("/api/learning/execute")
+async def learning_execute(req: LearningExecuteRequest) -> JSONResponse:
+    """Execute a policy decision — does NOT re-route."""
+    result = learning_orchestrator.execute_policy_action(
+        req.session_id, req.decision, req.user_input
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "execute",
+            "result": result,
+        }
+    )
+
+
+@app.post("/api/learning/step")
+async def learning_step(req: LearningStepRequest) -> JSONResponse:
+    """Convenience: route(None) → execute (Tutor step).
+
+    Does NOT call next_step directly — always goes through policy.
+    Set ``use_llm_policy=true`` to use the LLM policy agent.
+    """
+    route_result = _learning_route(req.session_id, None, req.use_llm_policy)
+    decision = route_result["decision"]
+    execution = learning_orchestrator.execute_policy_action(
+        req.session_id, decision, None
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "step",
+            "result": {
+                "state": route_result["state"],
+                "decision": decision,
+                "execution": execution,
+            },
+        }
+    )
+
+
+@app.post("/api/learning/interruption")
+async def learning_interruption(req: LearningInterruptionRequest) -> JSONResponse:
+    """Convenience: route(interruption) → execute (QA).
+
+    Does NOT call handle_interruption directly — always goes through policy.
+    Set ``use_llm_policy=true`` to use the LLM policy agent.
+    """
+    user_input = {"type": "interruption_question", "text": req.question}
+    route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+    decision = route_result["decision"]
+    execution = learning_orchestrator.execute_policy_action(
+        req.session_id, decision, user_input
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "interruption",
+            "result": {
+                "state": route_result["state"],
+                "decision": decision,
+                "execution": execution,
+            },
+        }
+    )
+
+
+@app.post("/api/learning/interruption/stream")
+async def learning_interruption_stream(req: LearningInterruptionRequest) -> StreamingResponse:
+    """Stream QA progress events while preserving the route -> execute path."""
+
+    async def event_stream():
+        action = "interruption_stream"
+        started_at = time.perf_counter()
+        user_input = {"type": "interruption_question", "text": req.question}
+        yield _sse(
+            "start",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "received",
+                "session_id": req.session_id,
+                "message": "已收到中途提问，开始路由到 QA。",
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        try:
+            route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+            decision = route_result["decision"]
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "route",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "route_ready",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "route_ready",
+                "session_id": req.session_id,
+                "decision": decision,
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        exec_task = asyncio.create_task(
+            asyncio.to_thread(
+                learning_orchestrator.execute_policy_action,
+                req.session_id,
+                decision,
+                user_input,
+            )
+        )
+        messages = [
+            "正在读取当前小节 handout / evidence。",
+            "正在判断是否需要 targeted KAG search。",
+            "正在生成证据约束的 QA 回答。",
+            "正在更新学习画像与掌握度信号。",
+        ]
+        tick = 0
+        while not exec_task.done():
+            await asyncio.sleep(5)
+            tick += 1
+            yield _progress_event(
+                action=action,
+                phase="execute_qa",
+                message=messages[(tick - 1) % len(messages)],
+                started_at=started_at,
+                tick=tick,
+            )
+
+        try:
+            execution = await exec_task
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "execute_qa",
+                    "session_id": req.session_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "complete",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "elapsed_seconds": _elapsed(started_at),
+                "result": {
+                    "state": route_result["state"],
+                    "decision": decision,
+                    "execution": execution,
+                },
+            },
+        )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=_stream_headers(),
+    )
+
+
+@app.post("/api/learning/continue")
+async def learning_continue(req: LearningContinueRequest) -> JSONResponse:
+    """Convenience: route(continue) -> execute (advance + next Tutor step)."""
+    user_input = {"type": "continue"}
+    route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+    decision = route_result["decision"]
+    execution = learning_orchestrator.execute_policy_action(
+        req.session_id, decision, user_input
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "continue",
+            "result": {
+                "state": route_result["state"],
+                "decision": decision,
+                "execution": execution,
+            },
+        }
+    )
+
+
+@app.post("/api/learning/continue/stream")
+async def learning_continue_stream(req: LearningContinueRequest) -> StreamingResponse:
+    """Stream continue progress events while preserving the route -> execute path."""
+
+    async def event_stream():
+        action = "continue_stream"
+        started_at = time.perf_counter()
+        user_input = {"type": "continue"}
+        yield _sse(
+            "start",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "received",
+                "session_id": req.session_id,
+                "message": "已收到继续请求，开始进入下一节。",
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        try:
+            route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+            decision = route_result["decision"]
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "route",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "route_ready",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "route_ready",
+                "session_id": req.session_id,
+                "decision": decision,
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        exec_task = asyncio.create_task(
+            asyncio.to_thread(
+                learning_orchestrator.execute_policy_action,
+                req.session_id,
+                decision,
+                user_input,
+            )
+        )
+        messages = [
+            "正在检查下一节 handout/tutor cache。",
+            "如果后台已生成，将直接返回缓存讲解。",
+            "如果缓存未就绪，正在等待或同步生成下一节。",
+            "正在写入学习进度与事件。",
+        ]
+        tick = 0
+        while not exec_task.done():
+            await asyncio.sleep(5)
+            tick += 1
+            yield _progress_event(
+                action=action,
+                phase="execute_continue",
+                message=messages[(tick - 1) % len(messages)],
+                started_at=started_at,
+                tick=tick,
+            )
+
+        try:
+            execution = await exec_task
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "execute_continue",
+                    "session_id": req.session_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "complete",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "elapsed_seconds": _elapsed(started_at),
+                "result": {
+                    "state": route_result["state"],
+                    "decision": decision,
+                    "execution": execution,
+                },
+            },
+        )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=_stream_headers(),
+    )
+
+
+@app.post("/api/learning/answer")
+async def learning_answer(req: LearningSubmitAnswerRequest) -> JSONResponse:
+    """Convenience: route(answer_submission) → execute (Assessment).
+
+    Does NOT call submit_answer directly — always goes through policy.
+    Set ``use_llm_policy=true`` to use the LLM policy agent.
+    """
+    user_input = {
+        "type": "answer_submission",
+        "question": req.question,
+        "answer": req.answer,
+    }
+    route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+    decision = route_result["decision"]
+    execution = learning_orchestrator.execute_policy_action(
+        req.session_id, decision, user_input
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "answer",
+            "result": {
+                "state": route_result["state"],
+                "decision": decision,
+                "execution": execution,
+            },
+        }
+    )
+
+
+@app.post("/api/learning/answer/stream")
+async def learning_answer_stream(req: LearningSubmitAnswerRequest) -> StreamingResponse:
+    """Stream assessment progress events while preserving route -> execute."""
+
+    async def event_stream():
+        action = "answer_stream"
+        started_at = time.perf_counter()
+        user_input = {
+            "type": "answer_submission",
+            "question": req.question,
+            "answer": req.answer,
+        }
+        yield _sse(
+            "start",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "received",
+                "session_id": req.session_id,
+                "message": "已收到小测答案，开始评估。",
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        try:
+            route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
+            decision = route_result["decision"]
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "route",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "route_ready",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "phase": "route_ready",
+                "session_id": req.session_id,
+                "decision": decision,
+                "elapsed_seconds": _elapsed(started_at),
+            },
+        )
+        exec_task = asyncio.create_task(
+            asyncio.to_thread(
+                learning_orchestrator.execute_policy_action,
+                req.session_id,
+                decision,
+                user_input,
+            )
+        )
+        messages = [
+            "正在分析用户选项与正确答案。",
+            "正在生成错因分析或正答解释。",
+            "正在关联 KG node 掌握度信号。",
+            "正在更新学习画像。",
+        ]
+        tick = 0
+        while not exec_task.done():
+            await asyncio.sleep(5)
+            tick += 1
+            yield _progress_event(
+                action=action,
+                phase="execute_assessment",
+                message=messages[(tick - 1) % len(messages)],
+                started_at=started_at,
+                tick=tick,
+            )
+
+        try:
+            execution = await exec_task
+        except Exception as exc:
+            yield _sse(
+                "error",
+                {
+                    "ok": False,
+                    "module": "learning",
+                    "action": action,
+                    "phase": "execute_assessment",
+                    "session_id": req.session_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_seconds": _elapsed(started_at),
+                },
+            )
+            return
+
+        yield _sse(
+            "complete",
+            {
+                "ok": True,
+                "module": "learning",
+                "action": action,
+                "elapsed_seconds": _elapsed(started_at),
+                "result": {
+                    "state": route_result["state"],
+                    "decision": decision,
+                    "execution": execution,
+                },
+            },
+        )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=_stream_headers(),
+    )
+
+
 @app.post("/api/router/chat")
 async def router_chat(req: RouterChatRequest) -> JSONResponse:
-    result = await run_master_router(
-        message=req.message,
-        image_base64=req.image_base64,
-        history=req.history,
-        context=req.context,
-    )
-    return JSONResponse(result, status_code=200 if result.get("ok", False) else 422)
+    result = _learning_router_stub(req.model_dump())
+    return JSONResponse(result)
 
 
 @app.post("/api/agents/{agent_name}/invoke", response_model=GenericAgentResponse)
 async def invoke_agent(agent_name: str, req: GenericAgentRequest, response: Response) -> GenericAgentResponse:
     if agent_name in {"oral_master_router_agent", "master_router", "oral_master"}:
-        result = await run_master_router(
-            message=req.message or req.query or req.question or req.task or req.text or "",
-            image_base64=req.image_base64 or req.data.get("image_base64"),
-            history=req.context.get("history", []) if isinstance(req.context, dict) else [],
-            context=req.context,
-        )
+        result = _learning_router_stub(req.model_dump())
         return GenericAgentResponse(agent=agent_name, ok=result.get("ok", True), result=result)
     if agent_name in {"oral_pathology_assistant", "pathology_qa", "oral_pathology"}:
         question = req.question or req.query or req.task or req.message or req.text or ""

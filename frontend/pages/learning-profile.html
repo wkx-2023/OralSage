@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OralSage - 学习画像</title>
+  <link rel="icon" href="/assets/images/oralsage-logo.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-screen-webfont@1.7.0/style.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="/css/base.css?v=20260706-plan-nav">
+    <link rel="stylesheet" href="/css/learner-assessment.css?v=20260708-assessment-scroll-v5">
+    <link rel="stylesheet" href="/css/learning-profile.css?v=20260708-style-clean-v3">
+</head>
+<body class="learning-profile-page">
+  <div class="app-shell profile-shell">
+    <section class="main-pane profile-pane">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title" class="page-title"></h1>
+          <p id="page-subtitle" class="page-subtitle"></p>
+        </div>
+      </header>
+
+      <main class="workspace profile-main">
+      <section class="profile-board" aria-label="学习画像仪表盘">
+        <section class="profile-metrics" aria-label="学习统计">
+          <article class="metric-card tone-violet">
+            <div class="metric-icon"><i data-lucide="calendar-days"></i></div>
+            <div>
+              <span class="metric-label">近期学习天数</span>
+              <strong id="metric-days">0</strong>
+            </div>
+          </article>
+          <article class="metric-card tone-blue">
+            <div class="metric-icon"><i data-lucide="network"></i></div>
+            <div>
+              <span class="metric-label">本日计划</span>
+              <strong id="metric-knowledge">0</strong>
+            </div>
+          </article>
+          <article class="metric-card tone-cyan">
+            <div class="metric-icon"><i data-lucide="book-check"></i></div>
+            <div>
+              <span class="metric-label">完成记录</span>
+              <strong id="metric-courses">0 次</strong>
+            </div>
+          </article>
+          <article class="metric-card tone-pink">
+            <div class="metric-icon"><i data-lucide="clock"></i></div>
+            <div>
+              <span class="metric-label">每日可用时间</span>
+              <strong id="metric-accuracy">0</strong>
+            </div>
+          </article>
+          <section class="trend-panel" aria-label="每日学习趋势">
+            <div class="panel-head compact">
+              <div>
+                <h2>学习活动趋势</h2>
+              </div>
+              <span id="trend-range" class="panel-badge">近 7 天</span>
+            </div>
+            <canvas id="learning-trend" class="trend-canvas" aria-label="每天完成事件数量折线图"></canvas>
+          </section>
+        </section>
+
+        <section class="profile-dashboard" aria-label="画像分析">
+          <section class="radar-panel dashboard-panel" aria-label="个人能力雷达图">
+            <div class="panel-head">
+              <div>
+                <h2>个人能力雷达图</h2>
+              </div>
+            </div>
+            <div class="radar-wrap">
+              <canvas id="profile-radar" class="radar-canvas" aria-label="自主规划、执行反馈、学习节奏、薄弱修正、知识掌握和练习反馈雷达图"></canvas>
+            </div>
+          </section>
+
+          <section class="middle-stack" aria-label="学习风格">
+            <section class="style-panel dashboard-panel" aria-label="学习风格">
+              <div class="panel-head">
+                <div>
+                  <h2>学习风格</h2>
+                </div>
+              </div>
+              <section id="profile-assessment-card" class="assessment-inline-card" aria-label="学习者测评入口">
+                <div class="assessment-inline-top">
+                  <div>
+                    <h3 id="profile-assessment-title" class="assessment-inline-title">学习者标签待建立</h3>
+                  </div>
+                </div>
+                <p id="profile-assessment-copy" class="assessment-inline-copy">完成轻量测评后，这里会展示你的学习者类型、时间预算和计划引导偏好。</p>
+                <div class="assessment-inline-actions">
+                  <button id="profile-assessment-open" class="assessment-inline-button primary" type="button">进行测评</button>
+                </div>
+              </section>
+              <div id="style-dimension-list" class="style-dimension-list" aria-label="画像维度状态"></div>
+              <div class="style-lines">
+                <p class="style-line">
+                  <strong>易错点与错因：</strong>
+                  <span id="profile-weaknesses">暂无画像信号</span>
+                </p>
+                <p class="style-line">
+                  <strong>学习偏好：</strong>
+                  <span id="profile-preferences">暂无画像信号</span>
+                </p>
+                <p class="style-line">
+                  <strong>目标导向：</strong>
+                  <span id="profile-goals">暂无画像信号</span>
+                </p>
+                <p class="style-line">
+                  <strong>学习节奏：</strong>
+                  <span id="profile-rhythm">暂无画像信号</span>
+                </p>
+              </div>
+            </section>
+          </section>
+
+          <section class="timeline-panel dashboard-panel" aria-label="学习事件时间线">
+            <div class="panel-head timeline-head">
+              <div>
+                <h2>学习事件与摘要</h2>
+              </div>
+            </div>
+            <div class="timeline-filter" role="group" aria-label="时间线筛选">
+              <button class="timeline-chip active" type="button" data-filter="all">全部</button>
+              <button class="timeline-chip" type="button" data-filter="plan">计划</button>
+              <button class="timeline-chip" type="button" data-filter="memory">记忆</button>
+              <button class="timeline-chip" type="button" data-filter="lesson">课程</button>
+              <button class="timeline-chip" type="button" data-filter="quiz">题目</button>
+              <button class="timeline-chip" type="button" data-filter="qa">答疑</button>
+            </div>
+            <div id="event-timeline" class="event-timeline"></div>
+          </section>
+        </section>
+      </section>
+      </main>
+    </section>
+  </div>
+
+  <script src="/js/common.js?v=20260702-learning-shell"></script>
+  <script src="/js/learner-assessment-ui.js?v=20260708-assessment-ui-v4"></script>
+  <script src="/js/learning-profile.js?v=20260708-profile-metrics-v3"></script>
+</body>
+</html>

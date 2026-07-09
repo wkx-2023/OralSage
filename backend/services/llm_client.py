@@ -55,6 +55,7 @@ def chat_completion(
     api_key_names: tuple[str, ...] = ("DECISION_LLM_API_KEY", "QWEN_API_KEY", "DASHSCOPE_API_KEY"),
     base_url_names: tuple[str, ...] = ("DECISION_LLM_BASE_URL", "QWEN_BASE_URL", "DASHSCOPE_BASE_URL"),
     model_names: tuple[str, ...] = ("DECISION_LLM_MODEL", "QWEN_MODEL", "DASHSCOPE_MODEL"),
+    response_format: dict[str, Any] | None = None,
 ) -> str:
     api_key = _env(*api_key_names)
     if not api_key:
@@ -68,6 +69,8 @@ def chat_completion(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
 
     request = Request(
         f"{base_url.rstrip('/')}/chat/completions",
