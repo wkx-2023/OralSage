@@ -67,8 +67,10 @@ def _self_check_rule_based() -> None:
     step = build_tutor_step_rule(outline=outline, current_node_id="node_1")
     assert step["outline_node_id"] == "node_1"
     assert "测试节点" in step["teaching_text"]
-    assert "你好呀，我是 OralSage" in step["teaching_text"]
-    assert len(step["questions"]) == 1
+    assert "生成未完成" in step["teaching_text"]
+    assert step["content_status"] == "generation_failed"
+    assert step["trace"]["fallback_rule_based"] is True
+    assert len(step["questions"]) == 0
     assert step["expected_user_action"] == "choose_next_action"
     assert step["quiz_scope"] == "section"
     print("  [PASS] rule-based fallback OK")

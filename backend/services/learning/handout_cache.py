@@ -81,20 +81,24 @@ def save_handout_cache_pending(
     session_id: str,
     outline_node_id: str,
     resource_root: str | Path | None = None,
+    source: str = "",
 ) -> dict[str, Any]:
     """Mark an outline node as ``pending`` (about to be generated)."""
     now = _now()
+    previous = get_handout_cache(session_id, outline_node_id, resource_root)
+    attempt_count = int(previous.get("attempt_count", 0) or 0) + 1
     record: dict[str, Any] = {
         "session_id": session_id,
         "outline_node_id": outline_node_id,
         "status": "pending",
         "section_status": "",
         "handout_section": {},
-        "created_at": now,
+        "created_at": previous.get("created_at", now),
         "updated_at": now,
+        "attempt_count": attempt_count,
         "error": None,
         "trace": {
-            "source": "",
+            "source": source,
             "used_json_mode": False,
             "fallback_rule_based": False,
         },
@@ -119,6 +123,7 @@ def save_handout_cache_ready(
         or ``"cache_miss_sync_generation"``.
     """
     now = _now()
+    previous = get_handout_cache(session_id, outline_node_id, resource_root)
     section_status = handout_section.get("section_status", "llm_generated")
     _trace = handout_section.get("_trace", {})
     used_json_mode = bool(_trace.get("used_json_mode", False))
@@ -129,8 +134,9 @@ def save_handout_cache_ready(
         "status": "ready",
         "section_status": section_status,
         "handout_section": handout_section,
-        "created_at": now,
+        "created_at": previous.get("created_at", now),
         "updated_at": now,
+        "attempt_count": max(1, int(previous.get("attempt_count", 0) or 0)),
         "error": None,
         "trace": {
             "source": source,
@@ -148,6 +154,7 @@ def save_handout_cache_failed(
     error: str,
     source: str,
     resource_root: str | Path | None = None,
+    generation_trace: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist a failed handout generation with the error reason.
 
@@ -158,19 +165,22 @@ def save_handout_cache_failed(
         or ``"cache_miss_sync_generation"``.
     """
     now = _now()
+    previous = get_handout_cache(session_id, outline_node_id, resource_root)
     record: dict[str, Any] = {
         "session_id": session_id,
         "outline_node_id": outline_node_id,
         "status": "failed",
         "section_status": "failed",
         "handout_section": {},
-        "created_at": now,
+        "created_at": previous.get("created_at", now),
         "updated_at": now,
+        "attempt_count": max(1, int(previous.get("attempt_count", 0) or 0)),
         "error": error,
         "trace": {
             "source": source,
             "used_json_mode": False,
             "fallback_rule_based": False,
+            "generation_trace": generation_trace or {},
         },
     }
     _write_record(session_id, outline_node_id, record, resource_root)
@@ -208,6 +218,7 @@ def list_handout_cache_status(
                 "status": "missing",
                 "section_status": "",
                 "source": "",
+                "attempt_count": 0,
                 "error_short": "file_read_or_parse_error",
             })
             continue
@@ -219,6 +230,7 @@ def list_handout_cache_status(
                 "status": "missing",
                 "section_status": "",
                 "source": "",
+                "attempt_count": 0,
                 "error_short": "not_a_dict",
             })
             continue
@@ -232,6 +244,7 @@ def list_handout_cache_status(
             "status": record.get("status", "unknown"),
             "section_status": record.get("section_status", ""),
             "source": (record.get("trace", {}) or {}).get("source", ""),
+            "attempt_count": int(record.get("attempt_count", 0) or 0),
             "error_short": err[:80] if err else "",
         })
 

@@ -12,6 +12,8 @@ and event recording.  Content generation is delegated to leaf modules
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -19,7 +21,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .assessment import assess_answer
-from .audio import ensure_handout_audio, get_section_audio
+from .audio import ensure_handout_audio, get_section_audio, reconcile_audio_manifest
+from .courseware import build_courseware_resources, get_courseware_status
 from .handout_cache import (
     get_handout_cache,
     list_handout_cache_status,
@@ -76,6 +79,7 @@ class LearningOrchestrator:
         # Cached from last start_lesson for handout-section-driven tutor
         self._last_evidence_pool: dict[str, Any] | None = None
         self._last_outline_evidence_map: dict[str, Any] | None = None
+        self._active_evidence_session_id: str | None = None
         # Cached handout sections keyed by outline_node_id — populated during
         # Tutor steps, read by QA without triggering regeneration.
         self._last_handout_sections: dict[str, Any] = {}
@@ -86,6 +90,53 @@ class LearningOrchestrator:
         self._outline_completion_threads: dict[str, threading.Thread] = {}
         self._outline_completion_events: dict[str, threading.Event] = {}
         self._outline_completion_errors: dict[str, str] = {}
+        self._handout_prefetch_threads: dict[str, threading.Thread] = {}
+
+    def _evidence_context_path(self, session_id: str) -> Path:
+        return Path(self.resource_root) / session_id / "evidence_context.json"
+
+    def _persist_evidence_context(
+        self,
+        session_id: str,
+        evidence_pool: dict[str, Any],
+        outline_evidence_map: dict[str, Any],
+    ) -> None:
+        path = self._evidence_context_path(session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "session_id": session_id,
+            "evidence_pool": evidence_pool,
+            "outline_evidence_map": outline_evidence_map,
+        }
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(str(tmp), str(path))
+        self._last_evidence_pool = evidence_pool
+        self._last_outline_evidence_map = outline_evidence_map
+        self._active_evidence_session_id = session_id
+
+    def _activate_evidence_context(self, session_id: str) -> bool:
+        if (
+            self._active_evidence_session_id == session_id
+            and self._last_evidence_pool is not None
+            and self._last_outline_evidence_map is not None
+        ):
+            return True
+        path = self._evidence_context_path(session_id)
+        if not path.exists():
+            return False
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        evidence_pool = payload.get("evidence_pool")
+        outline_evidence_map = payload.get("outline_evidence_map")
+        if not isinstance(evidence_pool, dict) or not isinstance(outline_evidence_map, dict):
+            return False
+        self._last_evidence_pool = evidence_pool
+        self._last_outline_evidence_map = outline_evidence_map
+        self._active_evidence_session_id = session_id
+        return True
 
     def _update_learner_memory_for_event(
         self,
@@ -178,6 +229,11 @@ class LearningOrchestrator:
         # --- cache evidence data for later handout-section-driven tutor ---
         self._last_evidence_pool = plan_result.get("evidence_pool", {})
         self._last_outline_evidence_map = plan_result.get("outline_evidence_map", {})
+        self._persist_evidence_context(
+            session_id,
+            self._last_evidence_pool,
+            self._last_outline_evidence_map,
+        )
 
         # --- generate resources ---------------------------------------------
         resources = generate_resources(
@@ -237,6 +293,13 @@ class LearningOrchestrator:
                 outline=outline,
             )
 
+        audio_manifest = reconcile_audio_manifest(
+            session_id=session_id,
+            outline_nodes=nodes,
+            resource_root=self.resource_root,
+        )
+        courseware = self._refresh_courseware(session_id, outline)
+
         return {
             "session": session,
             "profile": profile,
@@ -250,6 +313,8 @@ class LearningOrchestrator:
                 session_id,
                 first_node_id,
             ),
+            "audio_manifest": audio_manifest,
+            "courseware": courseware,
             "outline_status": (
                 "initial_ready" if outline_completion_started else "complete"
             ),
@@ -305,6 +370,11 @@ class LearningOrchestrator:
             self._last_outline_evidence_map = completed.get(
                 "outline_evidence_map",
                 {},
+            )
+            self._persist_evidence_context(
+                session_id,
+                self._last_evidence_pool,
+                self._last_outline_evidence_map,
             )
 
             resources = generate_resources(
@@ -416,6 +486,62 @@ class LearningOrchestrator:
         except Exception:
             return None
 
+    def _refresh_courseware(
+        self,
+        session_id: str,
+        outline: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Best-effort refresh of aligned slides, audio status, and PPTX."""
+        try:
+            return build_courseware_resources(
+                session_id=session_id,
+                outline=outline,
+                resource_root=self.resource_root,
+            )
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "error": f"courseware_refresh_raised: {exc}",
+            }
+
+    def retry_failed_resources(self, session_id: str) -> dict[str, Any]:
+        """Resume failed or interrupted generation from persisted evidence."""
+        outline_record = _require_outline(self.memory, session_id)
+        outline = outline_record["outline"]
+        nodes = list(outline.get("nodes", []))
+        if not nodes:
+            return {"started": False, "error": "outline_has_no_nodes"}
+        if not self._activate_evidence_context(session_id):
+            return {"started": False, "error": "evidence_context_missing"}
+
+        first_id = str(nodes[0].get("id") or "")
+        first_cache = get_handout_cache(
+            session_id,
+            first_id,
+            resource_root=self.resource_root,
+        )
+        first_ready = self._is_ready_handout_cache(first_cache)
+        if not first_ready:
+            first_ready = self._prepare_first_handout_section_sync(
+                session_id=session_id,
+                outline=outline,
+                first_node_id=first_id,
+            )
+        if len(nodes) > 1:
+            self._start_handout_prefetch_background(session_id, outline)
+        elif first_ready:
+            self._refresh_courseware(session_id, outline)
+        return {
+            "started": True,
+            "first_section_ready": first_ready,
+            "background_prefetch_started": len(nodes) > 1,
+            "resource_status": get_courseware_status(
+                session_id=session_id,
+                outline=outline,
+                resource_root=self.resource_root,
+            ),
+        }
+
     def _prepare_first_handout_section_sync(
         self,
         session_id: str,
@@ -431,6 +557,7 @@ class LearningOrchestrator:
 
         Returns True if the section was generated successfully.
         """
+        self._activate_evidence_context(session_id)
         nodes: list[dict[str, Any]] = outline.get("nodes", [])
         first_node: dict[str, Any] | None = None
         prev_title: str | None = None
@@ -459,6 +586,12 @@ class LearningOrchestrator:
             )
             return False
 
+        save_handout_cache_pending(
+            session_id,
+            first_node_id,
+            resource_root=self.resource_root,
+            source="first_section_sync",
+        )
         try:
             hs = _generate_handout_section(
                 outline_node=first_node,
@@ -499,6 +632,7 @@ class LearningOrchestrator:
                 hs.get("error", "section_status_not_llm_generated"),
                 source="first_section_sync",
                 resource_root=self.resource_root,
+                generation_trace=hs.get("_trace", {}),
             )
             return False
 
@@ -513,12 +647,16 @@ class LearningOrchestrator:
         fully independent — failures are recorded per-node in the cache
         and do not affect the main flow.
         """
+        existing = self._handout_prefetch_threads.get(session_id)
+        if existing and existing.is_alive():
+            return
         t = threading.Thread(
             target=self._prefetch_remaining_handout_sections,
             args=(session_id, outline),
             daemon=True,
             name=f"handout-prefetch-{session_id[:8]}",
         )
+        self._handout_prefetch_threads[session_id] = t
         t.start()
 
     def _prefetch_remaining_handout_sections(
@@ -527,6 +665,9 @@ class LearningOrchestrator:
         outline: dict[str, Any],
     ) -> None:
         """Background worker: generate handout sections for nodes[1:]."""
+        self._activate_evidence_context(session_id)
+        outline_evidence_map = self._last_outline_evidence_map or {}
+        evidence_pool = self._last_evidence_pool or {}
         nodes: list[dict[str, Any]] = outline.get("nodes", [])
         if len(nodes) <= 1:
             return
@@ -551,7 +692,12 @@ class LearningOrchestrator:
                 return (node_id, True)
 
             # Mark pending
-            save_handout_cache_pending(session_id, node_id, resource_root=self.resource_root)
+            save_handout_cache_pending(
+                session_id,
+                node_id,
+                resource_root=self.resource_root,
+                source="background_prefetch",
+            )
 
             # Build context (previous / next titles)
             actual_idx = idx + 1  # offset because we sliced nodes[1:]
@@ -562,9 +708,7 @@ class LearningOrchestrator:
             if actual_idx + 1 < len(nodes):
                 next_title = nodes[actual_idx + 1].get("title")
 
-            node_evidence = (
-                self._last_outline_evidence_map or {}
-            ).get(node_id, {})
+            node_evidence = outline_evidence_map.get(node_id, {})
             if not node_evidence:
                 save_handout_cache_failed(
                     session_id, node_id,
@@ -578,7 +722,7 @@ class LearningOrchestrator:
                 hs = _generate_handout_section(
                     outline_node=node,
                     node_evidence=node_evidence,
-                    evidence_pool=self._last_evidence_pool or {},
+                    evidence_pool=evidence_pool,
                     previous_node_title=prev_title,
                     next_node_title=next_title,
                 )
@@ -626,6 +770,7 @@ class LearningOrchestrator:
                     hs.get("error", "section_status_not_llm_generated"),
                     source="background_prefetch",
                     resource_root=self.resource_root,
+                    generation_trace=hs.get("_trace", {}),
                 )
                 return (node_id, False)
 
@@ -641,6 +786,13 @@ class LearningOrchestrator:
                     future.result()
                 except Exception:
                     pass  # each _generate_one already handles its own errors
+
+        reconcile_audio_manifest(
+            session_id=session_id,
+            outline_nodes=nodes,
+            resource_root=self.resource_root,
+        )
+        self._refresh_courseware(session_id, outline)
 
     def _generate_and_cache_tutor_step_draft(
         self,
@@ -932,11 +1084,13 @@ class LearningOrchestrator:
         Does **not** advance progress — only reads the current session state
         and produces teaching content.
         """
+        self._activate_evidence_context(session_id)
         outline_record = _require_outline(self.memory, session_id)
         outline: dict[str, Any] = outline_record["outline"]
         outline_nodes: list[dict[str, Any]] = outline.get("nodes", [])
         session = self.memory.get_session(session_id)
-        current_node_id: str | None = session.get("current_outline_node_id")
+        session_node_id: str | None = session.get("current_outline_node_id")
+        current_node_id: str | None = session_node_id
         user_id: str = session["user_id"]
 
         # --- Find current outline node ---
@@ -989,7 +1143,11 @@ class LearningOrchestrator:
         handout_cache_hit: bool = False
         handout_cache_status: str = "unknown"
         handout_generation_source: str = ""
+        handout_generation_error: str = ""
         cache_miss_sync_generation: bool = False
+        tutor_cache_hit: bool = False
+        tutor_cache_miss_sync_generation: bool = False
+        tutor_generation_source: str = ""
 
         if current_node and self._last_outline_evidence_map and self._last_evidence_pool:
             node_evidence = self._last_outline_evidence_map.get(current_node_id or "", {})
@@ -1132,12 +1290,14 @@ class LearningOrchestrator:
                 # --- Check handout cache first ---
                 cache_record = get_handout_cache(session_id, current_node_id or "", resource_root=self.resource_root)
                 handout_cache_status = cache_record.get("status", "missing")
+                handout_generation_error = str(cache_record.get("error") or "")
                 if self._is_cache_in_progress(cache_record):
                     cache_record = self._wait_for_handout_cache_ready(
                         session_id,
                         current_node_id or "",
                     )
                     handout_cache_status = cache_record.get("status", "missing")
+                    handout_generation_error = str(cache_record.get("error") or "")
 
                 hs: dict[str, Any]
 
@@ -1158,9 +1318,16 @@ class LearningOrchestrator:
                     handout_generation_source = (
                         cache_record.get("trace", {}).get("source", "")
                     )
+                    handout_generation_error = ""
                     cache_miss_sync_generation = False
                 elif handout_cache_status in ("pending", "generating"):
                     # Backend still generating — sync fallback
+                    save_handout_cache_pending(
+                        session_id,
+                        current_node_id or "",
+                        resource_root=self.resource_root,
+                        source="cache_miss_sync_generation",
+                    )
                     try:
                         hs = _generate_handout_section(
                             outline_node=current_node,
@@ -1169,8 +1336,11 @@ class LearningOrchestrator:
                             previous_node_title=prev_title,
                             next_node_title=next_title,
                         )
-                    except Exception:
-                        hs = {"section_status": "failed"}
+                    except Exception as exc:
+                        hs = {
+                            "section_status": "failed",
+                            "error": f"generate_handout_section_raised: {exc}",
+                        }
                     handout_cache_hit = False
                     cache_miss_sync_generation = True
                     if hs.get("section_status") == "llm_generated":
@@ -1188,6 +1358,12 @@ class LearningOrchestrator:
                         )
                 else:
                     # missing / failed — sync generation as fallback
+                    save_handout_cache_pending(
+                        session_id,
+                        current_node_id or "",
+                        resource_root=self.resource_root,
+                        source="cache_miss_sync_generation",
+                    )
                     try:
                         hs = _generate_handout_section(
                             outline_node=current_node,
@@ -1196,8 +1372,11 @@ class LearningOrchestrator:
                             previous_node_title=prev_title,
                             next_node_title=next_title,
                         )
-                    except Exception:
-                        hs = {"section_status": "failed"}
+                    except Exception as exc:
+                        hs = {
+                            "section_status": "failed",
+                            "error": f"generate_handout_section_raised: {exc}",
+                        }
                     handout_cache_hit = False
                     cache_miss_sync_generation = True
                     if hs.get("section_status") == "llm_generated":
@@ -1215,6 +1394,19 @@ class LearningOrchestrator:
                         )
 
                 if hs.get("section_status") != "llm_generated" and cache_miss_sync_generation:
+                    handout_generation_error = str(
+                        hs.get("error") or "section_status_not_llm_generated"
+                    )
+                    save_handout_cache_failed(
+                        session_id,
+                        current_node_id or "",
+                        handout_generation_error,
+                        source="cache_miss_sync_generation",
+                        resource_root=self.resource_root,
+                        generation_trace=hs.get("_trace", {}),
+                    )
+                    handout_cache_status = "failed"
+                    handout_generation_source = "cache_miss_sync_generation"
                     refreshed_tutor_cache = get_tutor_cache(
                         session_id,
                         current_node_id or "",
@@ -1249,7 +1441,11 @@ class LearningOrchestrator:
                         handout_generation_source = (
                             refreshed_handout_cache.get("trace", {}).get("source", "")
                         )
+                        handout_generation_error = ""
                         cache_miss_sync_generation = False
+
+                if hs.get("section_status") == "llm_generated" and cache_miss_sync_generation:
+                    self._refresh_courseware(session_id, outline)
 
                 if hs.get("section_status") == "llm_generated":
                     # Cache for later QA reads (avoids regeneration)
@@ -1341,6 +1537,7 @@ class LearningOrchestrator:
                         step["handout_cache_hit"] = handout_cache_hit
                         step["handout_cache_status"] = handout_cache_status
                         step["handout_generation_source"] = handout_generation_source
+                        step["handout_generation_error"] = handout_generation_error
                         step["cache_miss_sync_generation"] = cache_miss_sync_generation
                         # Tutor cache trace (always miss on this path)
                         step["tutor_cache_hit"] = tutor_cache_hit
@@ -1367,6 +1564,8 @@ class LearningOrchestrator:
 
                         step["handout_cache_hit"] = handout_cache_hit
                         step["handout_cache_status"] = handout_cache_status
+                        step["handout_generation_source"] = handout_generation_source
+                        step["handout_generation_error"] = handout_generation_error
                         step["cache_miss_sync_generation"] = cache_miss_sync_generation
                         step["tutor_cache_hit"] = tutor_cache_hit
                         step["tutor_cache_miss_sync_generation"] = tutor_cache_miss_sync_generation
@@ -1380,6 +1579,8 @@ class LearningOrchestrator:
                     step = {"content_status": "failed",
                             "handout_cache_hit": False,
                             "handout_cache_status": handout_cache_status,
+                            "handout_generation_source": handout_generation_source,
+                            "handout_generation_error": handout_generation_error,
                             "cache_miss_sync_generation": cache_miss_sync_generation,
                             "tutor_cache_hit": tutor_cache_hit,
                             "tutor_cache_miss_sync_generation": tutor_cache_miss_sync_generation,
@@ -1393,15 +1594,29 @@ class LearningOrchestrator:
         # Fallback: rule-based Tutor
         # ================================================================
         if step.get("content_status") == "failed":
+            failed_step = step
             step = _build_tutor_step(
                 outline=outline,
                 current_node_id=current_node_id,
             )
             step["_handout_section_used"] = False
-            # Ensure tutor trace fields are present on fallback
-            step.setdefault("tutor_cache_hit", False)
-            step.setdefault("tutor_cache_miss_sync_generation", False)
-            step.setdefault("tutor_generation_source", "")
+            fallback_trace = step.setdefault("trace", {})
+            fallback_trace["fallback_rule_based"] = True
+            upstream_error = (
+                failed_step.get("trace", {}).get("error")
+                or failed_step.get("handout_generation_error")
+                or handout_generation_error
+                or "generation_failed"
+            )
+            fallback_trace["upstream_error"] = upstream_error
+            step["handout_cache_hit"] = handout_cache_hit
+            step["handout_cache_status"] = handout_cache_status
+            step["handout_generation_source"] = handout_generation_source
+            step["handout_generation_error"] = upstream_error
+            step["cache_miss_sync_generation"] = cache_miss_sync_generation
+            step["tutor_cache_hit"] = tutor_cache_hit
+            step["tutor_cache_miss_sync_generation"] = tutor_cache_miss_sync_generation
+            step["tutor_generation_source"] = tutor_generation_source
         step.setdefault("section_audio", self._read_section_audio(session_id, current_node_id))
 
         # ================================================================
@@ -1459,15 +1674,17 @@ class LearningOrchestrator:
         :meth:`route` + :meth:`execute_policy_action` as the unified execution
         entry point rather than calling this method directly.
         """
+        self._activate_evidence_context(session_id)
         outline_record = _require_outline(self.memory, session_id)
         outline: dict[str, Any] = outline_record["outline"]
         outline_nodes: list[dict[str, Any]] = outline.get("nodes", [])
         session = self.memory.get_session(session_id)
-        current_node_id: str | None = session.get("current_outline_node_id")
+        session_node_id: str | None = session.get("current_outline_node_id")
+        current_node_id: str | None = session_node_id
         user_id: str = session["user_id"]
         topic: str = session.get("topic", "")
 
-        before = current_node_id
+        before = session_node_id
 
         # --- Find current outline node ---
         current_node: dict[str, Any] | None = None
@@ -1475,6 +1692,14 @@ class LearningOrchestrator:
             if n.get("id") == current_node_id:
                 current_node = n
                 break
+
+        # Completing a lesson clears the progress pointer, but it must not
+        # disable evidence-backed QA. Resolve a question-specific context
+        # node without mutating the persisted terminal state.
+        if current_node is None and session_node_id is None:
+            current_node = _resolve_qa_outline_node(question, outline_nodes)
+            if current_node is not None:
+                current_node_id = current_node.get("id")
 
         # ================================================================
         # Try LLM QA with evidence + targeted search
@@ -1646,6 +1871,7 @@ class LearningOrchestrator:
             **qa_result,
             "current_outline_node_id_before": before,
             "current_outline_node_id_after": after,
+            "qa_context_outline_node_id": current_node_id,
             "learner_memory_update": learner_memory_update,
         }
 
@@ -2005,6 +2231,11 @@ class LearningOrchestrator:
             outline_rec["outline"].get("nodes", []) if outline_rec else []
         )
         summary = self.memory.session_summary(session_id)
+        resource_status = get_courseware_status(
+            session_id=session_id,
+            outline=outline_rec["outline"] if outline_rec else {},
+            resource_root=self.resource_root,
+        )
 
         return {
             "session_id": session["id"],
@@ -2017,6 +2248,7 @@ class LearningOrchestrator:
             "event_count": len(summary.get("events", [])),
             "answer_count": len(summary.get("answers", [])),
             "mastery_count": len(summary.get("mastery", [])),
+            "resource_status": resource_status,
         }
 
     def route(
@@ -2226,6 +2458,67 @@ class LearningOrchestrator:
             }
 
         self.memory.set_current_outline_node(session_id, next_id)
+        tutor_step = self.next_step(session_id)
+        generation_ready = tutor_step.get("content_status") == "llm_generated"
+        if not generation_ready:
+            self.memory.set_current_outline_node(session_id, before)
+            progress_event_id = self.memory.record_event(
+                session_id=session_id,
+                user_id=user_id,
+                event_type="progress_updated",
+                outline_node_id=before,
+                payload={
+                    "current_outline_node_id_before": before,
+                    "current_outline_node_id_after": before,
+                    "blocked_outline_node_id": next_id,
+                    "action": "continue",
+                    "advanced": False,
+                    "lesson_completed": False,
+                    "generation_blocked": True,
+                    "generation_error": tutor_step.get(
+                        "handout_generation_error", "generation_failed"
+                    ),
+                },
+            )
+            progress_memory_update = self._update_learner_memory_for_event(
+                user_id=user_id,
+                session_id=session_id,
+                event_id=progress_event_id,
+                surface="planning",
+                context={
+                    "outline_node_id": before,
+                    "blocked_outline_node_id": next_id,
+                    "action": "continue",
+                    "advanced": False,
+                    "lesson_completed": False,
+                    "generation_blocked": True,
+                },
+            )
+            return {
+                "current_outline_node_id_before": before,
+                "current_outline_node_id_after": before,
+                "blocked_outline_node_id": next_id,
+                "advanced": False,
+                "lesson_completed": False,
+                "generation_blocked": True,
+                "tutor_step": tutor_step,
+                "progress_memory_update": progress_memory_update,
+                "handout_cache_hit": tutor_step.get("handout_cache_hit", False),
+                "cache_miss_sync_generation": tutor_step.get(
+                    "cache_miss_sync_generation", False
+                ),
+                "handout_generation_error": tutor_step.get(
+                    "handout_generation_error", "generation_failed"
+                ),
+                "tutor_cache_hit": tutor_step.get("tutor_cache_hit", False),
+                "tutor_cache_miss_sync_generation": tutor_step.get(
+                    "tutor_cache_miss_sync_generation", False
+                ),
+                "tutor_generation_source": tutor_step.get(
+                    "tutor_generation_source", ""
+                ),
+            }
+
         progress_event_id = self.memory.record_event(
             session_id=session_id,
             user_id=user_id,
@@ -2252,12 +2545,12 @@ class LearningOrchestrator:
                 "lesson_completed": False,
             },
         )
-        tutor_step = self.next_step(session_id)
         return {
             "current_outline_node_id_before": before,
             "current_outline_node_id_after": next_id,
             "advanced": True,
             "lesson_completed": False,
+            "generation_blocked": False,
             "tutor_step": tutor_step,
             "progress_memory_update": progress_memory_update,
             "handout_cache_hit": tutor_step.get("handout_cache_hit", False),
@@ -2427,6 +2720,37 @@ def _next_node_id(
                 return nodes[i + 1]["id"]
             return None
     return None
+
+
+def _resolve_qa_outline_node(
+    question: str,
+    outline_nodes: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Choose an evidence context node for QA after lesson completion."""
+    if not outline_nodes:
+        return None
+
+    normalized_question = "".join(str(question).lower().split())
+    best_node: dict[str, Any] | None = None
+    best_score = 0
+    for node in outline_nodes:
+        title = "".join(str(node.get("title", "")).lower().split())
+        phrases: set[str] = set()
+        for width in (4, 3, 2):
+            for index in range(max(0, len(title) - width + 1)):
+                phrases.add(title[index:index + width])
+        score = sum(
+            len(phrase) ** 2
+            for phrase in phrases
+            if phrase in normalized_question
+        )
+        if score > best_score:
+            best_score = score
+            best_node = node
+
+    # No title-level signal: retain the last studied section as context
+    # instead of silently resetting the learner to node_1.
+    return best_node if best_node is not None else outline_nodes[-1]
 
 
 def _extract_kg_node_ids_from_section(

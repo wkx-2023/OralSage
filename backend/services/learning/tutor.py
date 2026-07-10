@@ -336,45 +336,12 @@ def build_tutor_step_rule(
     index, node = find_outline_node(outline, current_node_id)
     node_id = node.get("id", "")
     node_title = node.get("title", "")
-    objectives: list[str] = node.get("learning_objectives", [])
-    source_refs: list[dict[str, Any]] = node.get("source_refs", [])
     kg_node_ids: list[str] = node.get("kg_node_ids", [])
-    difficulty = node.get("difficulty", "basic")
 
-    lines: list[str] = []
-    lines.append(f"你好呀，我是 OralSage。现在带你学习「{node_title}」。")
-
-    if objectives:
-        obj_text = "；".join(objectives)
-        lines.append(f"本节的学习目标是：{obj_text}。")
-    else:
-        lines.append(f"这一节围绕{node_title}的核心知识点展开。")
-
-    if source_refs:
-        lines.append("本节依据已关联的 KAG 证据进行讲解，内容有据可循。")
-
-    lines.append("学完本节后，你可以选择做小测题自检，也可以继续提问或进入下一节。")
-
-    teaching_text = "\n\n".join(lines)
-
-    stem = '关于"{}"，本节最重要的学习任务是？'.format(node_title)
-    question: dict[str, Any] = {
-        "id": f"q_inline_{node_id}",
-        "type": "single_choice",
-        "outline_node_id": node_id,
-        "kg_node_ids": kg_node_ids,
-        "stem": stem,
-        "options": [
-            "A. 只记住名词，不理解证据和临床意义",
-            "B. 理解核心概念、证据来源和临床意义",
-            "C. 跳过基础知识直接进入治疗方案",
-            "D. 只背答案，不需要联系上下文",
-        ],
-        "answer": "B",
-        "explanation": "本节目标是理解核心概念、证据来源和临床意义。",
-        "difficulty": difficulty,
-        "source_refs": source_refs,
-    }
+    teaching_text = (
+        f"「{node_title}」的讲义与讲稿生成未完成，当前不能提供可靠的正式讲解。\n\n"
+        "系统已记录具体失败原因，请重试本节内容生成后再继续学习。"
+    )
 
     signals = {
         "used_kg_node_ids": kg_node_ids,
@@ -387,23 +354,22 @@ def build_tutor_step_rule(
         "uses_llm": False,
         "uses_handout_section": False,
         "advance_progress": False,
+        "fallback_rule_based": True,
     }
 
     return {
         "outline_node_id": node_id,
         "teaching_text": teaching_text,
-        "questions": [question],
+        "questions": [],
         "quiz_scope": "section",
         "quiz_timing": "after_section",
         "available_user_actions": ["ask_question", "take_quiz", "continue"],
         "expected_user_action": "choose_next_action",
         "signals": signals,
         "trace": trace,
-        "content_status": "placeholder",
+        "content_status": "generation_failed",
         "content_note": (
-            "当前讲解与题目为规则模板占位，仅用于验证 Tutor 流程；"
-            "真实内容后续由 LLM/KAG/题库生成。"
-            "题目为可选自测，用户可自主选择下一步。"
+            "正式讲义或讲稿生成失败；当前内容仅报告失败状态，不作为教学内容。"
         ),
         "progress": {
             "current_index": index + 1,

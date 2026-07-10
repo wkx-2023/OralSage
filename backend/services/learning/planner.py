@@ -1392,6 +1392,27 @@ def normalize_agent_planner_output(raw: Any) -> dict[str, Any]:
     return plan
 
 
+def repair_non_content_planner_fields(plan: dict[str, Any]) -> list[str]:
+    """Repair sequencing metadata without inventing medical content."""
+    warnings: list[str] = []
+    nodes = plan.get("nodes", [])
+    if not isinstance(nodes, list):
+        return warnings
+    for index, node in enumerate(nodes):
+        if not isinstance(node, dict) or node.get("sequence_reason"):
+            continue
+        title = str(node.get("title") or f"node_{index + 1}").strip()
+        node["sequence_reason"] = (
+            f"从「{title}」开始建立本课程的基础框架。"
+            if index == 0
+            else f"在前一节基础上继续学习「{title}」。"
+        )
+        warnings.append(
+            f"node[{index}] sequence_reason was empty and was deterministically repaired"
+        )
+    return warnings
+
+
 def _normalize_str_list(value: Any) -> list[str]:
     """Normalize a value to a list of non-empty strings."""
     if not isinstance(value, list):
@@ -1764,6 +1785,8 @@ def plan_lesson_agent(
         trace["agent_planner_json_error"] = exc_msg[:500]
         return None, None, trace
 
+    norm_warnings.extend(repair_non_content_planner_fields(plan))
+
     # --- 5. validate --------------------------------------------------------
     validation_errors = validate_agent_planner_output(plan, evidence_pool)
     trace["validation_errors"] = validation_errors
@@ -2104,7 +2127,7 @@ def _build_progressive_initial_user_prompt(
             "mode": "progressive_initial_outline",
             "requirements": [
                 "Choose the best first section to teach immediately. It should usually be a definition, nature, boundary, or basic property section when evidence supports that.",
-                "Return a complete evidence-backed node_1 with objectives and evidence ids.",
+                "Return a complete evidence-backed node_1 with objectives, sequence_reason, and evidence ids.",
                 "For later sections, return only id, title, difficulty, prerequisites, and estimated_minutes. Do not fill objectives or evidence for later sections.",
                 "Use only ids from evidence_pool. If evidence is weak, create fewer later title placeholders.",
             ],
@@ -2207,6 +2230,9 @@ def plan_lesson_initial_agent(
         trace["agent_planner_json_error"] = exc_msg[:500]
         return None, None, trace
 
+    trace["normalization_warnings"].extend(
+        repair_non_content_planner_fields(plan)
+    )
     validation_errors = _validate_progressive_initial_output(
         plan,
         evidence_pool,
@@ -2391,6 +2417,9 @@ def plan_lesson_completion_agent(
         trace["agent_planner_json_error"] = exc_msg[:500]
         return None, None, trace
 
+    trace["normalization_warnings"].extend(
+        repair_non_content_planner_fields(plan)
+    )
     plan = _merge_locked_first_node(plan, initial_outline)
     validation_errors = validate_agent_planner_output(plan, evidence_pool)
     trace["validation_errors"] = validation_errors

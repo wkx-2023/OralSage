@@ -125,7 +125,8 @@ def _print_tutor_step(step: dict[str, Any] | None) -> list[dict[str, Any]]:
     print(f"handout_cache_hit: {step.get('handout_cache_hit', 'N/A')}")
     print(f"cache_miss_sync_generation: {step.get('cache_miss_sync_generation', 'N/A')}")
     print(f"handout_generation_source: {step.get('handout_generation_source', 'N/A')}")
-    print(f"fallback_rule_based: {step.get('trace', {}).get('fallback_rule_based', False)}")
+    print(f"handout_generation_error: {step.get('handout_generation_error', 'N/A')}")
+    print(f"fallback_rule_based: {step.get('trace', {}).get('fallback_rule_based', 'N/A')}")
     print()
     print(step.get("teaching_text", "(empty)"))
 
@@ -264,6 +265,18 @@ def _print_state(orchestrator: LearningOrchestrator, session_id: str) -> None:
     print(f"events: {state.get('event_count')}")
     print(f"answers: {state.get('answer_count')}")
     print(f"mastery: {state.get('mastery_count')}")
+    resources = state.get("resource_status", {})
+    if resources:
+        print()
+        print("【Courseware Status】")
+        print(f"  overall:          {resources.get('status')}")
+        print(f"  handout:          {resources.get('handout', {}).get('ready_count')}/{resources.get('expected_section_count')}")
+        print(f"  lecture_script:   {resources.get('lecture_script', {}).get('ready_count')}/{resources.get('expected_section_count')}")
+        print(f"  audio:            {resources.get('audio', {}).get('status')}")
+        print(f"  slides:           {resources.get('slides', {}).get('status')} ({resources.get('slides', {}).get('slide_count')} pages)")
+        print(f"  pptx:             {resources.get('pptx', {}).get('status')}")
+        if resources.get('pptx', {}).get('error'):
+            print(f"  pptx_error:       {resources.get('pptx', {}).get('error')}")
 
     # Show handout cache status table
     try:
@@ -271,7 +284,7 @@ def _print_state(orchestrator: LearningOrchestrator, session_id: str) -> None:
         if cache_statuses:
             print()
             print("【Handout Cache Status】")
-            header = f"  {'node_id':<12} {'title':<32} {'status':<12} {'section_status':<16} {'source':<28}"
+            header = f"  {'node_id':<12} {'title':<32} {'status':<12} {'attempts':<10} {'section_status':<16} {'source':<28}"
             print(header)
             print("  " + "-" * (len(header) - 2))
             for cs in cache_statuses:
@@ -280,6 +293,7 @@ def _print_state(orchestrator: LearningOrchestrator, session_id: str) -> None:
                     f"  {cs['outline_node_id']:<12} "
                     f"{cs['title'][:30]:<32} "
                     f"{cs['status']:<12} "
+                    f"{cs.get('attempt_count', 0):<10} "
                     f"{cs['section_status']:<16} "
                     f"{cs['source']:<28}"
                     f"{' ERR:' + err if err else ''}"
@@ -419,6 +433,10 @@ def main() -> None:
             print(f"current_outline_node_id: {result.get('current_outline_node_id_before')} -> {result.get('current_outline_node_id_after')}")
             print(f"handout_cache_hit: {result.get('handout_cache_hit', 'N/A')}")
             print(f"cache_miss_sync_generation: {result.get('cache_miss_sync_generation', 'N/A')}")
+            print(f"generation_blocked: {result.get('generation_blocked', False)}")
+            if result.get("generation_blocked"):
+                print(f"blocked_outline_node_id: {result.get('blocked_outline_node_id')}")
+                print(f"handout_generation_error: {result.get('handout_generation_error')}")
             if result.get("lesson_completed"):
                 print("课程已到末尾。")
                 current_step = None

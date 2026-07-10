@@ -14,6 +14,8 @@ from .resource_factory import (
     generate_slides_resource_from_session_cache,
 )
 from .slides import build_and_save_slides_from_session_cache, build_slides_from_handout_and_tutor
+from .lecture_script import build_and_save_lecture_script, get_lecture_script
+from .courseware import build_courseware_resources, get_courseware_status
 from .tutor import build_tutor_feedback, build_tutor_step
 from .qa import answer_interruption_question, classify_interruption_question
 from .assessment import assess_answer, normalize_answer
@@ -60,6 +62,10 @@ __all__ = [
     "generate_slides_resource_from_session_cache",
     "build_slides_from_handout_and_tutor",
     "build_and_save_slides_from_session_cache",
+    "build_and_save_lecture_script",
+    "get_lecture_script",
+    "build_courseware_resources",
+    "get_courseware_status",
     "build_tutor_step",
     "build_tutor_feedback",
     "classify_interruption_question",

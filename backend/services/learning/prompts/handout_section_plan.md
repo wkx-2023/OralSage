@@ -20,7 +20,8 @@
 
 - **只能请求当前 node_evidence 里已有的 ids**，不能编造或请求不存在的 id
 - **最多请求 4 个 chunk**（evidence_chunk_ids）
-- **最多请求 6 个 KG edges**（kg_edge_ids）
+- **请求所有与本节相关的合法 KG edges**（kg_edge_ids），不按固定数量截断
+- KG edge 必须来自当前 node 的 evidence index；可以很多，但不要重复同一个 id
 - **最多请求 3 个 questions**（question_ids）
 - 请求 kg_node_ids 没有数量限制，但也只能从当前 node 已有 ids 中选
 - 不要写完整讲义正文，只规划要写什么

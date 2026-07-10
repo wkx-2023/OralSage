@@ -13,6 +13,9 @@ import hmac
 import json
 import os
 import re
+import shutil
+import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -22,9 +25,17 @@ from typing import Any
 from urllib.parse import urlencode, urlparse
 
 from backend.services.env_loader import load_project_env
+from backend.services.learning.lecture_script import (
+    build_and_save_lecture_script,
+    build_lecture_script,
+    get_lecture_script,
+)
 
 
 load_project_env()
+
+
+_AUDIO_MANIFEST_LOCK = threading.RLock()
 
 
 DEFAULT_AUDIO_ROOT = Path("data/learning/sessions")
@@ -114,69 +125,54 @@ def _short_hash(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
 
+def _probe_audio_file(path: Path, expected_text_chars: int = 0) -> dict[str, Any]:
+    """Validate generated audio and return duration when ffprobe is available."""
+    if not path.exists() or path.stat().st_size == 0:
+        raise AudioSynthesisError("generated_audio_missing_or_empty")
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return {"validated": True, "validator": "non_empty_file"}
+    completed = subprocess.run(
+        [
+            ffprobe,
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AudioSynthesisError(f"ffprobe_failed: {completed.stderr[-200:]}")
+    try:
+        duration = float(completed.stdout.strip())
+    except ValueError as exc:
+        raise AudioSynthesisError("ffprobe_duration_invalid") from exc
+    if duration <= 0:
+        raise AudioSynthesisError("generated_audio_duration_is_zero")
+    minimum_duration = max(0.5, expected_text_chars * 0.04)
+    if duration < minimum_duration:
+        raise AudioSynthesisError(
+            f"generated_audio_too_short: {duration:.3f}s < {minimum_duration:.3f}s"
+        )
+    return {
+        "validated": True,
+        "validator": "ffprobe",
+        "duration_seconds": round(duration, 3),
+        "minimum_expected_duration_seconds": round(minimum_duration, 3),
+    }
+
+
 def build_handout_audio_slides(handout_section: dict[str, Any]) -> list[dict[str, Any]]:
     """Build deterministic audio slide records from a handout section."""
-    content = handout_section.get("content", {}) or {}
-    section_title = str(handout_section.get("title") or "").strip()
-    slides: list[dict[str, Any]] = []
-
-    def _add(kind: str, title: str, text: str, source_path: str) -> None:
-        cleaned = _clean_tts_text(text)
-        if not cleaned:
-            return
-        index = len(slides) + 1
-        slides.append({
-            "slide_id": f"slide_{index:03d}",
-            "index": index,
-            "kind": kind,
-            "title": title,
-            "text": cleaned,
-            "text_chars": len(cleaned),
-            "text_hash": _short_hash(cleaned),
-            "source_path": source_path,
-        })
-
-    overview = content.get("overview", "")
-    _add("overview", f"{section_title}：概述" if section_title else "概述", overview, "content.overview")
-
-    key_points = content.get("key_points", [])
-    if isinstance(key_points, list):
-        for idx, kp in enumerate(key_points, start=1):
-            if not isinstance(kp, dict):
-                continue
-            heading = str(kp.get("heading") or f"要点{idx}").strip()
-            explanation = str(kp.get("explanation") or "").strip()
-            text = f"要点{idx}：{heading}。{explanation}"
-            slide_index = len(slides) + 1
-            _add("key_point", heading, text, f"content.key_points[{idx - 1}]")
-            if len(slides) == slide_index:
-                refs = kp.get("evidence_refs", [])
-                if isinstance(refs, list):
-                    slides[-1]["evidence_refs"] = [str(ref) for ref in refs if str(ref)]
-
-    clinical_example = content.get("clinical_example", "")
-    _add("clinical_example", "临床例子", clinical_example, "content.clinical_example")
-
-    confusions = content.get("common_confusions", [])
-    if isinstance(confusions, list):
-        for idx, item in enumerate(confusions, start=1):
-            if not isinstance(item, dict):
-                continue
-            confusion = str(item.get("confusion") or "").strip()
-            clarification = str(item.get("clarification") or "").strip()
-            title = confusion or f"易混点{idx}"
-            text = f"常见误区：{confusion}。正确理解：{clarification}"
-            slide_index = len(slides) + 1
-            _add("common_confusion", title, text, f"content.common_confusions[{idx - 1}]")
-            if len(slides) == slide_index:
-                refs = item.get("evidence_refs", [])
-                if isinstance(refs, list):
-                    slides[-1]["evidence_refs"] = [str(ref) for ref in refs if str(ref)]
-
-    transition = content.get("transition_to_next", "")
-    _add("transition", "过渡到下一节", transition, "content.transition_to_next")
-
-    return slides
+    return build_lecture_script(
+        session_id="",
+        outline_node_id=str(handout_section.get("outline_node_id", "")),
+        handout_section=handout_section,
+    )["slides"]
 
 
 @dataclass(frozen=True)
@@ -431,6 +427,101 @@ def get_section_audio(
     return None
 
 
+def _reconcile_audio_manifest(
+    *,
+    session_id: str,
+    outline_nodes: list[dict[str, Any]],
+    resource_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Roll up audio completeness against every node expected by the outline."""
+    manifest = get_audio_manifest(session_id, resource_root)
+    if manifest.get("status") == "missing":
+        manifest = {
+            "schema_version": "learning.audio_manifest.v1",
+            "session_id": session_id,
+            "sections": [],
+            "created_at": _now(),
+        }
+
+    expected_ids = [
+        str(node.get("id"))
+        for node in outline_nodes
+        if str(node.get("id") or "")
+    ]
+    section_by_id = {
+        str(section.get("outline_node_id")): section
+        for section in manifest.get("sections", [])
+        if isinstance(section, dict) and section.get("outline_node_id")
+    }
+    ready_ids = [
+        node_id
+        for node_id in expected_ids
+        if section_by_id.get(node_id, {}).get("status") == "ready"
+    ]
+    missing_ids = [node_id for node_id in expected_ids if node_id not in section_by_id]
+    failed_ids = [
+        node_id
+        for node_id in expected_ids
+        if node_id in section_by_id
+        and section_by_id[node_id].get("status") not in {"ready", "pending"}
+    ]
+    expected_audio_count = sum(
+        int(
+            get_lecture_script(session_id, node_id, resource_root).get(
+                "slide_count",
+                section_by_id.get(node_id, {}).get("slide_count", 0),
+            ) or 0
+        )
+        for node_id in expected_ids
+    )
+    ready_audio_count = sum(
+        int(section_by_id.get(node_id, {}).get("audio_count", 0) or 0)
+        for node_id in expected_ids
+    )
+
+    if expected_ids and len(ready_ids) == len(expected_ids):
+        status = "ready"
+    elif ready_ids:
+        status = "partial"
+    elif failed_ids:
+        status = "failed"
+    else:
+        status = "pending"
+
+    manifest.update({
+        "status": status,
+        "expected_section_count": len(expected_ids),
+        "ready_section_count": len(ready_ids),
+        "expected_outline_node_ids": expected_ids,
+        "ready_section_ids": ready_ids,
+        "missing_section_ids": missing_ids,
+        "failed_section_ids": failed_ids,
+        "completion_ratio": (
+            round(len(ready_ids) / len(expected_ids), 4) if expected_ids else 0.0
+        ),
+        "expected_audio_count": expected_audio_count,
+        "ready_audio_count": ready_audio_count,
+        "updated_at": _now(),
+    })
+    _write_manifest(_manifest_path(session_id, resource_root), manifest)
+    return manifest
+
+
+def reconcile_audio_manifest(
+    *,
+    session_id: str,
+    outline_nodes: list[dict[str, Any]],
+    resource_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Roll up audio completeness without racing section manifest writes."""
+    with _AUDIO_MANIFEST_LOCK:
+        return _reconcile_audio_manifest(
+            session_id=session_id,
+            outline_nodes=outline_nodes,
+            resource_root=resource_root,
+        )
+
+
 def ensure_handout_audio(
     *,
     session_id: str,
@@ -450,7 +541,13 @@ def ensure_handout_audio(
     ext = _audio_ext(encoding)
     provider = config.provider_meta()
 
-    slides = build_handout_audio_slides(handout_section)
+    lecture_script = build_and_save_lecture_script(
+        session_id=session_id,
+        outline_node_id=outline_node_id,
+        handout_section=handout_section,
+        resource_root=resource_root,
+    )
+    slides = lecture_script.get("slides", [])
     manifest = _load_or_init_manifest(
         session_id=session_id,
         session_dir=session_dir,
@@ -479,8 +576,21 @@ def ensure_handout_audio(
         if old and old.get("status") == "ready":
             old_path = session_dir / str(old.get("audio_file", ""))
             if old_path.exists():
-                slide_records.append({**slide, **_copy_audio_fields(old)})
-                continue
+                try:
+                    validation = _probe_audio_file(
+                        old_path,
+                        expected_text_chars=int(slide.get("text_chars", 0) or 0),
+                    )
+                except Exception:
+                    # A stale/corrupt cached file is regenerated below.
+                    pass
+                else:
+                    slide_records.append({
+                        **slide,
+                        **_copy_audio_fields(old),
+                        **validation,
+                    })
+                    continue
 
         base_record = {
             **slide,
@@ -506,20 +616,31 @@ def ensure_handout_audio(
             })
             continue
 
+        tmp: Path | None = None
         try:
             audio_bytes = client.synthesize(slide["text"])
             if not audio_bytes:
                 raise AudioSynthesisError("empty_audio")
             tmp = audio_path.with_suffix(audio_path.suffix + ".tmp")
             tmp.write_bytes(audio_bytes)
+            validation = _probe_audio_file(
+                tmp,
+                expected_text_chars=int(slide.get("text_chars", 0) or 0),
+            )
             os.replace(str(tmp), str(audio_path))
             slide_records.append({
                 **base_record,
                 "status": "ready",
                 "error": None,
                 "byte_size": len(audio_bytes),
+                **validation,
             })
         except Exception as exc:  # noqa: BLE001 - audio must not block handout
+            if tmp is not None:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except Exception:
+                    pass
             slide_records.append({
                 **base_record,
                 "status": "failed",
@@ -535,12 +656,24 @@ def ensure_handout_audio(
         "audio_count": sum(1 for slide in slide_records if slide.get("status") == "ready"),
         "updated_at": _now(),
         "slides": slide_records,
+        "lecture_script_path": lecture_script.get("script_path", ""),
+        "source_handout_hash": lecture_script.get("source_handout_hash", ""),
     }
-    _upsert_section(manifest, section_record)
-    manifest["status"] = _rollup_status(manifest.get("sections", []))
-    manifest["updated_at"] = _now()
-    manifest["provider"] = provider
-    _write_manifest(manifest_path, manifest)
+    # Audio synthesis runs concurrently for prefetched sections. Reload and
+    # merge under one lock so a late writer cannot erase another section.
+    with _AUDIO_MANIFEST_LOCK:
+        manifest = _load_or_init_manifest(
+            session_id=session_id,
+            session_dir=session_dir,
+            audio_root=audio_root,
+            provider=provider,
+            resource_root=resource_root,
+        )
+        _upsert_section(manifest, section_record)
+        manifest["status"] = _rollup_status(manifest.get("sections", []))
+        manifest["updated_at"] = _now()
+        manifest["provider"] = provider
+        _write_manifest(manifest_path, manifest)
     return section_record
 
 
@@ -589,6 +722,10 @@ def _copy_audio_fields(record: dict[str, Any]) -> dict[str, Any]:
         "status",
         "error",
         "byte_size",
+        "validated",
+        "validator",
+        "duration_seconds",
+        "minimum_expected_duration_seconds",
     }
     return {key: record.get(key) for key in keys if key in record}
 

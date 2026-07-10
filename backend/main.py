@@ -805,6 +805,78 @@ async def learning_session_audio_manifest(session_id: str) -> JSONResponse:
     )
 
 
+def _learning_session_resource_dir(session_id: str) -> Path:
+    resource_root = Path(learning_orchestrator.resource_root).resolve()
+    session_dir = (resource_root / session_id).resolve()
+    if resource_root not in session_dir.parents:
+        raise HTTPException(status_code=404, detail="Learning session resource not found")
+    return session_dir
+
+
+@app.get("/api/learning/session/{session_id}/slides")
+async def learning_session_slides(session_id: str) -> JSONResponse:
+    """Return the aligned ``slides.v1`` courseware deck."""
+    path = _learning_session_resource_dir(session_id) / "slides" / "slides.v1.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Slides resource not found")
+    try:
+        deck = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Slides resource is invalid: {exc}") from exc
+    return JSONResponse({"ok": True, "module": "learning", "action": "slides", "result": deck})
+
+
+@app.get("/api/learning/session/{session_id}/pptx-status")
+async def learning_session_pptx_status(session_id: str) -> JSONResponse:
+    """Return truthful PPTX generation and completeness state."""
+    path = _learning_session_resource_dir(session_id) / "pptx_status.json"
+    if not path.exists():
+        return JSONResponse({
+            "ok": True,
+            "module": "learning",
+            "action": "pptx_status",
+            "result": {"status": "missing", "ok": False},
+        })
+    try:
+        status = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"PPTX status is invalid: {exc}") from exc
+    return JSONResponse({"ok": True, "module": "learning", "action": "pptx_status", "result": status})
+
+
+@app.post("/api/learning/session/{session_id}/resources/retry")
+async def learning_session_retry_resources(session_id: str) -> JSONResponse:
+    """Resume failed or interrupted courseware generation for a session."""
+    result = learning_orchestrator.retry_failed_resources(session_id)
+    return JSONResponse({
+        "ok": bool(result.get("started")),
+        "module": "learning",
+        "action": "retry_resources",
+        "result": result,
+    })
+
+
+@app.get("/api/learning/session/{session_id}/pptx")
+async def learning_session_pptx_file(session_id: str) -> FileResponse:
+    """Download a fully generated lesson PPTX."""
+    session_dir = _learning_session_resource_dir(session_id)
+    status_path = session_dir / "pptx_status.json"
+    try:
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="PPTX resource is not ready") from exc
+    if status.get("status") != "ready" or status.get("ok") is not True:
+        raise HTTPException(status_code=409, detail="PPTX resource is not ready")
+    candidate = (session_dir / "lesson.pptx").resolve()
+    if session_dir not in candidate.parents or not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="PPTX file not found")
+    return FileResponse(
+        candidate,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename=f"{session_id}.pptx",
+    )
+
+
 @app.get("/api/learning/session/{session_id}/audio/{outline_node_id}/{filename}")
 async def learning_session_audio_file(
     session_id: str,
@@ -812,7 +884,7 @@ async def learning_session_audio_file(
     filename: str,
 ) -> FileResponse:
     """Return one generated slide audio file."""
-    session_dir = Path(learning_orchestrator.resource_root) / session_id
+    session_dir = _learning_session_resource_dir(session_id)
     audio_root = (session_dir / "audio_files").resolve()
     candidate = (audio_root / outline_node_id / filename).resolve()
     if audio_root not in candidate.parents:

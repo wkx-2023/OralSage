@@ -7,7 +7,7 @@ Produces six resource files under ``data/learning/sessions/{session_id}/``:
 * ``base_questions.json`` — MVP single-choice questions (one per node)
 * ``reading_list.json``   — reading list derived from node source_refs
 * ``mindmap.json``        — mindmap passed through from the planner
-* ``pptx_status.json``    — PPTX generation status (placeholder in MVP)
+* ``pptx_status.json``    — initial PPTX generation status
 
 No LLM.  No Tutor / QA / Assessment.  No video.  No new dependencies.
 """
@@ -333,7 +333,7 @@ def build_reading_list(topic: str, outline: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_pptx_status(slides_path: Path) -> dict[str, Any]:
-    """Return a placeholder PPTX status — no real PPTX generation in MVP.
+    """Return the initial status before courseware/PPTX background generation.
 
     Parameters
     ----------
@@ -342,10 +342,9 @@ def build_pptx_status(slides_path: Path) -> dict[str, Any]:
     """
     return {
         "ok": False,
-        "status": "not_implemented",
+        "status": "pending",
         "message": (
-            "MVP 当前先生成 slides.json，"
-            "PPTX 导出将在后续接入 PptxGenJS。"
+            "正在等待完整讲义与逐页讲稿；准备完成后将由 PptxGenJS 导出。"
         ),
         "slides_path": str(slides_path),
     }
@@ -1232,6 +1231,10 @@ def generate_handout_section(
             trace=diag,
         )
 
+    raw_requested_edge_ids = _normalize_str_list(
+        plan.get("requested_kg_edge_ids", [])
+    )
+
     # --- sanitize invalid ids (non-fatal: remove + warn, don't fail the section) ---
     plan, plan_warnings = sanitize_handout_evidence_plan(plan, node_evidence)
 
@@ -1251,6 +1254,12 @@ def generate_handout_section(
         requested_question_ids=plan.get("requested_question_ids", []),
         evidence_pool=evidence_pool,
     )
+    accepted_edge_ids = list(plan.get("requested_kg_edge_ids", []))
+    processed_edge_ids = [
+        str(edge.get("edge_id", ""))
+        for edge in evidence_detail.get("kg_edges", [])
+        if str(edge.get("edge_id", ""))
+    ]
 
     # =====================================================================
     # Python: execute targeted evidence search (if LLM requested it)
@@ -1413,6 +1422,16 @@ def generate_handout_section(
     if validation_errors:
         trace_fail = {
             "plan_warnings": plan_warnings,
+            "evidence_ledger": {
+                "requested_kg_edge_ids": raw_requested_edge_ids,
+                "accepted_kg_edge_ids": accepted_edge_ids,
+                "processed_kg_edge_ids": processed_edge_ids,
+                "cited_kg_edge_ids": _normalize_str_list(
+                    (section.get("used_evidence", {}) or {}).get(
+                        "kg_edge_ids", []
+                    )
+                ),
+            },
             "targeted_search_used": len(targeted_search_results) > 0,
             "targeted_search_queries": [
                 {"query": sq.get("query", ""), "purpose": sq.get("purpose", "")}
@@ -1445,6 +1464,16 @@ def generate_handout_section(
         "round1_retry_used": round1_retry_used,
         "round2_retry_used": round2_retry_used,
         "plan_warnings": plan_warnings,
+        "evidence_ledger": {
+            "requested_kg_edge_ids": raw_requested_edge_ids,
+            "accepted_kg_edge_ids": accepted_edge_ids,
+            "processed_kg_edge_ids": processed_edge_ids,
+            "cited_kg_edge_ids": _normalize_str_list(
+                (section.get("used_evidence", {}) or {}).get(
+                    "kg_edge_ids", []
+                )
+            ),
+        },
         "targeted_search_used": len(targeted_search_results) > 0,
         "targeted_search_queries": [
             {"query": sq.get("query", ""), "purpose": sq.get("purpose", "")}
@@ -1576,8 +1605,9 @@ def sanitize_handout_evidence_plan(
     id that exists in the evidence pool but belongs to the wrong type (e.g.
     a chunk id in ``requested_kg_node_ids``) is removed and warned.
 
-    Caps and targeted_search_queries format are NOT checked here —
-    :func:`_validate_plan_requested_ids` still handles those as fatal.
+    Non-edge caps and targeted_search_queries format are NOT checked here —
+    :func:`_validate_plan_requested_ids` still handles those as fatal.  KG
+    edges deliberately have no count cap: every valid requested edge is kept.
 
     Returns ``(cleaned_plan, warnings)``.  *cleaned_plan* is a deep copy;
     the original *plan* is never modified.
@@ -1603,10 +1633,15 @@ def sanitize_handout_evidence_plan(
             continue
         allowed = allowed_sets[allowed_key]
         kept: list[str] = []
+        seen: set[str] = set()
         for rid in raw:
             rid_str = str(rid).strip()
+            if rid_str in seen:
+                warnings.append(f"{field}: removed duplicate id {rid_str!r}")
+                continue
             if rid_str in allowed:
                 kept.append(rid_str)
+                seen.add(rid_str)
             else:
                 warnings.append(
                     f"{field}: removed invalid or wrong-type id {rid_str!r}"
@@ -1619,8 +1654,8 @@ def sanitize_handout_evidence_plan(
 def _validate_plan_requested_ids(plan: dict, node_evidence: dict) -> list[str]:
     """Validate that all requested ids in *plan* exist in *node_evidence*.
 
-    Also checks caps: max 4 chunks, 6 edges, 3 questions, and validates
-    targeted_search_queries format.
+    Also checks caps for chunks and questions and validates
+    targeted_search_queries format.  Valid KG edges have no count cap.
     """
     errors: list[str] = []
 
@@ -1631,10 +1666,10 @@ def _validate_plan_requested_ids(plan: dict, node_evidence: dict) -> list[str]:
     if isinstance(req_chunks, list) and len(req_chunks) > 4:
         errors.append(f"requested {len(req_chunks)} chunks, max 4 allowed")
 
-    # --- edge cap ---
+    # KG edges are compact structural evidence.  Process every valid edge;
+    # rejecting a section because it has a rich graph neighborhood loses
+    # useful evidence and caused valid handout sections to become placeholders.
     req_edges = plan.get("requested_kg_edge_ids", [])
-    if isinstance(req_edges, list) and len(req_edges) > 6:
-        errors.append(f"requested {len(req_edges)} edges, max 6 allowed")
 
     # --- question cap ---
     req_qs = plan.get("requested_question_ids", [])
