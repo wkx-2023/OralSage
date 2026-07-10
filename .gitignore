@@ -4,6 +4,10 @@ __pycache__/
 env/
 .env
 logs/
+node_modules/
+clawbridge/node_modules/
+clawbridge/runtime/
+npm-debug.log*
 
 # Local extraction / generated workspace files
 _docx_extracted.txt

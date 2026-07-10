@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from typing import Any
 import base64
 import json
 import time
+from uuid import uuid4
 
 from .services.env_loader import load_project_env
 
 load_project_env()
 
-from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -90,9 +92,13 @@ from .services.learning.study_plan import (
     recommend_study_plan,
     update_study_plan_item,
 )
+from .services.clawbridge_client import ClawBridgeClient, ClawBridgeError
+from .services.weixin_auth import WeixinAuthStore, session_cookie_name
+from .services.weixin_plan_bot import build_daily_plan_text, handle_weixin_plan_message
 
 
 learning_orchestrator = LearningOrchestrator()
+weixin_auth_store = WeixinAuthStore()
 
 app = FastAPI(title="OralPath API Interfaces", version="0.1.0")
 app.add_middleware(
@@ -1110,6 +1116,322 @@ async def learning_plan_delete_item(item_id: str, user_id: str = "demo") -> JSON
     except KeyError as exc:
         return _learning_plan_error("study_plan_delete_item", exc, 404)
     return _learning_plan_response("study_plan_delete_item", result)
+
+
+def _clawbridge_secret() -> str:
+    return (
+        os.getenv("ORALSAGE_CLAWBRIDGE_INTERNAL_SECRET")
+        or os.getenv("CLAWBRIDGE_INTERNAL_SECRET")
+        or os.getenv("AUTH_INTERNAL_OPENCLAW_SECRET")
+        or ""
+    ).strip()
+
+
+def _require_web_user(request: Request) -> dict[str, Any]:
+    user = weixin_auth_store.get_user_by_session(request.cookies.get(session_cookie_name()))
+    if user is None:
+        raise HTTPException(status_code=401, detail={"message": "Web login is required."})
+    return user
+
+
+def _resolve_internal_weixin_user(
+    *,
+    x_newproject_internal_secret: str | None,
+    x_clawbot_instance_id: str | None,
+    x_legacy_clawbot_instance_id: str | None,
+    x_weixin_account_id: str | None,
+    x_weixin_user_id: str | None,
+) -> dict[str, Any] | None:
+    if not any([x_newproject_internal_secret, x_clawbot_instance_id, x_legacy_clawbot_instance_id, x_weixin_account_id, x_weixin_user_id]):
+        return None
+    if str(x_newproject_internal_secret or "").strip() != _clawbridge_secret():
+        raise HTTPException(status_code=401, detail={"message": "Weixin internal authentication failed."})
+    instance_id = str(x_clawbot_instance_id or x_legacy_clawbot_instance_id or "").strip() or None
+    if not instance_id and not (x_weixin_account_id and x_weixin_user_id):
+        raise HTTPException(status_code=401, detail={"message": "Weixin identity headers are missing."})
+    return weixin_auth_store.get_bound_user(
+        clawbot_instance_id=instance_id,
+        weixin_account_id=x_weixin_account_id,
+        weixin_user_id=x_weixin_user_id,
+    )
+
+
+@app.post("/api/auth/web-login")
+async def web_login(payload: dict[str, Any] | None = None) -> JSONResponse:
+    """Create a lightweight web session for the account page.
+
+    The project did not have a login module before the Weixin migration, so this
+    endpoint provides the minimal cookie session needed by the QR bind flow.
+    """
+    data = payload or {}
+    user, token = weixin_auth_store.login(
+        user_id=str(data.get("user_id") or "demo"),
+        display_name=str(data.get("display_name") or data.get("user_id") or "demo"),
+    )
+    json_response = JSONResponse({"ok": True, "module": "weixin_auth", "user": user})
+    json_response.set_cookie(
+        key=session_cookie_name(),
+        value=token,
+        httponly=True,
+        samesite="lax",
+        path="/",
+        max_age=30 * 24 * 3600,
+    )
+    return json_response
+
+
+@app.post("/api/auth/logout")
+async def web_logout(request: Request) -> JSONResponse:
+    weixin_auth_store.logout(request.cookies.get(session_cookie_name()))
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(session_cookie_name(), path="/")
+    return response
+
+
+@app.get("/api/auth/me")
+async def web_me(request: Request) -> JSONResponse:
+    user = weixin_auth_store.get_user_by_session(request.cookies.get(session_cookie_name()))
+    return JSONResponse({"ok": True, "user": user, "authenticated": user is not None})
+
+
+@app.post("/api/auth/weixin/qr/start")
+async def weixin_qr_start(request: Request) -> JSONResponse:
+    user = _require_web_user(request)
+    session_id = uuid4().hex
+    try:
+        result = ClawBridgeClient().start_qr_login(session_id=session_id)
+    except ClawBridgeError as exc:
+        raise HTTPException(status_code=503, detail={"message": str(exc)}) from exc
+    session = weixin_auth_store.create_bind_session(
+        user_id=str(user["user_id"]),
+        session_id=result.session_id,
+        qr_data_url=result.qr_data_url,
+        message=result.message,
+    )
+    return JSONResponse(
+        {
+            "session_id": session["session_id"],
+            "status": session["status"],
+            "qr_data_url": session["qr_data_url"],
+            "expires_at": session["expires_at"],
+            "message": session["message"],
+        }
+    )
+
+
+@app.get("/api/auth/weixin/qr/status")
+async def weixin_qr_status(request: Request, session_id: str = Query(min_length=1)) -> JSONResponse:
+    user = _require_web_user(request)
+    session = weixin_auth_store.get_bind_session(session_id)
+    if not session or session.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=404, detail={"message": "The requested Weixin QR session was not found."})
+    if session.get("status") == "bound":
+        return JSONResponse(
+            {
+                "session_id": session_id,
+                "status": "bound",
+                "bound": True,
+                "qr_data_url": session.get("qr_data_url"),
+                "expires_at": session.get("expires_at"),
+                "message": session.get("message"),
+                "binding": weixin_auth_store.get_bind_status_for_user(str(user["user_id"])),
+            }
+        )
+    try:
+        status = ClawBridgeClient(timeout_seconds=40).get_qr_status(session_id=session_id, timeout_ms=35000)
+    except ClawBridgeError as exc:
+        updated = weixin_auth_store.update_bind_session(session_id, {"status": "error", "message": str(exc)})
+        return JSONResponse(
+            {
+                "session_id": session_id,
+                "status": "error",
+                "bound": False,
+                "qr_data_url": (updated or session).get("qr_data_url"),
+                "expires_at": (updated or session).get("expires_at"),
+                "message": str(exc),
+                "binding": weixin_auth_store.get_bind_status_for_user(str(user["user_id"])),
+            }
+        )
+
+    if not status.connected:
+        next_status = status.status if status.status in {"waiting", "expired", "error"} else "waiting"
+        updated = weixin_auth_store.update_bind_session(
+            session_id,
+            {
+                "status": next_status,
+                "message": status.message,
+                **({"qr_data_url": status.qr_data_url} if status.qr_data_url else {}),
+            },
+        )
+        return JSONResponse(
+            {
+                "session_id": session_id,
+                "status": next_status,
+                "bound": False,
+                "qr_data_url": (updated or session).get("qr_data_url"),
+                "expires_at": (updated or session).get("expires_at"),
+                "message": status.message,
+                "binding": weixin_auth_store.get_bind_status_for_user(str(user["user_id"])),
+            }
+        )
+
+    binding = weixin_auth_store.bind_weixin_identity(
+        user_id=str(user["user_id"]),
+        weixin_account_id=status.weixin_account_id or "",
+        weixin_user_id=status.weixin_user_id or "",
+        clawbot_instance_id=status.clawbot_instance_id,
+    )
+    updated = weixin_auth_store.update_bind_session(
+        session_id,
+        {
+            "status": "bound",
+            "message": status.message,
+            "weixin_account_id": status.weixin_account_id,
+            "weixin_user_id": status.weixin_user_id,
+            "clawbot_instance_id": binding.get("clawbot_instance_id"),
+            "binding_revision": binding.get("binding_revision"),
+        },
+    )
+    return JSONResponse(
+        {
+            "session_id": session_id,
+            "status": "bound",
+            "bound": True,
+            "qr_data_url": (updated or session).get("qr_data_url"),
+            "expires_at": (updated or session).get("expires_at"),
+            "message": status.message,
+            "binding": binding,
+        }
+    )
+
+
+@app.get("/api/auth/weixin/bind-status")
+async def weixin_bind_status(
+    request: Request,
+    x_newproject_internal_secret: str | None = Header(default=None, alias="X-NewProject-Internal-Secret"),
+    x_clawbot_instance_id: str | None = Header(default=None, alias="X-AlertClaw-ClawBot-Instance-Id"),
+    x_legacy_clawbot_instance_id: str | None = Header(default=None, alias="X-OpenSensus-ClawBot-Instance-Id"),
+    x_weixin_account_id: str | None = Header(default=None, alias="X-Weixin-Account-Id"),
+    x_weixin_user_id: str | None = Header(default=None, alias="X-Weixin-User-Id"),
+) -> JSONResponse:
+    internal_user = _resolve_internal_weixin_user(
+        x_newproject_internal_secret=x_newproject_internal_secret,
+        x_clawbot_instance_id=x_clawbot_instance_id,
+        x_legacy_clawbot_instance_id=x_legacy_clawbot_instance_id,
+        x_weixin_account_id=x_weixin_account_id,
+        x_weixin_user_id=x_weixin_user_id,
+    )
+    if internal_user is not None:
+        return JSONResponse(weixin_auth_store.get_bind_status_for_user(str(internal_user["user_id"])))
+    user = _require_web_user(request)
+    return JSONResponse(weixin_auth_store.get_bind_status_for_user(str(user["user_id"])))
+
+
+@app.delete("/api/auth/weixin/bind")
+async def weixin_unbind(
+    request: Request,
+    x_newproject_internal_secret: str | None = Header(default=None, alias="X-NewProject-Internal-Secret"),
+    x_clawbot_instance_id: str | None = Header(default=None, alias="X-AlertClaw-ClawBot-Instance-Id"),
+    x_legacy_clawbot_instance_id: str | None = Header(default=None, alias="X-OpenSensus-ClawBot-Instance-Id"),
+    x_weixin_account_id: str | None = Header(default=None, alias="X-Weixin-Account-Id"),
+    x_weixin_user_id: str | None = Header(default=None, alias="X-Weixin-User-Id"),
+) -> JSONResponse:
+    if any([x_newproject_internal_secret, x_clawbot_instance_id, x_legacy_clawbot_instance_id, x_weixin_account_id, x_weixin_user_id]):
+        if str(x_newproject_internal_secret or "").strip() != _clawbridge_secret():
+            raise HTTPException(status_code=401, detail={"message": "Weixin internal authentication failed."})
+        result = weixin_auth_store.unbind_identity(
+            clawbot_instance_id=str(x_clawbot_instance_id or x_legacy_clawbot_instance_id or "").strip() or None,
+            weixin_account_id=x_weixin_account_id,
+            weixin_user_id=x_weixin_user_id,
+        )
+        return JSONResponse(result)
+    user = _require_web_user(request)
+    return JSONResponse(weixin_auth_store.unbind_user(str(user["user_id"])))
+
+
+@app.get("/api/v1/internal/clawbridge/bootstrap")
+async def clawbridge_bootstrap(
+    x_clawbridge_secret: str | None = Header(default=None, alias="X-AlertClaw-ClawBridge-Secret"),
+    x_clawbridge_instance_id: str | None = Header(default=None, alias="X-AlertClaw-ClawBridge-Instance-Id"),
+) -> JSONResponse:
+    if str(x_clawbridge_secret or "").strip() != _clawbridge_secret():
+        raise HTTPException(status_code=401, detail={"message": "ClawBridge internal authentication failed."})
+    return JSONResponse(
+        {
+            "service": "OralSage",
+            "version": "0.1.0",
+            "bridge_name": "OralSage ClawBridge",
+            "bridge_instance_id": x_clawbridge_instance_id,
+            "backend_base_url": os.getenv("CLAWBRIDGE_BACKEND_BASE_URL", "http://127.0.0.1:8000"),
+            "headers": {
+                "clawbridge_secret": "X-AlertClaw-ClawBridge-Secret",
+                "clawbridge_instance_id": "X-AlertClaw-ClawBridge-Instance-Id",
+                "clawbot_instance_id": "X-AlertClaw-ClawBot-Instance-Id",
+                "weixin_account_id": "X-Weixin-Account-Id",
+                "weixin_user_id": "X-Weixin-User-Id",
+            },
+            "endpoints": {
+                "bind_status": "/api/auth/weixin/bind-status",
+                "unbind": "/api/auth/weixin/bind",
+                "internal_chatbox_messages": "/api/v1/internal/clawbridge/chatbox/messages",
+                "weixin_qr_start": "/api/v1/weixin/qr/start",
+                "weixin_qr_status": "/api/v1/weixin/qr/status",
+                "weixin_account_status": "/api/v1/weixin/accounts/{account_id}",
+            },
+        }
+    )
+
+
+@app.post("/api/v1/internal/clawbridge/chatbox/messages")
+async def clawbridge_chatbox_messages(
+    payload: dict[str, Any],
+    x_clawbridge_secret: str | None = Header(default=None, alias="X-AlertClaw-ClawBridge-Secret"),
+) -> JSONResponse:
+    if str(x_clawbridge_secret or "").strip() != _clawbridge_secret():
+        raise HTTPException(status_code=401, detail={"message": "ClawBridge internal authentication failed."})
+    user = weixin_auth_store.get_bound_user(
+        clawbot_instance_id=str(payload.get("clawbot_instance_id") or "").strip() or None,
+        weixin_account_id=str(payload.get("weixin_account_id") or "").strip() or None,
+        weixin_user_id=str(payload.get("weixin_user_id") or "").strip() or None,
+    )
+    if user is None:
+        raise HTTPException(status_code=404, detail={"error_code": "auth_weixin_not_bound", "message": "The Weixin sender is not bound to an OralSage account."})
+    result = handle_weixin_plan_message(
+        learning_orchestrator.memory,
+        user_id=str(user["user_id"]),
+        text=str(payload.get("text") or ""),
+    )
+    return JSONResponse(
+        {
+            "thread_id": f"weixin-plan-{user['user_id']}",
+            "reply_text": result.get("reply_text", ""),
+            "reply_attachments": result.get("reply_attachments", []),
+            "reply_actions": result.get("reply_actions", []),
+            "pending_action": None,
+            "last_event_candidates": [],
+            "last_report_query": None,
+        }
+    )
+
+
+@app.post("/api/weixin/plan/push-daily")
+async def weixin_push_daily_plan(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
+    user = _require_web_user(request)
+    data = payload or {}
+    plan_date = str(data.get("plan_date") or "").strip() or None
+    binding = weixin_auth_store.get_bind_status_for_user(str(user["user_id"]))
+    if not binding.get("bound"):
+        raise HTTPException(status_code=409, detail={"message": "Current account is not connected to Weixin ClawBot."})
+    text = build_daily_plan_text(learning_orchestrator.memory, user_id=str(user["user_id"]), plan_date=plan_date)
+    try:
+        sent = ClawBridgeClient().send_text(
+            text=text,
+            clawbot_instance_id=binding.get("clawbot_instance_id"),
+            weixin_account_id=binding.get("weixin_account_id"),
+        )
+    except ClawBridgeError as exc:
+        raise HTTPException(status_code=503, detail={"message": str(exc)}) from exc
+    return JSONResponse({"ok": True, "module": "weixin_plan", "action": "push_daily", "sent": sent, "text": text})
 
 
 @app.post("/api/learning/route")
