@@ -9,7 +9,11 @@ from .learner_assessment import (
     get_learner_assessment_definition,
     submit_learner_assessment,
 )
-from .resource_factory import generate_resources
+from .resource_factory import (
+    generate_resources,
+    generate_slides_resource_from_session_cache,
+)
+from .slides import build_and_save_slides_from_session_cache, build_slides_from_handout_and_tutor
 from .tutor import build_tutor_feedback, build_tutor_step
 from .qa import answer_interruption_question, classify_interruption_question
 from .assessment import assess_answer, normalize_answer
@@ -53,6 +57,9 @@ __all__ = [
     "get_learner_assessment_definition",
     "submit_learner_assessment",
     "generate_resources",
+    "generate_slides_resource_from_session_cache",
+    "build_slides_from_handout_and_tutor",
+    "build_and_save_slides_from_session_cache",
     "build_tutor_step",
     "build_tutor_feedback",
     "classify_interruption_question",

@@ -223,6 +223,12 @@ def build_handout(topic: str, outline: dict[str, Any]) -> str:
 def build_slides(topic: str, outline: dict[str, Any]) -> dict[str, Any]:
     """Build a ``slides.json`` dict from the outline.
 
+    .. deprecated::
+        This is a **legacy placeholder** that generates slides from outline
+        titles only (no medical content, no handout/tutor cache).  The
+        production PPT path is :func:`generate_slides_resource_from_session_cache`,
+        which reads real handout sections and tutor steps from session cache.
+
     One title slide + one content slide per outline node.
     """
     outline_title = outline.get("title", f"{topic}系统学习路径")
@@ -342,6 +348,78 @@ def build_pptx_status(slides_path: Path) -> dict[str, Any]:
             "PPTX 导出将在后续接入 PptxGenJS。"
         ),
         "slides_path": str(slides_path),
+    }
+
+
+# ============================================================================
+# Slides resource entry — from session cache (production PPT path)
+# ============================================================================
+
+
+def generate_slides_resource_from_session_cache(
+    session_id: str,
+    outline: dict[str, Any],
+    output_root: str | Path | None = None,
+    deck_title: str | None = None,
+    theme_id: str = "clean_light",
+) -> dict[str, Any]:
+    """Generate a ``slides.v1`` resource from session handout + tutor cache.
+
+    This is the **production PPT resource entry point** at the Resource Factory
+    layer.  It delegates to :func:`~slides.build_and_save_slides_from_session_cache`,
+    which reads existing handout sections and tutor steps from the session
+    cache — no LLM, no Tutor generation, no course-progress side effects.
+
+    Parameters
+    ----------
+    session_id:
+        Session identifier used as the sub-directory name.
+    outline:
+        A ``LessonOutline``-compatible dict as returned by the Planner.
+    output_root:
+        Root directory for session data.  Defaults to
+        ``data/learning/sessions`` (relative to CWD).
+    deck_title:
+        Optional deck title.  Falls back to ``outline["title"]``, then to
+        ``"OralSage 学习讲义"``.
+    theme_id:
+        Theme identifier for frontend rendering (default ``"clean_light"``).
+
+    Returns
+    -------
+    dict
+        Resource-layer dict with keys: ``status``, ``resource_type``
+        (``"slides_json"``), ``resource_path``, ``resource_json``,
+        ``warnings``, and optionally ``error``.
+
+        The output file is written to:
+        ``{output_root}/{session_id}/slides/slides.v1.json``.
+
+        Does **not** write to the legacy path ``{output_root}/{session_id}/slides.json``.
+    """
+    from backend.services.learning.slides import (
+        build_and_save_slides_from_session_cache,
+    )
+
+    result = build_and_save_slides_from_session_cache(
+        session_id=session_id,
+        outline=outline,
+        resource_root=output_root,
+        deck_title=deck_title,
+        theme_id=theme_id,
+    )
+
+    # Flatten warnings from resource_json into result-level warnings
+    # (build_and_save already merges them, but ensure consistency)
+    resource_json = result.get("resource_json", {})
+    warnings = list(result.get("warnings", []))
+
+    return {
+        "status": result.get("status", "failed"),
+        "resource_type": "slides_json",
+        "resource_path": result.get("resource_path", ""),
+        "resource_json": resource_json,
+        "warnings": warnings,
     }
 
 

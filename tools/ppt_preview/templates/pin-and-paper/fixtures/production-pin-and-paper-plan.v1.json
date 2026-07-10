@@ -1,0 +1,365 @@
+{
+  "schema_version": "pin_and_paper_slide_plan.v1",
+  "template_slug": "pin-and-paper",
+  "deck_title": "牙周炎基础学习",
+  "session_id": "demo_production_001",
+  "slides": [
+    {
+      "source_slide_id": "slide_node_1",
+      "source_outline_node_id": "node_1",
+      "page_type": "notice",
+      "rationale": "基于源幻灯片 3 个要点自动选择 notice 页型。",
+      "slots": {
+        "eyebrow": "牙周炎·病因",
+        "headline": "牙周炎的定义与病因",
+        "columns": [
+          {
+            "title": "牙周炎的定义与诊断标准",
+            "body": "牙周炎是一种以牙周附着丧失和牙槽骨吸收为特征的慢性炎症性疾病。临床诊断需同时满足探诊深度≥4mm、临床附着丧失≥3mm、探诊出血阳性这三项指标中的至少两项，并通过X线片确认牙槽骨吸收的存在。与牙龈炎的根本区别在于：牙周炎的破坏是不可逆的。",
+            "meta": "",
+            "source": "ev_2024_perio_review",
+            "source_block_ids": [
+              "block_node_1_02"
+            ]
+          },
+          {
+            "title": "菌斑生物膜的始动作用",
+            "body": "牙菌斑生物膜是牙周炎最主要的始动因子。龈下菌斑中的牙龈卟啉单胞菌、齿垢密螺旋体和福赛斯坦纳菌等构成红色复合体，通过脂多糖、胶原酶和多种毒力因子直接破坏牙周组织。菌斑在牙面堆积后约48小时内即可形成成熟的生物膜结构，其三维构造能有效抵抗抗生素和宿主免疫攻击。",
+            "meta": "",
+            "source": "kg_dental_plaque_002",
+            "source_block_ids": [
+              "block_node_1_03"
+            ]
+          },
+          {
+            "title": "宿主免疫反应的双重角色",
+            "body": "宿主对菌斑的免疫炎症反应在牙周组织破坏中起关键作用。细菌产物激活Toll样受体后，巨噬细胞和中性粒细胞释放大量炎性介质，包括IL-1β、TNF-α和PGE2。这些细胞因子在杀灭细菌的同时也促进了基质金属蛋白酶的释放，导致牙周膜胶原纤维降解和牙槽骨吸收。宿主反应强度是决定疾病严重程度的关键因素。",
+            "meta": "",
+            "source": "kg_periodontitis_001",
+            "source_block_ids": [
+              "block_node_1_04"
+            ]
+          }
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "牙周炎的定义与病因"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_2",
+      "source_outline_node_id": "node_2",
+      "page_type": "notes_4up",
+      "rationale": "基于源幻灯片 4 个要点自动选择 notes_4up 页型。",
+      "slots": {
+        "headline": "牙周炎的临床表现与分类",
+        "subtitle": "2018年世界牙周病学研讨会发布了牙周病新分类体系，将牙周炎按分期和分级两个维度进行描述。",
+        "cards": [
+          {
+            "label": "慢性牙周炎的临床·01",
+            "title": "慢性牙周炎的临床特征",
+            "body": "慢性牙周炎是最常见的类型，多见于35岁以上成年人。进展速度缓慢，菌斑量和牙石量与组织破坏程度基本一致。典型表现包括牙龈红肿、探诊出血、牙周袋形成和牙槽骨水平型吸收。根据受累位点比例可分为局限型（<30%位点）和广泛型（≥30%位点）。",
+            "scribble": "年龄大的患者一定是慢性牙周炎",
+            "source_block_ids": [
+              "block_node_2_02"
+            ]
+          },
+          {
+            "label": "侵袭性牙周炎的识·02",
+            "title": "侵袭性牙周炎的识别要点",
+            "body": "侵袭性牙周炎好发于青少年和年轻成人（通常<35岁），进展迅速。最显著的特征是菌斑量与组织破坏程度不成比例——患者口腔卫生状况可能良好，但牙周破坏却非常严重。常有家族聚集性，提示遗传因素在发病中起重要作用。第一磨牙和切牙是最常受累的牙位。",
+            "scribble": "",
+            "source_block_ids": [
+              "block_node_2_03"
+            ]
+          },
+          {
+            "label": "牙周炎分期标准（·03",
+            "title": "牙周炎分期标准（I-IV期）",
+            "body": "I期（初始期）：附着丧失1-2mm，骨吸收<15%，无因牙周炎失牙。II期（中度）：附着丧失3-4mm，骨吸收15%-33%。III期（重度）：附着丧失≥5mm，骨吸收延伸至根中1/3或以上，因牙周炎失牙≤4颗。IV期（极重度）：III期标准+失牙≥5颗，或伴有咀嚼功能障碍、继发性咬合创伤等复杂因素。",
+            "scribble": "",
+            "source_block_ids": [
+              "block_node_2_04"
+            ]
+          },
+          {
+            "label": "牙周炎分级评估（·04",
+            "title": "牙周炎分级评估（A-C级）",
+            "body": "A级（低风险）：5年内骨吸收/年龄比值<0.25，无吸烟，无糖尿病。B级（中风险）：比值0.25-1.0，吸烟<10支/天，HbA1c<7.0%。C级（高风险）：比值>1.0，吸烟≥10支/天，HbA1c≥7.0%。分级不仅评估疾病进展速度，还直接影响治疗方案的强度和复诊间隔的设定。",
+            "scribble": "",
+            "source_block_ids": [
+              "block_node_2_05"
+            ]
+          }
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "牙周炎的临床表现与分类"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_3",
+      "source_outline_node_id": "node_3",
+      "page_type": "cta",
+      "rationale": "基于源幻灯片 5 个要点自动选择 cta 页型。",
+      "slots": {
+        "eyebrow": "发病机制",
+        "headline": "牙周炎的发病机制",
+        "body": "牙周炎的发病机制是一个从菌斑生物膜形成到牙槽骨破坏的多步骤连续过程，涉及微生物攻击、宿主免疫激活、炎症级联反应和组织破坏四个核心环节。理解这一机制有助于在恰当的时机选择合适的干预策略。",
+        "steps": [
+          {
+            "num": "1",
+            "title": "菌斑生物膜的形成与成熟",
+            "body": "清洁牙面在数分钟内即被唾液糖蛋白覆盖形成获得性薄膜。先锋菌在2小时内定殖，随后丝状菌和梭形菌在24-48小时内加入，形成成熟的生物膜结构。龈下环境中的低氧张力有利于革兰阴性厌氧菌的增殖，这些细菌是牙周致病的主要元凶。",
+            "source_block_ids": [
+              "block_node_3_02"
+            ]
+          },
+          {
+            "num": "2",
+            "title": "细菌毒力因子的直接攻击",
+            "body": "牙周致病菌通过多种毒力因子直接损伤牙周组织。牙龈卟啉单胞菌分泌的牙龈蛋白酶可降解胶原蛋白和纤维蛋白原，破坏牙周膜的结构完整性。脂多糖是革兰阴性菌外膜的主要成分，能穿透龈沟上皮进入结缔组织，激活多种炎症细胞。",
+            "source_block_ids": [
+              "block_node_3_03"
+            ]
+          },
+          {
+            "num": "3",
+            "title": "宿主炎症反应的级联放大",
+            "body": "细菌脂多糖与巨噬细胞表面的CD14/TLR4受体结合后，激活NF-κB信号通路，诱导大量促炎因子的转录表达。IL-1β促进破骨细胞分化和活化，TNF-α诱导成纤维细胞凋亡并刺激基质金属蛋白酶的释放。PGE2引起血管扩张和骨吸收。",
+            "source_block_ids": [
+              "block_node_3_04"
+            ]
+          },
+          {
+            "num": "4",
+            "title": "基质金属蛋白酶与胶原破坏",
+            "body": "MMP-8和MMP-13是牙周组织破坏的主要执行者。在健康牙龈中，MMP与其内源性抑制剂TIMP保持动态平衡。牙周炎时，炎性浸润细胞大量释放MMP，同时TIMP表达下调，导致MMP/TIMP比例失衡。",
+            "source_block_ids": [
+              "block_node_3_05"
+            ]
+          },
+          {
+            "num": "5",
+            "title": "破骨细胞介导的牙槽骨吸收",
+            "body": "RANKL/RANK/OPG系统是调控牙槽骨吸收的核心通路。活化的T细胞和B细胞分泌RANKL，与破骨前体细胞表面的RANK受体结合后，促进破骨细胞的成熟和活化。骨保护素是RANKL的可溶性诱饵受体，能阻断RANKL-RANK相互作用。",
+            "source_block_ids": [
+              "block_node_3_06"
+            ]
+          }
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "牙周炎的发病机制"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_4",
+      "source_outline_node_id": "node_4",
+      "page_type": "notice",
+      "rationale": "基于源幻灯片 3 个要点自动选择 notice 页型。",
+      "slots": {
+        "eyebrow": "危险因素·风险评估",
+        "headline": "牙周炎的危险因素与风险评估",
+        "columns": [
+          {
+            "title": "吸烟与牙周健康",
+            "body": "吸烟是牙周炎最重要的可控危险因素。流行病学数据显示，吸烟者患牙周炎的风险是非吸烟者的2-8倍。吸烟通过多种机制损害牙周组织：尼古丁引起牙龈血管收缩，掩盖炎症体征；烟草中的多环芳烃抑制成纤维细胞功能和胶原合成；吸烟还削弱中性粒细胞的趋化和吞噬功能。重要的是，吸烟者接受牙周治疗后，疗效显著低于非吸烟者，但戒烟后组织反应能力可逐步恢复。",
+            "meta": "",
+            "source": "OralSage",
+            "source_block_ids": [
+              "block_node_4_02"
+            ]
+          },
+          {
+            "title": "糖尿病与牙周炎的双向关系",
+            "body": "糖尿病与牙周炎之间存在明确的双向关联。血糖控制不佳的糖尿病患者，其牙周破坏程度更严重、进展更快。高血糖导致晚期糖基化终末产物（AGEs）在牙周组织中沉积，与RAGE受体结合后放大了炎症反应。同时，牙周治疗可通过降低全身炎症水平改善胰岛素敏感性，有效治疗后HbA1c平均可降低0.4%-0.6%。这一双向关系使口腔医生在糖尿病综合管理中扮演重要角色。",
+            "meta": "",
+            "source": "kg_perio_risk_factors",
+            "source_block_ids": [
+              "block_node_4_03"
+            ]
+          },
+          {
+            "title": "遗传因素与牙周炎易感性",
+            "body": "双胞胎研究和家族聚集性调查表明，遗传因素约占重度牙周炎发病风险的50%。目前已发现多个与牙周炎易感性相关的基因多态性位点，包括IL-1α、IL-1β、TNF-α和Fcγ受体的基因变异。IL-1复合基因多态性阳性个体对相同菌斑刺激产生更强的炎症反应。但遗传易感性并非不可逾越——通过强化口腔卫生和定期维护，高风险个体同样可以保持良好的牙周健康。",
+            "meta": "",
+            "source": "OralSage",
+            "source_block_ids": [
+              "block_node_4_04"
+            ]
+          }
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "牙周炎的危险因素与风险评估"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_5",
+      "source_outline_node_id": "node_5",
+      "page_type": "notice",
+      "rationale": "基于源幻灯片 3 个要点自动选择 notice 页型。",
+      "slots": {
+        "eyebrow": "牙周炎评估·鉴别",
+        "headline": "牙周炎的诊断评估与鉴别",
+        "columns": [
+          {
+            "title": "牙周探诊与临床指标",
+            "body": "牙周探诊是诊断牙周炎最基本也是最关键的检查手段。使用标准化的牙周探针（如Williams探针或UNC-15探针），沿牙周袋底轻柔探查，记录每个牙位六个位点的探诊深度。探诊力应控制在20-25g（以探针尖端能探入甲下不痛为准）。同时记录探诊出血（BOP）——BOP阳性的位点代表该处存在活动性炎症，阴性位点则提示牙周状况稳定。临床附着丧失（CAL）的测量是区分牙周炎和牙龈炎的关键标志。",
+            "meta": "",
+            "source": "kg_perio_diagnosis",
+            "source_block_ids": [
+              "block_node_5_02"
+            ]
+          },
+          {
+            "title": "X线影像评估与判读",
+            "body": "根尖片和全景片是评估牙槽骨的主要影像学工具。正常牙槽嵴顶位于釉牙骨质界（CEJ）下方约1-2mm处。骨吸收模式分为水平型和垂直型：水平型吸收表现为牙槽嵴顶均匀降低，常见于慢性牙周炎；垂直型（角型）吸收形成骨下袋，常见于侵袭性牙周炎或咬合创伤。X线片上骨吸收量通常低估实际破坏程度约30%-40%，因此必须与临床探诊结果相互印证。",
+            "meta": "",
+            "source": "OralSage",
+            "source_block_ids": [
+              "block_node_5_03"
+            ]
+          },
+          {
+            "title": "根分叉病变与牙齿松动度",
+            "body": "根分叉病变是上颌磨牙颊侧、近远中或下颌磨牙颊舌侧根分叉区域的牙周破坏，按Hamp分类分为I-III度。I度：水平探及≤3mm；II度：水平探及>3mm但未穿通；III度：探针完全穿通分叉区。根分叉病变的存在使患牙的治疗难度和预后显著恶化。牙齿松动度按Miller分类评估：I度（<1mm水平）、II度（≥1mm水平）、III度（水平和垂直方向均松动）。",
+            "meta": "",
+            "source": "OralSage",
+            "source_block_ids": [
+              "block_node_5_04"
+            ]
+          }
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "牙周炎的诊断评估与鉴别"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_6",
+      "source_outline_node_id": "node_6",
+      "page_type": "cta",
+      "rationale": "基于源幻灯片 5 个要点自动选择 cta 页型。",
+      "slots": {
+        "eyebrow": "牙周炎原则·基础治疗",
+        "headline": "牙周炎的治疗原则与基础治疗",
+        "body": "牙周炎治疗遵循从基础到手术的分级原则。基础治疗是所有牙周炎患者的必需步骤，包括口腔卫生指导、龈上洁治、龈下刮治及根面平整。基础治疗后需要进行系统的再评估，以确定是否需要进一步的手术治疗。",
+        "steps": [
+          {
+            "num": "1",
+            "title": "口腔卫生指导与行为改变",
+            "body": "有效的菌斑控制是牙周治疗的基石。需要教会患者正确的Bass刷牙法和邻面清洁工具的使用。行为改变需要持续的动力支持和反馈——研究表明，单纯的口头指导效果有限，",
+            "source_block_ids": [
+              "block_node_6_02"
+            ]
+          },
+          {
+            "num": "2",
+            "title": "龈上洁治与龈下刮治",
+            "body": "龈上洁治使用超声洁治器和手工器械清除龈缘上方的菌斑和牙石。龈下刮治及根面平整是牙周基础治疗的核心操作——在局部麻醉下，使用Gracey刮治器等专用器械对牙周袋内的根面进行彻底清创，去除龈下菌斑、牙石和病变牙骨质。",
+            "source_block_ids": [
+              "block_node_6_03"
+            ]
+          },
+          {
+            "num": "3",
+            "title": "基础治疗后的再评估",
+            "body": "SRP后4-6周进行系统的牙周再评估，这是决定后续治疗方向的关键节点。再评估包括重新测量全口探诊深度、附着水平和探诊出血。理想的治疗反应表现为探诊深度减少、附着增加和BOP转阴。",
+            "source_block_ids": [
+              "block_node_6_04"
+            ]
+          },
+          {
+            "num": "4",
+            "title": "药物治疗的辅助作用",
+            "body": "牙周炎的药物治疗是基础治疗的辅助手段，不能替代机械清创。局部给药的抗菌药物可用于SRP后仍有深袋的孤立位点。全身抗生素适用于侵袭性牙周炎或广泛型重度牙周炎患者，常用方案为阿莫西林联合甲硝唑，疗程7-10天。",
+            "source_block_ids": [
+              "block_node_6_05"
+            ]
+          },
+          {
+            "num": "5",
+            "title": "手术治疗的选择与时机",
+            "body": "基础治疗后仍有深牙周袋伴持续炎症的位点是手术指征。改良Widman翻瓣术是最经典的牙周手术，通过翻开牙龈瓣直视下完成根面清创。骨切除术用于修整骨外形，消除骨下袋。引导组织再生术利用屏障膜技术实现牙周组织的选择性再生。",
+            "source_block_ids": [
+              "block_node_6_06"
+            ]
+          }
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "牙周炎的治疗原则与基础治疗"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_7",
+      "source_outline_node_id": "node_7",
+      "page_type": "notice",
+      "rationale": "基于源幻灯片 3 个要点自动选择 notice 页型。",
+      "slots": {
+        "eyebrow": "牙周支持治疗·长期维护",
+        "headline": "牙周支持治疗与长期维护",
+        "columns": [
+          {
+            "title": "SPT的循证依据与核心地位",
+            "body": "多中心长期队列研究一致表明：坚持定期SPT的患者，其5年牙周失牙率约为1%-2%，而放弃维护的患者高达10%-15%。遵从医嘱进行SPT的位点，其附着水平可长期保持稳定。SPT的主要措施包括口腔卫生再教育、专业机械清创（PMTC）、局部危险位点的再刮治，以及全身危险因素的重新评估。",
+            "meta": "",
+            "source": "OralSage",
+            "source_block_ids": [
+              "block_node_7_02"
+            ]
+          },
+          {
+            "title": "个体化复诊间隔的设定",
+            "body": "复诊间隔应根据患者的风险评估进行个体化设定。低风险患者（A级、口腔卫生良好、无吸烟、血糖控制良好）可每6个月复诊一次。B级风险患者建议每4个月复诊。高风险患者（C级、吸烟、血糖控制差、口腔卫生不良）应每3个月复诊。首次SPT后的复诊间隔可依据患者的菌斑控制水平和组织反应进行调整，若发现疾病活动征象应缩短至每月一次。",
+            "meta": "",
+            "source": "OralSage",
+            "source_block_ids": [
+              "block_node_7_03"
+            ]
+          },
+          {
+            "title": "SPT时的评估内容与流程",
+            "body": "每次SPT复诊应包括：询问病史变化和全身用药更新；口腔卫生评估与再指导；口腔软组织检查；全口或重点位点探诊（建议每年至少一次完整探诊记录）；必要时拍摄X线片监测骨水平变化。发现复发性牙周炎时，需重新进入积极治疗阶段，并在解决后调密复诊间隔。每次SPT都是发现新问题的窗口，而不是机械执行的固定流程。",
+            "meta": "",
+            "source": "OralSage",
+            "source_block_ids": [
+              "block_node_7_04"
+            ]
+          }
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "牙周支持治疗与长期维护"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_8",
+      "source_outline_node_id": "node_8",
+      "page_type": "quote",
+      "rationale": "基于源幻灯片 3 个要点自动选择 quote 页型。",
+      "slots": {
+        "headline": "牙周炎与临床思维",
+        "quote_text": "无论是预防、基础治疗还是长期维护，菌斑控制始终是牙周管理的核心。没有有效的菌斑控制，任何牙周治疗都不可能取得长期成功。口腔卫生指导、专业洁治和定期维护构成菌斑控制的三大支柱。。牙周治疗不只是口腔局部的事。",
+        "attribution_name": "OralSage 医学教育",
+        "attribution_detail": "课程学习要点回顾",
+        "footer_left": "OralSage",
+        "footer_right": "牙周炎学习要点回顾与临床思维"
+      },
+      "content_warnings": []
+    }
+  ],
+  "warnings": [
+    "node node_1: tutor_step missing — slide generated without narration/quiz",
+    "node node_2: tutor_step missing — slide generated without narration/quiz",
+    "node node_3: tutor_step missing — slide generated without narration/quiz",
+    "node node_4: tutor_step missing — slide generated without narration/quiz",
+    "node node_5: tutor_step missing — slide generated without narration/quiz",
+    "node node_6: tutor_step missing — slide generated without narration/quiz",
+    "node node_7: tutor_step missing — slide generated without narration/quiz",
+    "node node_8: tutor_step missing — slide generated without narration/quiz"
+  ],
+  "_llm_calls": 8
+}

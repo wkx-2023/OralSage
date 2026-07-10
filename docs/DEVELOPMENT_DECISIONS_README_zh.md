@@ -17,6 +17,28 @@ Resource Factory
 任何 LLM 生成用户可见内容的任务
 ```
 
+PPT 模板相关任务还必须先读：
+
+```text
+docs/PPT_LOCAL_DEVELOPMENT_GUIDE_zh.md
+tools/ppt_preview/README_zh.md
+tools/ppt_preview/templates/README_zh.md
+```
+
+其中：
+
+```text
+tools/ppt_preview/README_zh.md
+```
+
+说明旧 Python/规则预览沙盒与正式模板候选池的隔离边界。
+
+```text
+tools/ppt_preview/templates/README_zh.md
+```
+
+说明正式模板候选池、视觉风格修改准则、增加 page_type / 模板能力的准则。任何 PPT 模板修改任务都应优先参考这两个指南，不要从旧根预览器或已标记 reference-only 的模板开始扩展。
+
 ## 0. 总原则
 
 ```text

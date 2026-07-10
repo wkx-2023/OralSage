@@ -1,0 +1,197 @@
+{
+  "schema_version": "pin_and_paper_slide_plan.v1",
+  "template_slug": "pin-and-paper",
+  "deck_title": "高血压基础知识",
+  "session_id": "demo_generalized_001",
+  "slides": [
+    {
+      "source_slide_id": "slide_node_htn_1",
+      "source_outline_node_id": "node_htn_1",
+      "page_type": "notes_2up",
+      "rationale": "源幻灯片包含两个关键知识点（诊断标准与分级、原发性与继发性高血压的鉴别），符合notes_2up的固定双栏布局要求。",
+      "slots": {
+        "headline": "高血压的定义与诊断标准",
+        "subtitle": "",
+        "cards": [
+          {
+            "label": "关键点1",
+            "title": "诊断标准与分级",
+            "body": "根据2023年ESH指南，高血压定义为诊室收缩压≥140mmHg和/或舒张压≥90mmHg（非同日3次测量）。正常高值血压：收缩压130-139mmHg和/或舒张压85-89mmHg。1级高血压：收缩压140-159mmHg和/或舒张压90-99mmHg。2级高血压：收缩压160-179mmHg和/或舒张压100-109mmHg。3级高血压：收缩压≥180mmHg和/或舒张压≥110mmHg。",
+            "scribble": "注意非同日3次测量",
+            "source_block_ids": [
+              "block_node_htn_1_02"
+            ]
+          },
+          {
+            "label": "关键点2",
+            "title": "原发性与继发性高血压的鉴别",
+            "body": "原发性高血压占90%-95%，病因未完全阐明，与遗传、环境、交感神经激活、RAAS系统过度激活等多因素相关。继发性高血压约占5%-10%，常见病因包括肾实质性病变、肾动脉狭窄、原发性醛固酮增多症、嗜铬细胞瘤、库欣综合征等。对于年轻起病、顽固性高血压、突发性高血压患者，必须筛查继发性病因。",
+            "scribble": "年轻患者需警惕继发性",
+            "source_block_ids": [
+              "block_node_htn_1_03"
+            ]
+          }
+        ],
+        "footer_left": "高血压基础",
+        "footer_right": "第1节"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_htn_2",
+      "source_outline_node_id": "node_htn_2",
+      "page_type": "notes_4up",
+      "rationale": "源幻灯片包含4个并列的关键知识点（心脏、脑、肾脏、血管损害），适合使用固定2x2网格的notes_4up页型。",
+      "slots": {
+        "headline": "高血压靶器官损害的四项评估",
+        "subtitle": "早期识别对危险分层和治疗决策至关重要",
+        "cards": [
+          {
+            "label": "心脏",
+            "title": "左心室肥厚",
+            "body": "最常见的心脏靶器官损害。心电图：左室高电压（SV1+RV5>4.0mV）；超声心动图：左室质量指数男性>115g/m²，女性>95g/m²。使心衰和心源性猝死风险增加3-5倍。",
+            "scribble": "超声是金标准",
+            "source_block_ids": [
+              "block_node_htn_2_02"
+            ]
+          },
+          {
+            "label": "脑",
+            "title": "脑卒中与脑白质病变",
+            "body": "高血压是脑卒中最重要的可干预危险因素，人群归因风险约50%。MRI T2 FLAIR可显示脑白质高信号。控制血压可使脑卒中风险降低35%-40%。",
+            "scribble": "降压获益显著",
+            "source_block_ids": [
+              "block_node_htn_2_03"
+            ]
+          },
+          {
+            "label": "肾脏",
+            "title": "高血压肾硬化症",
+            "body": "早期：夜尿增多、微量白蛋白尿（UACR 30-300mg/g）；晚期：显性蛋白尿、eGFR下降。ACEI/ARB可独立降低蛋白尿，延缓肾功能恶化。",
+            "scribble": "ACEI/ARB首选",
+            "source_block_ids": [
+              "block_node_htn_2_04"
+            ]
+          },
+          {
+            "label": "血管",
+            "title": "动脉硬化与夹层",
+            "body": "颈动脉IMT增厚、ABI降低是亚临床标志。>70%主动脉夹层患者有高血压病史。脉搏波传导速度增快反映大动脉僵硬度增加。",
+            "scribble": "警惕主动脉夹层",
+            "source_block_ids": [
+              "block_node_htn_2_05"
+            ]
+          }
+        ],
+        "footer_left": "靶器官损害评估",
+        "footer_right": "高血压管理关键"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_htn_3",
+      "source_outline_node_id": "node_htn_3",
+      "page_type": "notes",
+      "rationale": "该幻灯片包含3个并列的关键知识点，适合使用3列便签卡片布局展示。",
+      "slots": {
+        "headline": "高血压的非药物治疗",
+        "subtitle": "生活方式干预是高血压管理的基础",
+        "cards": [
+          {
+            "label": "01",
+            "title": "限盐——最有效的单一干预",
+            "body": "每日钠摄入降至<2000mg（食盐<5g），收缩压可降低2-8mmHg。我国居民平均食盐摄入约10.5g/日，是推荐的2倍以上。减少加工食品、使用限盐勺、晚放盐是可行策略。",
+            "scribble": "DASH饮食与限盐结合效果更佳",
+            "source_block_ids": [
+              "block_node_htn_3_02"
+            ]
+          },
+          {
+            "label": "02",
+            "title": "DASH饮食模式",
+            "body": "增加蔬菜、水果、全谷物和低脂乳制品，减少饱和脂肪。DASH试验显示8周后收缩压降低5.5mmHg、舒张压降低3.0mmHg。建议每日蔬菜300-500g、水果200-350g。",
+            "scribble": "高钾、高镁、高钙协同降压",
+            "source_block_ids": [
+              "block_node_htn_3_03"
+            ]
+          },
+          {
+            "label": "03",
+            "title": "规律运动与体重管理",
+            "body": "每周≥150分钟中等强度有氧运动（如快走、游泳），收缩压降低4-9mmHg。BMI每降1kg/m²，收缩压约降1mmHg。目标BMI<24kg/m²，腰围男<90cm、女<85cm。",
+            "scribble": "避免等长收缩运动（如举重）",
+            "source_block_ids": [
+              "block_node_htn_3_04"
+            ]
+          }
+        ],
+        "footer_left": "来源：高血压防治指南",
+        "footer_right": "非药物治疗"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_htn_4",
+      "source_outline_node_id": "node_htn_4",
+      "page_type": "cta",
+      "rationale": "该幻灯片包含5个关键知识点，适合使用cta页型以左右双栏布局清晰展示多个行动步骤。",
+      "slots": {
+        "eyebrow": "降压药物分类与联合用药",
+        "headline": "五大类一线降压药物及联合策略",
+        "body": "降压药物治疗是控制血压的核心手段。2023年ESH指南推荐五大类一线降压药物，大多数患者需要联合用药才能达到目标血压。选择药物时应综合考虑患者的年龄、合并症、靶器官损害情况和药物耐受性。",
+        "steps": [
+          {
+            "num": "1",
+            "title": "ACEI/ARB",
+            "body": "ACEI抑制血管紧张素转换酶，ARB阻断AT1受体。均能有效降压并降低蛋白尿，是合并肾病、心衰患者的首选。ACEI常见干咳（5%-20%），不耐受可换ARB。禁忌：双侧肾动脉狭窄、妊娠、高钾血症。",
+            "source_block_ids": [
+              "block_node_htn_4_02"
+            ]
+          },
+          {
+            "num": "2",
+            "title": "钙通道阻滞剂",
+            "body": "CCB阻断血管平滑肌L型钙通道，降压强且不受盐摄入影响，适合老年单纯收缩期高血压。二氢吡啶类（如氨氯地平）常见踝部水肿、头痛。非二氢吡啶类（维拉帕米）适用于合并快速性心律失常。",
+            "source_block_ids": [
+              "block_node_htn_4_03"
+            ]
+          },
+          {
+            "num": "3",
+            "title": "噻嗪类利尿剂",
+            "body": "抑制远曲小管Na-Cl共转运体，促进钠水排泄。氢氯噻嗪常用，吲达帕胺、氯噻酮降压更强。适合盐敏感性、老年高血压、心衰患者。不良反应：低钾血症、高尿酸血症、糖耐量异常，小剂量可减少。",
+            "source_block_ids": [
+              "block_node_htn_4_04"
+            ]
+          },
+          {
+            "num": "4",
+            "title": "β受体阻滞剂",
+            "body": "抑制心脏β1受体，降低心输出量和肾素释放。2023年ESH指南维持为一线药物，适用于合并冠心病、心衰、快速性心律失常。选择性β1阻滞剂（如美托洛尔）对支气管影响小。不良反应：疲劳、性功能障碍、糖脂代谢影响。",
+            "source_block_ids": [
+              "block_node_htn_4_05"
+            ]
+          },
+          {
+            "num": "5",
+            "title": "联合用药策略",
+            "body": "多数患者需≥2种药物联合。首选A+C（ACEI/ARB+CCB）或A+D（ACEI/ARB+利尿剂），不达标可加至A+C+D三联。单片复方制剂提高依从性20%-30%。老年患者从小剂量开始缓慢滴定。",
+            "source_block_ids": [
+              "block_node_htn_4_06"
+            ]
+          }
+        ],
+        "footer_left": "2023 ESH指南",
+        "footer_right": "个体化治疗"
+      },
+      "content_warnings": []
+    }
+  ],
+  "warnings": [
+    "node node_htn_1: tutor_step missing — slide generated without narration/quiz",
+    "node node_htn_2: tutor_step missing — slide generated without narration/quiz",
+    "node node_htn_3: tutor_step missing — slide generated without narration/quiz",
+    "node node_htn_4: tutor_step missing — slide generated without narration/quiz"
+  ],
+  "_llm_calls": 4
+}

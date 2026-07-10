@@ -1,0 +1,527 @@
+{
+  "schema_version": "slides.v1",
+  "deck_id": "deck_demo_generalized_001",
+  "session_id": "demo_generalized_001",
+  "deck_title": "高血压基础知识",
+  "theme_id": "clean_light",
+  "source": {
+    "type": "handout_sections+tutor_steps",
+    "granularity": "one_slide_per_outline_node"
+  },
+  "slides": [
+    {
+      "slide_id": "slide_node_htn_1",
+      "outline_node_id": "node_htn_1",
+      "section_id": "node_htn_1",
+      "slide_type": "mixed_learning",
+      "title": "高血压的定义与诊断标准",
+      "subtitle": "",
+      "bullets": [
+        "诊断标准与分级",
+        "原发性与继发性高血压的鉴别"
+      ],
+      "content": {
+        "overview": "高血压是以体循环动脉压持续升高为主要特征的心血管综合征，是导致脑卒中、心肌梗死、心力衰竭和慢性肾脏病的最重要可干预危险因素。全球约13亿成年人患有高血压，其中近半数未得到诊断。",
+        "key_points": [
+          {
+            "heading": "诊断标准与分级",
+            "explanation": "根据2023年ESH指南，高血压定义为诊室收缩压≥140mmHg和/或舒张压≥90mmHg（非同日3次测量）。正常高值血压：收缩压130-139mmHg和/或舒张压85-89mmHg。1级高血压：收缩压140-159mmHg和/或舒张压90-99mmHg。2级高血压：收缩压160-179mmHg和/或舒张压100-109mmHg。3级高血压：收缩压≥180mmHg和/或舒张压≥110mmHg。",
+            "evidence_refs": [
+              "ev_2023_esh_guideline"
+            ]
+          },
+          {
+            "heading": "原发性与继发性高血压的鉴别",
+            "explanation": "原发性高血压占所有高血压病例的90%-95%，病因未完全阐明，与遗传、环境、交感神经激活、RAAS系统过度激活等多因素相关。继发性高血压约占5%-10%，常见病因包括肾实质性病变、肾动脉狭窄、原发性醛固酮增多症、嗜铬细胞瘤、库欣综合征等。对于年轻起病、顽固性高血压、突发性高血压患者，必须筛查继发性病因。",
+            "evidence_refs": [
+              "kg_hypertension_def"
+            ]
+          }
+        ],
+        "clinical_example": "一位55岁男性，体检发现血压158/96mmHg。无特殊不适。BMI 28.5kg/m²，有高血压家族史。复查两次血压均高于140/90mmHg。诊断为1级高血压。建议首先进行3个月生活方式干预（低盐饮食、减重、规律运动）。",
+        "common_confusions": [
+          {
+            "confusion": "一次血压高就是高血压",
+            "clarification": "单次血压测量升高不能诊断高血压。诊断需要非同日3次测量均达到标准。白大衣高血压（诊室血压升高但动态血压正常）约占总人群的10%-15%，需要通过动态血压监测来鉴别。此外，测量前应静坐至少5分钟，使用合适袖带，避免咖啡因、运动和吸烟的影响。"
+          }
+        ]
+      },
+      "blocks": [
+        {
+          "block_id": "block_node_htn_1_01",
+          "block_type": "overview",
+          "title": "本节概述",
+          "body": "高血压是以体循环动脉压持续升高为主要特征的心血管综合征，是导致脑卒中、心肌梗死、心力衰竭和慢性肾脏病的最重要可干预危险因素。全球约13亿成年人患有高血压，其中近半数未得到诊断。",
+          "source_field": "content.overview"
+        },
+        {
+          "block_id": "block_node_htn_1_02",
+          "block_type": "key_point",
+          "title": "诊断标准与分级",
+          "body": "根据2023年ESH指南，高血压定义为诊室收缩压≥140mmHg和/或舒张压≥90mmHg（非同日3次测量）。正常高值血压：收缩压130-139mmHg和/或舒张压85-89mmHg。1级高血压：收缩压140-159mmHg和/或舒张压90-99mmHg。2级高血压：收缩压160-179mmHg和/或舒张压100-109mmHg。3级高血压：收缩压≥180mmHg和/或舒张压≥110mmHg。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "ev_2023_esh_guideline"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_1_03",
+          "block_type": "key_point",
+          "title": "原发性与继发性高血压的鉴别",
+          "body": "原发性高血压占所有高血压病例的90%-95%，病因未完全阐明，与遗传、环境、交感神经激活、RAAS系统过度激活等多因素相关。继发性高血压约占5%-10%，常见病因包括肾实质性病变、肾动脉狭窄、原发性醛固酮增多症、嗜铬细胞瘤、库欣综合征等。对于年轻起病、顽固性高血压、突发性高血压患者，必须筛查继发性病因。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "kg_hypertension_def"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_1_04",
+          "block_type": "clinical_example",
+          "title": "临床示例",
+          "body": "一位55岁男性，体检发现血压158/96mmHg。无特殊不适。BMI 28.5kg/m²，有高血压家族史。复查两次血压均高于140/90mmHg。诊断为1级高血压。建议首先进行3个月生活方式干预（低盐饮食、减重、规律运动）。",
+          "source_field": "content.clinical_example"
+        },
+        {
+          "block_id": "block_node_htn_1_05",
+          "block_type": "confusion",
+          "title": "一次血压高就是高血压",
+          "body": "混淆：一次血压高就是高血压\n澄清：单次血压测量升高不能诊断高血压。诊断需要非同日3次测量均达到标准。白大衣高血压（诊室血压升高但动态血压正常）约占总人群的10%-15%，需要通过动态血压监测来鉴别。此外，测量前应静坐至少5分钟，使用合适袖带，避免咖啡因、运动和吸烟的影响。",
+          "source_field": "content.common_confusions"
+        }
+      ],
+      "tutor_step_ref": "node_htn_1",
+      "narration_ref": {
+        "source": "tutor_step.teaching_text",
+        "outline_node_id": "node_htn_1"
+      },
+      "quiz_ref": {
+        "source": "tutor_step.questions",
+        "outline_node_id": "node_htn_1"
+      },
+      "related_kg_node_ids": [
+        "kg_hypertension_def"
+      ],
+      "visual_hint": {
+        "diagram_type": "mixed_learning_card"
+      }
+    },
+    {
+      "slide_id": "slide_node_htn_2",
+      "outline_node_id": "node_htn_2",
+      "section_id": "node_htn_2",
+      "slide_type": "mixed_learning",
+      "title": "高血压靶器官损害的四项评估",
+      "subtitle": "",
+      "bullets": [
+        "心脏损害——左心室肥厚",
+        "脑损害——脑卒中与脑白质病变",
+        "肾脏损害——高血压肾硬化症",
+        "血管损害——动脉硬化与夹层"
+      ],
+      "content": {
+        "overview": "高血压通过长期压力负荷导致心、脑、肾、血管等多个靶器官的结构和功能损害。靶器官损害的早期识别对危险分层和治疗决策至关重要。",
+        "key_points": [
+          {
+            "heading": "心脏损害——左心室肥厚",
+            "explanation": "左心室肥厚是高血压最常见的心脏靶器官损害。长期压力负荷增加导致心肌细胞肥大和间质纤维化。心电图可表现为左室高电压（SV1+RV5>4.0mV），超声心动图是诊断金标准（左室质量指数男性>115g/m²，女性>95g/m²）。左心室肥厚使心力衰竭和心源性猝死的风险增加3-5倍。",
+            "evidence_refs": [
+              "ev_htn_tod_2022"
+            ]
+          },
+          {
+            "heading": "脑损害——脑卒中与脑白质病变",
+            "explanation": "高血压是脑卒中最重要的可干预危险因素，人群归因风险度约为50%。长期高血压导致脑小动脉玻璃样变性和微动脉瘤形成。腔隙性脑梗死和脑白质疏松是高血压脑损害的常见影像学表现。MRI T2 FLAIR序列可敏感地显示脑白质高信号。控制血压可使脑卒中风险降低35%-40%。",
+            "evidence_refs": [
+              "ev_htn_tod_2022"
+            ]
+          },
+          {
+            "heading": "肾脏损害——高血压肾硬化症",
+            "explanation": "长期高血压导致入球小动脉玻璃样变性，肾小球缺血性硬化和肾小管萎缩。早期表现为夜尿增多和微量白蛋白尿（尿白蛋白/肌酐比值30-300mg/g），后期可进展为显性蛋白尿和肾功能减退。血清肌酐升高和eGFR下降是晚期标志。ACEI/ARB类药物在降压同时可独立降低蛋白尿，延缓肾功能恶化。",
+            "evidence_refs": [
+              "kg_htn_target_organ"
+            ]
+          },
+          {
+            "heading": "血管损害——动脉硬化与夹层",
+            "explanation": "高血压加速大动脉粥样硬化和中膜钙化进程。颈动脉内膜中层厚度（IMT）增厚和踝臂指数（ABI）降低是亚临床血管损害的标志。严重未控制的高血压是主动脉夹层的最主要危险因素——超过70%的主动脉夹层患者有高血压病史。脉搏波传导速度增快反映大动脉僵硬度增加。",
+            "evidence_refs": [
+              "ev_htn_tod_2022"
+            ]
+          }
+        ],
+        "clinical_example": "一位62岁女性，高血压病史10年，血压控制不佳。超声心动图显示室间隔厚度13mm，左室后壁厚度12mm，提示向心性左心室肥厚。尿微量白蛋白/肌酐比值85mg/g，提示早期肾损害。颈动脉超声显示IMT 1.2mm（增厚）。危险分层为高危。",
+        "common_confusions": [
+          {
+            "confusion": "高血压没有症状就不需要治疗",
+            "clarification": "高血压被称为'沉默的杀手'，多数患者在出现严重并发症前没有明显症状。靶器官损害在血压升高的早期就已开始发生，与有无症状无关。治疗的目标是预防远期心脑血管事件，而非缓解症状。研究显示，收缩压每降低10mmHg，主要心血管事件风险降低20%。"
+          }
+        ]
+      },
+      "blocks": [
+        {
+          "block_id": "block_node_htn_2_01",
+          "block_type": "overview",
+          "title": "本节概述",
+          "body": "高血压通过长期压力负荷导致心、脑、肾、血管等多个靶器官的结构和功能损害。靶器官损害的早期识别对危险分层和治疗决策至关重要。",
+          "source_field": "content.overview"
+        },
+        {
+          "block_id": "block_node_htn_2_02",
+          "block_type": "key_point",
+          "title": "心脏损害——左心室肥厚",
+          "body": "左心室肥厚是高血压最常见的心脏靶器官损害。长期压力负荷增加导致心肌细胞肥大和间质纤维化。心电图可表现为左室高电压（SV1+RV5>4.0mV），超声心动图是诊断金标准（左室质量指数男性>115g/m²，女性>95g/m²）。左心室肥厚使心力衰竭和心源性猝死的风险增加3-5倍。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "ev_htn_tod_2022"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_2_03",
+          "block_type": "key_point",
+          "title": "脑损害——脑卒中与脑白质病变",
+          "body": "高血压是脑卒中最重要的可干预危险因素，人群归因风险度约为50%。长期高血压导致脑小动脉玻璃样变性和微动脉瘤形成。腔隙性脑梗死和脑白质疏松是高血压脑损害的常见影像学表现。MRI T2 FLAIR序列可敏感地显示脑白质高信号。控制血压可使脑卒中风险降低35%-40%。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "ev_htn_tod_2022"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_2_04",
+          "block_type": "key_point",
+          "title": "肾脏损害——高血压肾硬化症",
+          "body": "长期高血压导致入球小动脉玻璃样变性，肾小球缺血性硬化和肾小管萎缩。早期表现为夜尿增多和微量白蛋白尿（尿白蛋白/肌酐比值30-300mg/g），后期可进展为显性蛋白尿和肾功能减退。血清肌酐升高和eGFR下降是晚期标志。ACEI/ARB类药物在降压同时可独立降低蛋白尿，延缓肾功能恶化。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "kg_htn_target_organ"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_2_05",
+          "block_type": "key_point",
+          "title": "血管损害——动脉硬化与夹层",
+          "body": "高血压加速大动脉粥样硬化和中膜钙化进程。颈动脉内膜中层厚度（IMT）增厚和踝臂指数（ABI）降低是亚临床血管损害的标志。严重未控制的高血压是主动脉夹层的最主要危险因素——超过70%的主动脉夹层患者有高血压病史。脉搏波传导速度增快反映大动脉僵硬度增加。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "ev_htn_tod_2022"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_2_06",
+          "block_type": "clinical_example",
+          "title": "临床示例",
+          "body": "一位62岁女性，高血压病史10年，血压控制不佳。超声心动图显示室间隔厚度13mm，左室后壁厚度12mm，提示向心性左心室肥厚。尿微量白蛋白/肌酐比值85mg/g，提示早期肾损害。颈动脉超声显示IMT 1.2mm（增厚）。危险分层为高危。",
+          "source_field": "content.clinical_example"
+        },
+        {
+          "block_id": "block_node_htn_2_07",
+          "block_type": "confusion",
+          "title": "高血压没有症状就不需要治疗",
+          "body": "混淆：高血压没有症状就不需要治疗\n澄清：高血压被称为'沉默的杀手'，多数患者在出现严重并发症前没有明显症状。靶器官损害在血压升高的早期就已开始发生，与有无症状无关。治疗的目标是预防远期心脑血管事件，而非缓解症状。研究显示，收缩压每降低10mmHg，主要心血管事件风险降低20%。",
+          "source_field": "content.common_confusions"
+        }
+      ],
+      "tutor_step_ref": "node_htn_2",
+      "narration_ref": {
+        "source": "tutor_step.teaching_text",
+        "outline_node_id": "node_htn_2"
+      },
+      "quiz_ref": {
+        "source": "tutor_step.questions",
+        "outline_node_id": "node_htn_2"
+      },
+      "related_kg_node_ids": [
+        "kg_htn_target_organ"
+      ],
+      "visual_hint": {
+        "diagram_type": "mixed_learning_card"
+      }
+    },
+    {
+      "slide_id": "slide_node_htn_3",
+      "outline_node_id": "node_htn_3",
+      "section_id": "node_htn_3",
+      "slide_type": "mixed_learning",
+      "title": "高血压的非药物治疗",
+      "subtitle": "",
+      "bullets": [
+        "限盐——最有效的单一干预",
+        "DASH饮食模式",
+        "规律运动与体重管理"
+      ],
+      "content": {
+        "overview": "非药物治疗是高血压管理的基础，所有高血压患者均应接受生活方式干预指导。对于1级高血压患者，生活方式干预可作为初始治疗手段观察3-6个月。",
+        "key_points": [
+          {
+            "heading": "限盐——最有效的单一干预",
+            "explanation": "将每日钠摄入量降至<2000mg（相当于食盐<5g）可使收缩压降低2-8mmHg。我国居民平均食盐摄入量约10.5g/日，是推荐的2倍以上。减少加工食品和外卖食品的摄入、使用限盐勺、烹调时晚放盐是可行的实施策略。DASH饮食与限盐结合可进一步增强降压效果。",
+            "evidence_refs": [
+              "ev_sodium_meta"
+            ]
+          },
+          {
+            "heading": "DASH饮食模式",
+            "explanation": "DASH饮食强调增加蔬菜、水果、全谷物和低脂乳制品的摄入，减少饱和脂肪和总脂肪。DASH试验显示，坚持DASH饮食8周可使收缩压降低5.5mmHg、舒张压降低3.0mmHg。其机制与高钾、高镁、高钙摄入和低钠的协同作用有关。建议每日摄入蔬菜300-500g、水果200-350g。",
+            "evidence_refs": [
+              "ev_dash_trial"
+            ]
+          },
+          {
+            "heading": "规律运动与体重管理",
+            "explanation": "每周至少150分钟中等强度有氧运动（如快走、游泳、骑车）可使收缩压降低4-9mmHg。BMI每降低1kg/m²，收缩压约降低1mmHg。建议将BMI控制在<24kg/m²，腰围男性<90cm、女性<85cm。运动处方应个体化，避免等长收缩运动（如举重），因其可能导致血压急剧升高。",
+            "evidence_refs": [
+              "kg_lifestyle_intervention"
+            ]
+          }
+        ],
+        "clinical_example": "一位45岁男性，BMI 27.3kg/m²，血压145/92mmHg（1级高血压），无靶器官损害。建议首先进行生活方式干预：每日食盐<5g、每周5次30分钟快走、采用DASH饮食模式，目标3个月内减重5kg。3个月后复查如血压仍不达标，再考虑启动药物治疗。",
+        "common_confusions": [
+          {
+            "confusion": "吃降压药就不用控制饮食了",
+            "clarification": "药物治疗不能替代生活方式干预。良好的生活方式可以减少降压药的种类和剂量，降低药物副作用，并改善整体心血管风险。研究显示，严格限盐可使部分患者减少降压药用量甚至停药。药物治疗与生活方式干预是互补关系，而非替代关系。"
+          }
+        ]
+      },
+      "blocks": [
+        {
+          "block_id": "block_node_htn_3_01",
+          "block_type": "overview",
+          "title": "本节概述",
+          "body": "非药物治疗是高血压管理的基础，所有高血压患者均应接受生活方式干预指导。对于1级高血压患者，生活方式干预可作为初始治疗手段观察3-6个月。",
+          "source_field": "content.overview"
+        },
+        {
+          "block_id": "block_node_htn_3_02",
+          "block_type": "key_point",
+          "title": "限盐——最有效的单一干预",
+          "body": "将每日钠摄入量降至<2000mg（相当于食盐<5g）可使收缩压降低2-8mmHg。我国居民平均食盐摄入量约10.5g/日，是推荐的2倍以上。减少加工食品和外卖食品的摄入、使用限盐勺、烹调时晚放盐是可行的实施策略。DASH饮食与限盐结合可进一步增强降压效果。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "ev_sodium_meta"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_3_03",
+          "block_type": "key_point",
+          "title": "DASH饮食模式",
+          "body": "DASH饮食强调增加蔬菜、水果、全谷物和低脂乳制品的摄入，减少饱和脂肪和总脂肪。DASH试验显示，坚持DASH饮食8周可使收缩压降低5.5mmHg、舒张压降低3.0mmHg。其机制与高钾、高镁、高钙摄入和低钠的协同作用有关。建议每日摄入蔬菜300-500g、水果200-350g。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "ev_dash_trial"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_3_04",
+          "block_type": "key_point",
+          "title": "规律运动与体重管理",
+          "body": "每周至少150分钟中等强度有氧运动（如快走、游泳、骑车）可使收缩压降低4-9mmHg。BMI每降低1kg/m²，收缩压约降低1mmHg。建议将BMI控制在<24kg/m²，腰围男性<90cm、女性<85cm。运动处方应个体化，避免等长收缩运动（如举重），因其可能导致血压急剧升高。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "kg_lifestyle_intervention"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_3_05",
+          "block_type": "clinical_example",
+          "title": "临床示例",
+          "body": "一位45岁男性，BMI 27.3kg/m²，血压145/92mmHg（1级高血压），无靶器官损害。建议首先进行生活方式干预：每日食盐<5g、每周5次30分钟快走、采用DASH饮食模式，目标3个月内减重5kg。3个月后复查如血压仍不达标，再考虑启动药物治疗。",
+          "source_field": "content.clinical_example"
+        },
+        {
+          "block_id": "block_node_htn_3_06",
+          "block_type": "confusion",
+          "title": "吃降压药就不用控制饮食了",
+          "body": "混淆：吃降压药就不用控制饮食了\n澄清：药物治疗不能替代生活方式干预。良好的生活方式可以减少降压药的种类和剂量，降低药物副作用，并改善整体心血管风险。研究显示，严格限盐可使部分患者减少降压药用量甚至停药。药物治疗与生活方式干预是互补关系，而非替代关系。",
+          "source_field": "content.common_confusions"
+        }
+      ],
+      "tutor_step_ref": "node_htn_3",
+      "narration_ref": {
+        "source": "tutor_step.teaching_text",
+        "outline_node_id": "node_htn_3"
+      },
+      "quiz_ref": {
+        "source": "tutor_step.questions",
+        "outline_node_id": "node_htn_3"
+      },
+      "related_kg_node_ids": [
+        "kg_lifestyle_intervention"
+      ],
+      "visual_hint": {
+        "diagram_type": "mixed_learning_card"
+      }
+    },
+    {
+      "slide_id": "slide_node_htn_4",
+      "outline_node_id": "node_htn_4",
+      "section_id": "node_htn_4",
+      "slide_type": "mixed_learning",
+      "title": "高血压的常用药物分类与联合用药",
+      "subtitle": "",
+      "bullets": [
+        "血管紧张素转换酶抑制剂与血管紧张素受体拮抗剂",
+        "钙通道阻滞剂",
+        "噻嗪类利尿剂",
+        "β受体阻滞剂",
+        "联合用药策略与个体化选择"
+      ],
+      "content": {
+        "overview": "降压药物治疗是控制血压的核心手段。2023年ESH指南推荐五大类一线降压药物，大多数患者需要联合用药才能达到目标血压。选择药物时应综合考虑患者的年龄、合并症、靶器官损害情况和药物耐受性。",
+        "key_points": [
+          {
+            "heading": "血管紧张素转换酶抑制剂与血管紧张素受体拮抗剂",
+            "explanation": "ACEI通过抑制血管紧张素转换酶减少Ang II生成，ARB直接阻断AT1受体。两类药物均能有效降压并独立降低蛋白尿，是合并蛋白尿性肾病、慢性肾脏病、心力衰竭患者的首选。ACEI常见不良反应为干咳（发生率5%-20%），不耐受者可换用ARB。禁忌证包括双侧肾动脉狭窄、妊娠和高钾血症。",
+            "evidence_refs": [
+              "kg_htn_pharmacotherapy"
+            ]
+          },
+          {
+            "heading": "钙通道阻滞剂",
+            "explanation": "CCB通过阻断血管平滑肌L型钙通道产生血管舒张效应。二氢吡啶类（如氨氯地平、硝苯地平控释片）降压效果强且不受盐摄入影响，特别适合老年单纯收缩期高血压患者。常见不良反应为踝部水肿、头痛和面部潮红。非二氢吡啶类（维拉帕米、地尔硫卓）兼有负性肌力和负性频率作用，适用于高血压合并快速性心律失常。",
+            "evidence_refs": [
+              "ev_2023_esh_guideline"
+            ]
+          },
+          {
+            "heading": "噻嗪类利尿剂",
+            "explanation": "噻嗪类利尿剂通过抑制远曲小管Na-Cl共转运体促进钠水排泄。氢氯噻嗪是最常用的噻嗪类利尿剂，吲达帕胺和氯噻酮的降压效果更强且半衰期更长。利尿剂特别适合盐敏感性高血压、老年高血压和合并心力衰竭的患者。主要不良反应包括低钾血症、高尿酸血症和糖耐量异常，小剂量使用可减少代谢不良反应。",
+            "evidence_refs": [
+              "kg_htn_pharmacotherapy"
+            ]
+          },
+          {
+            "heading": "β受体阻滞剂",
+            "explanation": "β受体阻滞剂通过抑制心脏β1受体降低心输出量和抑制肾素释放来降低血压。2023年ESH指南将其维持为一线降压药物，尤其适用于合并冠心病、心力衰竭和快速性心律失常的高血压患者。选择性β1受体阻滞剂（如美托洛尔、比索洛尔）对支气管影响较小。主要不良反应包括疲劳、性功能障碍和糖脂代谢影响。",
+            "evidence_refs": [
+              "ev_sprint_trial"
+            ]
+          },
+          {
+            "heading": "联合用药策略与个体化选择",
+            "explanation": "大多数高血压患者需要两种或以上药物联合才能达标。2023年ESH指南推荐首选A+C组合（ACEI/ARB+CCB）或A+D组合（ACEI/ARB+利尿剂），如血压仍不达标可加至A+C+D三联。单片复方制剂可提高依从性约20%-30%。65岁以上或衰弱的老年患者应从小剂量开始缓慢滴定，避免血压降幅过大导致脑灌注不足。",
+            "evidence_refs": [
+              "ev_2023_esh_guideline",
+              "ev_sprint_trial"
+            ]
+          }
+        ],
+        "clinical_example": "一位68岁男性，高血压病史8年，目前服用氨氯地平5mg qd，血压156/88mmHg仍未达标。合并微量白蛋白尿（尿白蛋白/肌酐比值120mg/g）和左心室肥厚。根据指南推荐，加用厄贝沙坦150mg qd联合治疗（A+C方案），3个月后血压降至132/78mmHg，尿蛋白也有改善。",
+        "common_confusions": [
+          {
+            "confusion": "血压正常了就可以停药",
+            "clarification": "高血压是慢性疾病，绝大多数为原发性高血压，需要终身管理。血压降至正常是药物治疗的效果，停药后血压通常会反弹至治疗前水平甚至更高。部分患者在严格生活方式干预后可以减少药物剂量或种类，但必须在医生指导下逐步调整，并密切监测血压变化。"
+          }
+        ]
+      },
+      "blocks": [
+        {
+          "block_id": "block_node_htn_4_01",
+          "block_type": "overview",
+          "title": "本节概述",
+          "body": "降压药物治疗是控制血压的核心手段。2023年ESH指南推荐五大类一线降压药物，大多数患者需要联合用药才能达到目标血压。选择药物时应综合考虑患者的年龄、合并症、靶器官损害情况和药物耐受性。",
+          "source_field": "content.overview"
+        },
+        {
+          "block_id": "block_node_htn_4_02",
+          "block_type": "key_point",
+          "title": "血管紧张素转换酶抑制剂与血管紧张素受体拮抗剂",
+          "body": "ACEI通过抑制血管紧张素转换酶减少Ang II生成，ARB直接阻断AT1受体。两类药物均能有效降压并独立降低蛋白尿，是合并蛋白尿性肾病、慢性肾脏病、心力衰竭患者的首选。ACEI常见不良反应为干咳（发生率5%-20%），不耐受者可换用ARB。禁忌证包括双侧肾动脉狭窄、妊娠和高钾血症。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "kg_htn_pharmacotherapy"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_4_03",
+          "block_type": "key_point",
+          "title": "钙通道阻滞剂",
+          "body": "CCB通过阻断血管平滑肌L型钙通道产生血管舒张效应。二氢吡啶类（如氨氯地平、硝苯地平控释片）降压效果强且不受盐摄入影响，特别适合老年单纯收缩期高血压患者。常见不良反应为踝部水肿、头痛和面部潮红。非二氢吡啶类（维拉帕米、地尔硫卓）兼有负性肌力和负性频率作用，适用于高血压合并快速性心律失常。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "ev_2023_esh_guideline"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_4_04",
+          "block_type": "key_point",
+          "title": "噻嗪类利尿剂",
+          "body": "噻嗪类利尿剂通过抑制远曲小管Na-Cl共转运体促进钠水排泄。氢氯噻嗪是最常用的噻嗪类利尿剂，吲达帕胺和氯噻酮的降压效果更强且半衰期更长。利尿剂特别适合盐敏感性高血压、老年高血压和合并心力衰竭的患者。主要不良反应包括低钾血症、高尿酸血症和糖耐量异常，小剂量使用可减少代谢不良反应。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "kg_htn_pharmacotherapy"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_4_05",
+          "block_type": "key_point",
+          "title": "β受体阻滞剂",
+          "body": "β受体阻滞剂通过抑制心脏β1受体降低心输出量和抑制肾素释放来降低血压。2023年ESH指南将其维持为一线降压药物，尤其适用于合并冠心病、心力衰竭和快速性心律失常的高血压患者。选择性β1受体阻滞剂（如美托洛尔、比索洛尔）对支气管影响较小。主要不良反应包括疲劳、性功能障碍和糖脂代谢影响。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "ev_sprint_trial"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_4_06",
+          "block_type": "key_point",
+          "title": "联合用药策略与个体化选择",
+          "body": "大多数高血压患者需要两种或以上药物联合才能达标。2023年ESH指南推荐首选A+C组合（ACEI/ARB+CCB）或A+D组合（ACEI/ARB+利尿剂），如血压仍不达标可加至A+C+D三联。单片复方制剂可提高依从性约20%-30%。65岁以上或衰弱的老年患者应从小剂量开始缓慢滴定，避免血压降幅过大导致脑灌注不足。",
+          "source_field": "content.key_points",
+          "semantic_role": "concept",
+          "evidence_refs": [
+            "ev_2023_esh_guideline",
+            "ev_sprint_trial"
+          ]
+        },
+        {
+          "block_id": "block_node_htn_4_07",
+          "block_type": "clinical_example",
+          "title": "临床示例",
+          "body": "一位68岁男性，高血压病史8年，目前服用氨氯地平5mg qd，血压156/88mmHg仍未达标。合并微量白蛋白尿（尿白蛋白/肌酐比值120mg/g）和左心室肥厚。根据指南推荐，加用厄贝沙坦150mg qd联合治疗（A+C方案），3个月后血压降至132/78mmHg，尿蛋白也有改善。",
+          "source_field": "content.clinical_example"
+        },
+        {
+          "block_id": "block_node_htn_4_08",
+          "block_type": "confusion",
+          "title": "血压正常了就可以停药",
+          "body": "混淆：血压正常了就可以停药\n澄清：高血压是慢性疾病，绝大多数为原发性高血压，需要终身管理。血压降至正常是药物治疗的效果，停药后血压通常会反弹至治疗前水平甚至更高。部分患者在严格生活方式干预后可以减少药物剂量或种类，但必须在医生指导下逐步调整，并密切监测血压变化。",
+          "source_field": "content.common_confusions"
+        }
+      ],
+      "tutor_step_ref": "node_htn_4",
+      "narration_ref": {
+        "source": "tutor_step.teaching_text",
+        "outline_node_id": "node_htn_4"
+      },
+      "quiz_ref": {
+        "source": "tutor_step.questions",
+        "outline_node_id": "node_htn_4"
+      },
+      "related_kg_node_ids": [
+        "kg_htn_pharmacotherapy"
+      ],
+      "visual_hint": {
+        "diagram_type": "mixed_learning_card"
+      }
+    }
+  ],
+  "warnings": [
+    "node node_htn_1: tutor_step missing — slide generated without narration/quiz",
+    "node node_htn_2: tutor_step missing — slide generated without narration/quiz",
+    "node node_htn_3: tutor_step missing — slide generated without narration/quiz",
+    "node node_htn_4: tutor_step missing — slide generated without narration/quiz"
+  ]
+}

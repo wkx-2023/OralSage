@@ -1,0 +1,181 @@
+{
+  "schema_version": "pin_and_paper_slide_types.v1",
+  "template_slug": "pin-and-paper",
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "source_template": {
+    "repository": "https://github.com/zarazhangrui/beautiful-html-templates",
+    "path": "templates/pin-and-paper",
+    "license": "MIT",
+    "fetch_date": "2026-07-09"
+  },
+  "visual_system": {
+    "background": "黄色便签纸 (paper #EFE56A)，含 fractal-noise 纸质纹理叠加",
+    "primary_font": "Space Grotesk (标题/正文)",
+    "hand_font": "Caveat (手写注释/编号)",
+    "mono_font": "DM Mono (标签/页码/元数据)",
+    "signature_element": "安全别针 SVG 插图 (封闭式和开放式两种)，用于\"固定\"卡片到页面",
+    "card_style": "奶油色卡片 (cream #F8F1D6)，ink 色边框，右下偏移 ink 色阴影"
+  },
+  "page_types": [
+    {
+      "type": "cover",
+      "source_class": "s-cover",
+      "purpose_cn": "封面页：用于课件首页或章节开篇，含超大字标题、副标题、日期和手写注释。适合课程封面或主要章节分隔。",
+      "best_for": ["deck_opening", "section_opening"],
+      "slots": ["eyebrow", "title", "subtitle_line1", "subtitle_line2", "presenter", "presenter_role", "date_label", "handwritten_note"],
+      "adaptation_notes_cn": "标题极短（1-3 词），字号 196px。中文长标题需要缩短或分行。手写注释区域适合放课程寄语或学习提示。"
+    },
+    {
+      "type": "agenda",
+      "source_class": "s-agenda",
+      "purpose_cn": "目录页：用于展示学习路径或课程大纲，每行一个主题入口，含序号、标题、别针装饰和时间/类型标注。可承载 3-6 个主题入口。",
+      "best_for": ["learning_path", "topic_overview", "course_outline"],
+      "slots": ["headline", "items", "footer_left", "footer_right"],
+      "slot_shapes": {
+        "items": {"type": "array", "min_items": 3, "max_items": 6, "item_slots": ["num", "label", "meta"]}
+      },
+      "min_items": 3,
+      "max_items": 6,
+      "adaptation_notes_cn": "行标题字号 44px，每行高度有限。中文标题建议控制在 10 字以内。meta 区域可标注时长或类型。多知识点（5-6 个）时优先使用此页型而非卡片网格。"
+    },
+    {
+      "type": "notes",
+      "source_class": "s-notes",
+      "purpose_cn": "便签卡片页（通用 2-4 卡）：用 2-4 张带别针的便签卡片展示并列规则、误区或知识点。每张卡片有编号、标题、正文和手写注释。3 张时使用 3 列网格。不适合 5+ 知识点。",
+      "best_for": ["rules", "common_misconceptions", "parallel_insights"],
+      "slots": ["headline", "subtitle", "cards", "footer_left", "footer_right"],
+      "slot_shapes": {
+        "cards": {"type": "array", "min_items": 2, "max_items": 4, "item_slots": ["label", "title", "body", "scribble"]}
+      },
+      "min_items": 2,
+      "max_items": 4,
+      "adaptation_notes_cn": "通用便签卡片页。2 卡用双栏、3 卡用 3 列、4 卡用 2x2 网格。明确 2 点或 4 点并列知识点时，优先使用 notes_2up 或 notes_4up 专用固定版式。"
+    },
+    {
+      "type": "notes_2up",
+      "source_class": "s-notes",
+      "purpose_cn": "双知识点卡片页（固定 2 卡）：严格 2 张带别针的便签卡片，左右双栏等宽布局，卡片更舒展以充分利用纵向空间。用于恰有 2 个并列知识点的场景。",
+      "best_for": ["two_parallel_points", "dual_insights", "paired_concepts"],
+      "slots": ["headline", "subtitle", "cards", "footer_left", "footer_right"],
+      "slot_shapes": {
+        "cards": {"type": "array", "min_items": 2, "max_items": 2, "item_slots": ["label", "title", "body", "scribble"]}
+      },
+      "min_items": 2,
+      "max_items": 2,
+      "adaptation_notes_cn": "固定双栏布局（grid notes-2up），卡片纵向空间比通用 notes 更大（top 从 330px 起），标题 32px、正文 17px。2 个知识点时 LLM 必须选择此页型，不得选择通用 notes 或其它页型凑数。"
+    },
+    {
+      "type": "notes_4up",
+      "source_class": "s-notes",
+      "purpose_cn": "四知识点卡片页（固定 2x2）：严格 4 张带别针的便签卡片，稳定 2×2 网格布局，四个卡片等权等大。用于恰有 4 个并列知识点的场景。",
+      "best_for": ["four_parallel_points", "quad_insights", "two_by_two_grid"],
+      "slots": ["headline", "subtitle", "cards", "footer_left", "footer_right"],
+      "slot_shapes": {
+        "cards": {"type": "array", "min_items": 4, "max_items": 4, "item_slots": ["label", "title", "body", "scribble"]}
+      },
+      "min_items": 4,
+      "max_items": 4,
+      "adaptation_notes_cn": "固定 2×2 网格布局（grid notes-4up），四张卡片等宽等高。标题 32px、正文 17px。4 个知识点时 LLM 必须选择此页型，不得退化为三列加一行或使用通用 notes。"
+    },
+    {
+      "type": "section",
+      "source_class": "s-sec",
+      "purpose_cn": "章节分隔页：深蓝色 ink 背景，超大白色标题 + 安全别针装饰，用于课程大章节之间的分隔和过渡。",
+      "best_for": ["chapter_divider", "major_section_break"],
+      "slots": ["marker", "label", "headline", "scribble", "footer_left", "footer_right"],
+      "adaptation_notes_cn": "ink 色满版背景，白色文字。标题字号 168px，建议控制在 6-10 字。scribble 区域可放手写过渡语。"
+    },
+    {
+      "type": "notice",
+      "source_class": "s-notice",
+      "purpose_cn": "详情通告页：左侧大栏（正文叙述），右侧 2 个辅助卡片（解释维度）。适合一个核心结论 + 2-3 个解释维度的场景。",
+      "best_for": ["finding_detail", "core_conclusion_with_dimensions", "evidence_detail"],
+      "slots": ["eyebrow", "headline", "columns", "footer_left", "footer_right"],
+      "slot_shapes": {
+        "columns": {"type": "array", "min_items": 2, "max_items": 3, "item_slots": ["title", "body", "meta", "source"]}
+      },
+      "min_items": 2,
+      "max_items": 3,
+      "adaptation_notes_cn": "三栏布局：左栏 1.1fr（正文叙述），中栏 1fr（解释维度），右栏 1fr（行动建议）。每栏含标题和正文。适合一个核心结论 + 2-3 个解释维度的场景。"
+    },
+    {
+      "type": "chart",
+      "source_class": "s-chart",
+      "purpose_cn": "图表页：左侧大标题 + 叙述 + 图例，右侧 SVG 趋势图面板。仅当输入包含结构化趋势或对比数据时使用。",
+      "best_for": ["trend", "comparison_over_time", "quantitative_evidence"],
+      "slots": ["headline", "body", "legend", "series_data", "x_labels", "y_labels", "footer_left", "footer_right"],
+      "slot_shapes": {
+        "legend": {"type": "array", "min_items": 1, "max_items": 4},
+        "series_data": {"type": "array", "min_items": 1, "max_items": 4, "item_slots": ["label", "values"]},
+        "x_labels": {"type": "array", "min_items": 2, "max_items": 12},
+        "y_labels": {"type": "array", "min_items": 3, "max_items": 6}
+      },
+      "adaptation_notes_cn": "ink 色背景，白色/黄色文字。图表区在右侧 cream 色面板中。中文叙述建议控制在 36 字以内。非数据输入时优先使用 notice 或 stats。"
+    },
+    {
+      "type": "process",
+      "source_class": "s-process",
+      "purpose_cn": "流程页：5 张流程卡片横向排列，每张带别针、编号、标题和正文，卡片间有箭头连接。底部有时间线。适合 3-6 步流程。",
+      "best_for": ["workflow", "procedure", "step_sequence"],
+      "slots": ["headline", "subtitle", "steps", "timeline", "footer_left", "footer_right"],
+      "slot_shapes": {
+        "steps": {"type": "array", "min_items": 3, "max_items": 6, "item_slots": ["num", "title", "body"]},
+        "timeline": {"type": "array", "min_items": 3, "max_items": 6}
+      },
+      "min_items": 3,
+      "max_items": 6,
+      "adaptation_notes_cn": "原模板为 5 列 grid，步骤标题 28px。3-4 步时可将 grid 改为 3-4 列；6 步时适当缩小间距。中文标题建议 6 字以内，正文 40 字以内。"
+    },
+    {
+      "type": "matrix",
+      "source_class": "s-matrix",
+      "purpose_cn": "对比矩阵页：多行准则 × 多列选项的对比表格。适合 2-4 列对比和 3-6 行准则。",
+      "best_for": ["comparison", "differential", "decision_matrix", "pros_cons"],
+      "slots": ["headline", "subtitle", "columns", "rows", "footer_left", "footer_right"],
+      "slot_shapes": {
+        "columns": {"type": "array", "min_items": 2, "max_items": 4},
+        "rows": {"type": "array", "min_items": 3, "max_items": 6, "item_slots": ["criterion", "cells"]}
+      },
+      "min_items": 2,
+      "max_items": 4,
+      "adaptation_notes_cn": "4 列 grid 布局（1.4fr + 1fr×3）。表头 ink 蓝底白字。单元格内容用 pill 标签或纯文本。中文表头 6 字以内，单元格 20 字以内。"
+    },
+    {
+      "type": "stats",
+      "source_class": "s-stats",
+      "purpose_cn": "数据总结页：3 个大数字统计卡片，每张有别针装饰、超大数字、标题和说明。仅当输入包含真实数字时使用，不可编造数据。",
+      "best_for": ["statistics", "quantitative_summary", "key_metrics"],
+      "slots": ["headline", "subtitle", "stats", "footer_left", "footer_right"],
+      "slot_shapes": {
+        "stats": {"type": "array", "min_items": 2, "max_items": 3, "item_slots": ["value", "unit", "title", "body"]}
+      },
+      "min_items": 2,
+      "max_items": 3,
+      "adaptation_notes_cn": "3 列 grid 布局，数字字号 168px。中文标题建议 8 字以内，正文建议 50 字以内。数字须真实来源，不可编造。"
+    },
+    {
+      "type": "quote",
+      "source_class": "s-quote",
+      "purpose_cn": "引用页：大字引文 + 署名。适合展示重要定义、原理或关键论述。",
+      "best_for": ["definition", "principle", "key_insight", "citation"],
+      "slots": ["headline", "quote_text", "attribution_name", "attribution_detail", "footer_left", "footer_right"],
+      "adaptation_notes_cn": "左侧大引号装饰（360px），右侧引文（50px 字号）。中文引文建议控制在 80 字以内。适合展示定义、原理或关键论述。"
+    },
+    {
+      "type": "cta",
+      "source_class": "s-cta",
+      "purpose_cn": "行动页：左侧 ink 蓝底大字标题 + 叙述，右侧 cream 色步骤/列表区。右侧 step/list 区域适合 3-6 个知识点或行动步骤，是多知识点优先候选页型。",
+      "best_for": ["next_steps", "learning_actions", "multi_point_list", "recommendations"],
+      "slots": ["eyebrow", "headline", "body", "steps", "footer_left", "footer_right"],
+      "slot_shapes": {
+        "steps": {"type": "array", "min_items": 3, "max_items": 6, "item_slots": ["num", "title", "body"]}
+      },
+      "min_items": 3,
+      "max_items": 6,
+      "adaptation_notes_cn": "左右 1:1 双栏布局。右侧每个 step 有手写编号（60px）、标题（22px）和正文（18px）。适合 3-6 个知识点/行动步骤，每个有标题和解释。是多知识点优先候选，切勿路由到 notes 卡片。"
+    }
+  ]
+}
