@@ -1,0 +1,246 @@
+{
+  "schema_version": "pin_and_paper_slide_plan.v1",
+  "template_slug": "pin-and-paper",
+  "deck_title": "牙周炎基础学习 — 从病因到临床管理",
+  "session_id": "demo_pin_paper_001",
+  "slides": [
+    {
+      "source_slide_id": "slide_node_0",
+      "source_outline_node_id": null,
+      "page_type": "cover",
+      "rationale": "课件封面，使用大字标题展示课程主题，配合手写注释给出学习提示。",
+      "slots": {
+        "eyebrow": "口腔医学基础课程 · 第一讲",
+        "title": "牙周炎",
+        "subtitle_line1": "从病因机制到",
+        "subtitle_line2": "临床管理",
+        "presenter": "OralSage 教学团队",
+        "presenter_role": "口腔医学教育 · 2026",
+        "date_label": "2026 · 07 · 09",
+        "handwritten_note": "掌握核心概念，建立临床思维。"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_1",
+      "source_outline_node_id": "node_1",
+      "page_type": "agenda",
+      "rationale": "课程学习路径，5 个主题入口适合用目录页型展示。",
+      "slots": {
+        "headline": "本讲学习路径",
+        "items": [
+          {"num": "01", "label": "牙周炎的定义与病因", "meta": "概念 · 8分钟"},
+          {"num": "02", "label": "临床表现与分类", "meta": "诊断 · 10分钟"},
+          {"num": "03", "label": "发病机制与危险因素", "meta": "病理 · 12分钟"},
+          {"num": "04", "label": "诊断评估与鉴别", "meta": "临床 · 10分钟"},
+          {"num": "05", "label": "治疗策略与维护", "meta": "治疗 · 15分钟"}
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "牙周炎基础学习"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_2",
+      "source_outline_node_id": "node_2",
+      "page_type": "notes",
+      "rationale": "牙周炎诊疗中的 3 个常见误区，适合用 3 张便签卡片展示，每张含标题、解释和手写提示。",
+      "slots": {
+        "headline": "三个常见误区",
+        "subtitle": "临床上容易混淆的判断，我们逐一厘清。理解这些误区有助于避免诊疗中的常见偏差。",
+        "cards": [
+          {
+            "label": "误区 · 01",
+            "title": "牙龈出血就是牙周炎",
+            "body": "牙龈出血是牙龈炎症的表现，但不等同于牙周炎。牙周炎的诊断必须有附着丧失和牙槽骨吸收的证据。单纯牙龈炎是可逆的，而牙周炎的破坏是永久性的。",
+            "scribble": "记住：出血 ≠ 牙周炎"
+          },
+          {
+            "label": "误区 · 02",
+            "title": "牙周炎是老年人才得的病",
+            "body": "侵袭性牙周炎好发于青少年和年轻成人，进展迅速且与菌斑量不成比例。慢性牙周炎虽多见于成年人，但从青春期即可开始发病。年龄不是排除牙周炎的依据。",
+            "scribble": "任何年龄都可能患病"
+          },
+          {
+            "label": "误区 · 03",
+            "title": "牙石越多病情越重",
+            "body": "牙石本身不直接导致牙周炎，其表面附着的菌斑生物膜才是罪魁祸首。侵袭性牙周炎患者牙石量可能很少但破坏严重。评估病情要看附着丧失程度而非牙石量。",
+            "scribble": "菌斑才是始动因子"
+          }
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "常见误区"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_3",
+      "source_outline_node_id": "node_3",
+      "page_type": "notice",
+      "rationale": "牙周炎核心结论「菌斑生物膜是始动因子」配合三个解释维度，适合用 notice 三栏布局展示。",
+      "slots": {
+        "eyebrow": "核心结论 · 01",
+        "headline": "菌斑生物膜是牙周炎最主要的始动因子，宿主反应决定组织破坏程度",
+        "columns": [
+          {
+            "title": "病因层面",
+            "body": "菌斑生物膜中的牙龈卟啉单胞菌、中间普氏菌等牙周致病菌通过脂多糖、蛋白酶和毒素直接损伤牙周组织。细菌代谢产物激活宿主的炎症反应通路，导致基质金属蛋白酶过度释放，最终造成牙周膜和牙槽骨的不可逆破坏。",
+            "meta": "微生物学与分子机制",
+            "source": "牙周病学 第5版"
+          },
+          {
+            "title": "危险因素层面",
+            "body": "吸烟是牙周炎最重要的可控危险因素，可使患病风险增加 2-8 倍并显著降低治疗效果。糖尿病患者血糖控制不佳时，牙周破坏速度加快且组织修复能力下降。遗传因素约占重度牙周炎风险的 50%，IL-1 基因多态性与疾病易感性密切相关。",
+            "meta": "流行病学与风险评估",
+            "source": "J Clin Periodontol 2024"
+          },
+          {
+            "title": "临床意义",
+            "body": "理解菌斑生物膜的核心地位意味着所有治疗策略必须围绕菌斑控制展开。基础治疗（口腔卫生指导 + 洁治 + 刮治）是每一位患者的必需步骤。全身危险因素的管控（戒烟、血糖控制）与局部治疗同等重要，忽视任何一个维度都会导致治疗失败。",
+            "meta": "治疗策略与预后",
+            "source": "OralSage 临床路径"
+          }
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "核心结论"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_4",
+      "source_outline_node_id": "node_4",
+      "page_type": "cta",
+      "rationale": "牙周炎治疗的 5 个核心知识点，每个知识点包含标题和详细解释，适合使用 CTA 右侧步骤列表页型展示。5 个知识点不应使用 notes 卡片页型。",
+      "slots": {
+        "eyebrow": "治疗策略",
+        "headline": "牙周炎的五步治疗路径",
+        "body": "牙周炎治疗遵循从基础到维护的分级原则。每一步都有明确的适应证和操作标准，不可跳过或颠倒。理解每一步的目标和意义是制定合理治疗方案的前提。",
+        "steps": [
+          {
+            "num": "1",
+            "title": "口腔卫生指导与行为改变",
+            "body": "教会患者正确的刷牙方法和牙线/牙缝刷使用技巧，评估患者菌斑控制能力。行为改变是治疗成功的第一步，也是最容易被忽视的环节，需要持续的动机访谈和反馈。"
+          },
+          {
+            "num": "2",
+            "title": "龈上洁治与龈下刮治",
+            "body": "使用超声和手工器械彻底清除龈上和龈下的菌斑及牙石，完成根面平整。这是牙周基础治疗的核心操作，一般在局部麻醉下分区完成，通常需要 2-4 次就诊。"
+          },
+          {
+            "num": "3",
+            "title": "牙周再评估与手术决策",
+            "body": "基础治疗后 4-6 周进行牙周再评估。探诊深度仍 ≥5mm 且有探诊出血的位点是手术适应证。手术方式包括改良 Widman 翻瓣术、骨切除术和引导组织再生术等。"
+          },
+          {
+            "num": "4",
+            "title": "全身危险因素的协同管理",
+            "body": "吸烟者必须提供戒烟建议和转诊支持。糖尿病患者需要与内分泌科协作优化血糖控制。心血管疾病患者需要评估抗凝药物对牙周手术的影响，必要时调整用药方案。"
+          },
+          {
+            "num": "5",
+            "title": "牙周支持治疗与长期维护",
+            "body": "定期复查是维持长期疗效的关键。根据患者风险评估确定维护间隔（通常 3-6 个月），每次复诊需评估菌斑控制、探诊深度、探诊出血和附着水平，必要时进行局部再治疗。"
+          }
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "治疗路径"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_5",
+      "source_outline_node_id": "node_5",
+      "page_type": "process",
+      "rationale": "牙周炎的发病机制是一个连续过程，适合用流程页型展示从菌斑形成到组织破坏的 5 个步骤。",
+      "slots": {
+        "headline": "牙周炎的发病过程",
+        "subtitle": "从菌斑生物膜形成到牙槽骨吸收是一个渐进的过程，理解每一步的病理变化有助于把握干预时机。",
+        "steps": [
+          {
+            "num": "1",
+            "title": "菌斑堆积",
+            "body": "口腔卫生不良导致菌斑在龈缘附近持续堆积，48 小时内即可形成成熟的生物膜结构。"
+          },
+          {
+            "num": "2",
+            "title": "牙龈炎症",
+            "body": "菌斑代谢产物扩散至龈沟上皮，激活先天免疫反应，引发牙龈红肿、探诊出血。"
+          },
+          {
+            "num": "3",
+            "title": "结合上皮迁移",
+            "body": "持续炎症导致结合上皮根向增殖迁移，与牙面分离形成真性牙周袋，袋深超过 3mm。"
+          },
+          {
+            "num": "4",
+            "title": "结缔组织破坏",
+            "body": "炎性浸润深入结缔组织，基质金属蛋白酶过度表达，牙周膜胶原纤维降解，附着丧失不可逆。"
+          },
+          {
+            "num": "5",
+            "title": "牙槽骨吸收",
+            "body": "破骨细胞被炎性因子激活，牙槽嵴高度降低，X 线片可见水平型或垂直型骨吸收影像。"
+          }
+        ],
+        "timeline": [
+          "第1周：菌斑堆积与牙龈炎",
+          "第2-3周：结合上皮迁移",
+          "第4-6周：结缔组织破坏",
+          "第6-8周：牙槽骨吸收",
+          "第8周后：不可逆破坏"
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "发病机制"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_6",
+      "source_outline_node_id": "node_6",
+      "page_type": "matrix",
+      "rationale": "慢性牙周炎与侵袭性牙周炎的对比辨别，4 个对比维度适合用矩阵页型展示。",
+      "slots": {
+        "headline": "慢性与侵袭性牙周炎的对比鉴别",
+        "subtitle": "两种主要类型的牙周炎在好发年龄、进展速度、菌斑关系和治疗反应上有显著差异，需要区别对待。",
+        "columns": ["慢性牙周炎", "侵袭性牙周炎", "药物性牙龈增生"],
+        "rows": [
+          {
+            "criterion": "好发年龄",
+            "cells": ["中老年为主", "青少年及年轻成人", "任何年龄"]
+          },
+          {
+            "criterion": "进展速度",
+            "cells": ["缓慢进展", "快速进展", "与药物相关"]
+          },
+          {
+            "criterion": "菌斑与破坏程度",
+            "cells": ["一致", "不成比例", "无关"]
+          },
+          {
+            "criterion": "家族聚集性",
+            "cells": ["不显著", "常见", "无"]
+          }
+        ],
+        "footer_left": "OralSage",
+        "footer_right": "鉴别诊断"
+      },
+      "content_warnings": []
+    },
+    {
+      "source_slide_id": "slide_node_7",
+      "source_outline_node_id": "node_7",
+      "page_type": "quote",
+      "rationale": "牙周炎的核心定义适合用引用页型进行强调展示。",
+      "slots": {
+        "headline": "核心定义",
+        "quote_text": "牙周炎是牙齿支持组织的慢性感染性疾病，由菌斑微生物与宿主免疫反应相互作用引发，导致牙周膜和牙槽骨的进行性破坏，是成人牙齿丧失的首要原因。",
+        "attribution_name": "牙周病学 第5版",
+        "attribution_detail": "全国高等医药院校教材 · 口腔医学专业",
+        "footer_left": "OralSage",
+        "footer_right": "核心定义"
+      },
+      "content_warnings": []
+    }
+  ],
+  "warnings": []
+}

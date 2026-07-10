@@ -1,0 +1,35 @@
+{
+  "schema_version": "ppt_template_candidates.v1",
+  "active": [
+    {
+      "slug": "pin-and-paper",
+      "path": "tools/ppt_preview/templates/pin-and-paper",
+      "status": "active_candidate",
+      "notes_cn": "当前正式候选模板。真实 LLM 最小闭环和 production/generalized 预览已通过。"
+    }
+  ],
+  "reference_only": [
+    {
+      "slug": "soft-editorial",
+      "path": "tools/ppt_preview/templates/soft-editorial",
+      "status": "reference_only",
+      "notes_cn": "早期试验模板。因视觉和多知识点适配问题暂不作为正式候选，除非用户明确要求重新启用。"
+    }
+  ],
+  "excluded_legacy_preview": [
+    "tools/ppt_preview/index.html",
+    "tools/ppt_preview/app.js",
+    "tools/ppt_preview/js/",
+    "tools/ppt_preview/styles/",
+    "tools/ppt_preview/styles.css",
+    "tools/ppt_preview/sample-slides.v1.json",
+    "tools/ppt_preview/stress-slides.v1.json",
+    "scripts/generate_ppt_preview_stress_fixtures.py",
+    "scripts/smoke_test_ppt_preview_assets.py",
+    "scripts/smoke_test_ppt_preview_render.py",
+    "tools/ppt_preview/artifacts/",
+    "backend/services/learning/soft_editorial_planner.py",
+    "scripts/smoke_test_soft_editorial_planner.py",
+    "scripts/smoke_test_soft_editorial_preview.py"
+  ]
+}
