@@ -3,15 +3,16 @@
 Provides an OpenAI-compatible LLM client that can be injected into
 ``plan_pin_and_paper_slide()`` / ``plan_pin_and_paper_deck()``.
 
-Configuration priority (all from environment variables):
-1. ``PIN_AND_PAPER_LLM_API_KEY`` → ``OPENAI_API_KEY`` → ``LEARNING_LLM_API_KEY``
-2. ``PIN_AND_PAPER_LLM_MODEL`` → ``deepseek-chat`` (PPT专用默认，不跟随全局 LEARNING_LLM_MODEL)
-3. ``PIN_AND_PAPER_LLM_BASE_URL`` → ``LEARNING_LLM_BASE_URL`` → ``https://api.deepseek.com``
-4. ``PIN_AND_PAPER_LLM_MAX_CONCURRENCY`` — optional; defaults to 3
-5. ``PIN_AND_PAPER_LLM_TEMPERATURE`` — optional; defaults to 0.3
-6. ``PIN_AND_PAPER_LLM_MAX_TOKENS`` — optional; defaults to 4096
-7. ``PIN_AND_PAPER_LLM_TIMEOUT`` — optional; defaults to 120 (seconds)
-8. ``PIN_AND_PAPER_LLM_MAX_RETRIES`` — optional; defaults to 2 (per request, for transient errors)
+Provider priority (key/base/model are selected as one coherent group):
+1. ``PIN_AND_PAPER_LLM_*``
+2. ``LEARNING_LLM_*``
+3. ``DECISION_LLM_*`` / ``QWEN_*``
+4. ``OPENAI_*``
+5. ``PIN_AND_PAPER_LLM_MAX_CONCURRENCY`` — optional; defaults to 3
+6. ``PIN_AND_PAPER_LLM_TEMPERATURE`` — optional; defaults to 0.3
+7. ``PIN_AND_PAPER_LLM_MAX_TOKENS`` — optional; defaults to 8192
+8. ``PIN_AND_PAPER_LLM_TIMEOUT`` — optional; defaults to 120 (seconds)
+9. ``PIN_AND_PAPER_LLM_MAX_RETRIES`` — optional; defaults to 2 (per request, for transient errors)
 
 Public API
 ----------
@@ -90,7 +91,7 @@ _DEFAULT_MODEL = "deepseek-chat"
 _DEFAULT_BASE_URL = "https://api.deepseek.com"
 _DEFAULT_MAX_CONCURRENCY = 3
 _DEFAULT_TEMPERATURE = 0.3
-_DEFAULT_MAX_TOKENS = 4096
+_DEFAULT_MAX_TOKENS = 8192
 _DEFAULT_TIMEOUT = 120.0
 _DEFAULT_MAX_RETRIES = 2
 
@@ -98,29 +99,58 @@ _DEFAULT_MAX_RETRIES = 2
 def _get_config() -> dict[str, Any]:
     """Resolve configuration with project-aware fallback chain.
 
-    Priority: PIN_AND_PAPER_LLM_* > OPENAI_API_KEY > LEARNING_LLM_* > defaults
+    Priority: PIN_AND_PAPER_LLM_* > LEARNING_LLM_* > DECISION/QWEN_* > OPENAI_*
     """
-    # API key: PIN_AND_PAPER specific → OPENAI → LEARNING fallback
-    api_key = (
-        os.environ.get("PIN_AND_PAPER_LLM_API_KEY", "")
-        or os.environ.get("OPENAI_API_KEY", "")
-        or os.environ.get("LEARNING_LLM_API_KEY", "")
-    )
+    ensure_project_env()
 
-    # Model: PIN_AND_PAPER specific only (never fallback to LEARNING_LLM_MODEL)
-    model = os.environ.get("PIN_AND_PAPER_LLM_MODEL", "") or _DEFAULT_MODEL
+    pin_key = os.environ.get("PIN_AND_PAPER_LLM_API_KEY", "")
+    learning_key = os.environ.get("LEARNING_LLM_API_KEY", "")
+    decision_key = os.environ.get("DECISION_LLM_API_KEY", "")
+    qwen_key = os.environ.get("QWEN_API_KEY", "")
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    pin_model = os.environ.get("PIN_AND_PAPER_LLM_MODEL", "")
 
-    # Base URL: PIN_AND_PAPER specific → LEARNING_LLM_BASE_URL → default
-    base_url = (
-        os.environ.get("PIN_AND_PAPER_LLM_BASE_URL", "")
-        or os.environ.get("LEARNING_LLM_BASE_URL", "")
-        or _DEFAULT_BASE_URL
-    )
+    if pin_key:
+        api_key = pin_key
+        base_url = os.environ.get("PIN_AND_PAPER_LLM_BASE_URL", "") or _DEFAULT_BASE_URL
+        model = pin_model or _DEFAULT_MODEL
+        provider_source = "pin_and_paper"
+    elif learning_key:
+        api_key = learning_key
+        base_url = (
+            os.environ.get("LEARNING_LLM_BASE_URL", "")
+            or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        )
+        model = pin_model or os.environ.get("LEARNING_LLM_MODEL", "") or "qwen-plus"
+        provider_source = "learning"
+    elif decision_key or qwen_key:
+        api_key = decision_key or qwen_key
+        base_url = (
+            os.environ.get("DECISION_LLM_BASE_URL", "")
+            or os.environ.get("QWEN_BASE_URL", "")
+            or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        )
+        model = (
+            pin_model
+            or os.environ.get("DECISION_LLM_MODEL", "")
+            or os.environ.get("QWEN_MODEL", "")
+            or "qwen-plus"
+        )
+        provider_source = "decision_or_qwen"
+    else:
+        api_key = openai_key
+        base_url = (
+            os.environ.get("OPENAI_BASE_URL", "")
+            or "https://api.openai.com/v1"
+        )
+        model = pin_model or os.environ.get("OPENAI_MODEL", "") or "gpt-4.1-mini"
+        provider_source = "openai"
 
     return {
         "api_key": api_key,
         "model": model,
         "base_url": base_url,
+        "provider_source": provider_source,
         "max_concurrency": int(
             os.environ.get("PIN_AND_PAPER_LLM_MAX_CONCURRENCY", str(_DEFAULT_MAX_CONCURRENCY))
         ),
@@ -150,8 +180,8 @@ def create_real_llm_client() -> Callable[[str], str] | None:
     Returns
     -------
     A ``(prompt: str) -> str`` callable that makes synchronous HTTP requests
-    to the configured OpenAI-compatible endpoint.  Returns ``None`` if
-    ``OPENAI_API_KEY`` is not set (caller must handle by skipping or failing).
+    to the configured OpenAI-compatible endpoint. Returns ``None`` if no
+    supported provider API key is set (caller must handle by skipping or failing).
     """
     import urllib.request
     import urllib.error
@@ -160,8 +190,8 @@ def create_real_llm_client() -> Callable[[str], str] | None:
     api_key = config["api_key"]
     if not api_key:
         logger.warning(
-            "No API key found (checked PIN_AND_PAPER_LLM_API_KEY, OPENAI_API_KEY, "
-            "LEARNING_LLM_API_KEY) — real LLM client unavailable. "
+            "No API key found (checked PIN_AND_PAPER_LLM_API_KEY, LEARNING_LLM_API_KEY, "
+            "DECISION_LLM_API_KEY, QWEN_API_KEY, OPENAI_API_KEY) — real LLM client unavailable. "
             "Skipping real LLM calls."
         )
         return None
@@ -288,7 +318,8 @@ def plan_deck_concurrent(
         if llm_client is None:
             raise ValueError(
                 "No LLM client available — set PIN_AND_PAPER_LLM_API_KEY, "
-                "OPENAI_API_KEY, or LEARNING_LLM_API_KEY environment variable"
+                "LEARNING_LLM_API_KEY, DECISION_LLM_API_KEY, QWEN_API_KEY, "
+                "or OPENAI_API_KEY environment variable"
             )
 
     if slide_types is None:

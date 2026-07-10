@@ -826,6 +826,65 @@ async def learning_session_slides(session_id: str) -> JSONResponse:
     return JSONResponse({"ok": True, "module": "learning", "action": "slides", "result": deck})
 
 
+@app.get("/api/learning/session/{session_id}/ppt-plan")
+async def learning_session_ppt_plan(session_id: str) -> JSONResponse:
+    """Return the aggregated runtime Pin & Paper plan for a session."""
+    path = _learning_session_resource_dir(session_id) / "slides" / "pin_and_paper_plan.v1.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Pin & Paper plan not found")
+    try:
+        plan = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Pin & Paper plan is invalid: {exc}") from exc
+    return JSONResponse({"ok": True, "module": "learning", "action": "ppt_plan", "result": plan})
+
+
+@app.get("/api/learning/session/{session_id}/ppt-status")
+@app.get("/api/learning/session/{session_id}/pptx-status")
+async def learning_session_ppt_status(session_id: str) -> JSONResponse:
+    """Return current Slides, Pin & Paper plan, and PPTX state."""
+    result = learning_orchestrator.wait_for_ppt_resources(session_id, timeout_seconds=0)
+    return JSONResponse({
+        "ok": True,
+        "module": "learning",
+        "action": "ppt_status",
+        "result": result,
+    })
+
+
+@app.get("/api/learning/session/{session_id}/pptx")
+async def learning_session_pptx_file(session_id: str) -> FileResponse:
+    """Download the latest partial or complete Pin & Paper PPTX."""
+    session_dir = _learning_session_resource_dir(session_id)
+    status_path = session_dir / "pptx_status.json"
+    try:
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="PPTX resource is not ready") from exc
+    if status.get("ok") is not True or status.get("status") not in {"partial", "ready"}:
+        raise HTTPException(status_code=409, detail="PPTX resource is not ready")
+    candidate = (session_dir / "lesson.pptx").resolve()
+    if session_dir not in candidate.parents or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="PPTX file not found")
+    return FileResponse(
+        candidate,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename=f"{session_id}.pptx",
+    )
+
+
+@app.post("/api/learning/session/{session_id}/ppt/rebuild")
+async def learning_session_rebuild_ppt(session_id: str) -> JSONResponse:
+    """Rebuild formal Slides and enqueue Pin & Paper/PPTX generation."""
+    result = learning_orchestrator.rebuild_ppt_resources(session_id)
+    return JSONResponse({
+        "ok": bool(result.get("started")),
+        "module": "learning",
+        "action": "rebuild_ppt",
+        "result": result,
+    })
+
+
 @app.post("/api/learning/session/{session_id}/resources/retry")
 async def learning_session_retry_resources(session_id: str) -> JSONResponse:
     """Resume failed or interrupted handout generation and refresh slides.v1."""

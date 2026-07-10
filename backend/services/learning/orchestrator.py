@@ -37,6 +37,7 @@ from .tutor_cache import (
 )
 from .memory import LearningMemory
 from .planner import complete_progressive_lesson_plan, plan_lesson
+from .ppt_pipeline import get_ppt_resource_status, refresh_ppt_resources
 from .profile_memory import build_profile_slice, update_learner_memory_from_event
 from .qa import answer_interruption_question, answer_question_with_evidence
 from .resource_factory import (
@@ -93,6 +94,9 @@ class LearningOrchestrator:
         self._outline_completion_events: dict[str, threading.Event] = {}
         self._outline_completion_errors: dict[str, str] = {}
         self._handout_prefetch_threads: dict[str, threading.Thread] = {}
+        self._ppt_refresh_threads: dict[str, threading.Thread] = {}
+        self._ppt_refresh_pending: set[str] = set()
+        self._ppt_refresh_guard = threading.Lock()
 
     def _evidence_context_path(self, session_id: str) -> Path:
         return Path(self.resource_root) / session_id / "evidence_context.json"
@@ -301,6 +305,7 @@ class LearningOrchestrator:
             resource_root=self.resource_root,
         )
         slides_resource = self._refresh_slides_resource(session_id, outline)
+        self._schedule_ppt_refresh(session_id, outline)
 
         return {
             "session": session,
@@ -521,6 +526,83 @@ class LearningOrchestrator:
             "slide_count": len(deck.get("slides", [])) if isinstance(deck, dict) else 0,
         }
 
+    def _schedule_ppt_refresh(
+        self,
+        session_id: str,
+        outline: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Coalesce background Pin & Paper planning/export for one session."""
+        with self._ppt_refresh_guard:
+            existing = self._ppt_refresh_threads.get(session_id)
+            if existing and existing.is_alive():
+                self._ppt_refresh_pending.add(session_id)
+                return {"started": False, "already_running": True}
+            thread = threading.Thread(
+                target=self._ppt_refresh_worker,
+                args=(session_id, outline),
+                daemon=True,
+                name=f"ppt-refresh-{session_id[:8]}",
+            )
+            self._ppt_refresh_threads[session_id] = thread
+            thread.start()
+            return {"started": True, "already_running": False}
+
+    def _ppt_refresh_worker(
+        self,
+        session_id: str,
+        outline: dict[str, Any],
+    ) -> None:
+        while True:
+            try:
+                latest = self.memory.latest_outline(session_id)
+                active_outline = latest.get("outline", outline) if latest else outline
+                refresh_ppt_resources(
+                    session_id=session_id,
+                    outline=active_outline,
+                    resource_root=self.resource_root,
+                )
+            except Exception:
+                pass
+            with self._ppt_refresh_guard:
+                if session_id in self._ppt_refresh_pending:
+                    self._ppt_refresh_pending.discard(session_id)
+                    continue
+                self._ppt_refresh_threads.pop(session_id, None)
+                return
+
+    def wait_for_ppt_resources(
+        self,
+        session_id: str,
+        timeout_seconds: float = 0.0,
+    ) -> dict[str, Any]:
+        """Optionally wait for the current background PPT refresh."""
+        thread = self._ppt_refresh_threads.get(session_id)
+        if thread and timeout_seconds > 0:
+            thread.join(timeout_seconds)
+        outline_rec = self.memory.latest_outline(session_id)
+        return get_ppt_resource_status(
+            session_id=session_id,
+            outline=outline_rec.get("outline", {}) if outline_rec else {},
+            resource_root=self.resource_root,
+        )
+
+    def rebuild_ppt_resources(self, session_id: str) -> dict[str, Any]:
+        """Refresh formal slides and enqueue Pin & Paper/PPTX generation."""
+        outline_record = _require_outline(self.memory, session_id)
+        outline = outline_record["outline"]
+        slides = self._refresh_slides_resource(session_id, outline)
+        scheduled = self._schedule_ppt_refresh(session_id, outline)
+        return {
+            "started": True,
+            "slides": slides,
+            "scheduled": scheduled,
+            "resource_status": get_ppt_resource_status(
+                session_id=session_id,
+                outline=outline,
+                resource_root=self.resource_root,
+            ),
+        }
+
     def retry_failed_resources(self, session_id: str) -> dict[str, Any]:
         """Resume failed or interrupted generation from persisted evidence."""
         outline_record = _require_outline(self.memory, session_id)
@@ -548,11 +630,17 @@ class LearningOrchestrator:
             self._start_handout_prefetch_background(session_id, outline)
         elif first_ready:
             self._refresh_slides_resource(session_id, outline)
+        ppt_refresh = self._schedule_ppt_refresh(session_id, outline)
         return {
             "started": True,
             "first_section_ready": first_ready,
             "background_prefetch_started": len(nodes) > 1,
-            "resource_status": self._slides_resource_status(session_id),
+            "ppt_refresh": ppt_refresh,
+            "resource_status": get_ppt_resource_status(
+                session_id=session_id,
+                outline=outline,
+                resource_root=self.resource_root,
+            ),
         }
 
     def _prepare_first_handout_section_sync(
@@ -776,6 +864,9 @@ class LearningOrchestrator:
                     next_title=next_title,
                 )
 
+                self._refresh_slides_resource(session_id, outline)
+                self._schedule_ppt_refresh(session_id, outline)
+
                 return (node_id, True)
             else:
                 save_handout_cache_failed(
@@ -806,6 +897,7 @@ class LearningOrchestrator:
             resource_root=self.resource_root,
         )
         self._refresh_slides_resource(session_id, outline)
+        self._schedule_ppt_refresh(session_id, outline)
 
     def _generate_and_cache_tutor_step_draft(
         self,
@@ -1459,6 +1551,7 @@ class LearningOrchestrator:
 
                 if hs.get("section_status") == "llm_generated" and cache_miss_sync_generation:
                     self._refresh_slides_resource(session_id, outline)
+                    self._schedule_ppt_refresh(session_id, outline)
 
                 if hs.get("section_status") == "llm_generated":
                     # Cache for later QA reads (avoids regeneration)
@@ -2244,7 +2337,11 @@ class LearningOrchestrator:
             outline_rec["outline"].get("nodes", []) if outline_rec else []
         )
         summary = self.memory.session_summary(session_id)
-        resource_status = self._slides_resource_status(session_id)
+        resource_status = get_ppt_resource_status(
+            session_id=session_id,
+            outline=outline_rec["outline"] if outline_rec else {},
+            resource_root=self.resource_root,
+        )
 
         return {
             "session_id": session["id"],

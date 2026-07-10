@@ -333,7 +333,7 @@ def build_reading_list(topic: str, outline: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_pptx_status(slides_path: Path) -> dict[str, Any]:
-    """Return a placeholder PPTX status; export is not implemented here.
+    """Return the initial status before the background PPT pipeline runs.
 
     Parameters
     ----------
@@ -342,9 +342,9 @@ def build_pptx_status(slides_path: Path) -> dict[str, Any]:
     """
     return {
         "ok": False,
-        "status": "not_implemented",
+        "status": "pending",
         "message": (
-            "MVP 当前先生成 slides.json，PPTX 导出将在后续接入。"
+            "等待正式 slides.v1 与 Pin & Paper 页面计划生成。"
         ),
         "slides_path": str(slides_path),
     }

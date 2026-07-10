@@ -637,6 +637,7 @@ def _build_correction_prompt(
     wrong_page_type: str,
     n_key_points: int,
     slide_types: dict,
+    previous_page_plan: dict | None = None,
 ) -> str:
     """Build a route-correction retry prompt."""
     card_constraint = _get_card_constraint(wrong_page_type)
@@ -649,6 +650,39 @@ def _build_correction_prompt(
         )
     )
     parts.append("")
+    target_page_type = {
+        2: "notes_2up",
+        3: "notes",
+        4: "notes_4up",
+    }.get(n_key_points, "cta" if n_key_points >= 5 else "")
+    if target_page_type:
+        target_slots = _get_page_type_slot_names(target_page_type, slide_types)
+        target_shapes = _get_slot_shapes(target_page_type, slide_types)
+        parts.append("=" * 60)
+        parts.append("MANDATORY TARGET FOR THIS RETRY")
+        parts.append("=" * 60)
+        parts.append(f'The corrected page_type MUST be "{target_page_type}".')
+        parts.append(
+            "The slots value MUST be a non-empty JSON object with exactly these "
+            f"top-level keys: {json.dumps(target_slots, ensure_ascii=False)}"
+        )
+        for slot_name, shape in target_shapes.items():
+            item_slots = list(shape.get("item_slots", []))
+            item_count = n_key_points if slot_name in {"cards", "steps", "columns"} else None
+            if item_count is not None:
+                parts.append(
+                    f'Populate slots.{slot_name} with exactly {item_count} items. '
+                    f"Each item must contain {json.dumps(item_slots, ensure_ascii=False)} "
+                    'plus "source_block_ids".'
+                )
+        parts.append("Do not return an empty slots object or an array for slots.")
+        parts.append("")
+    if previous_page_plan:
+        parts.append("=" * 60)
+        parts.append("YOUR PREVIOUS FULL PAGE PLAN (reuse its sourced content)")
+        parts.append("=" * 60)
+        parts.append(json.dumps(previous_page_plan, ensure_ascii=False, indent=2))
+        parts.append("")
     parts.append("=" * 60)
     parts.append("SOURCE SLIDE (unchanged)")
     parts.append("=" * 60)
@@ -781,15 +815,14 @@ def plan_pin_and_paper_slide(
         "content_warnings": list(content_warnings),
     }
 
-    # Validate page_type
+    # Validate page_type. An invented type is recoverable through the same
+    # full-page correction used for item-count routing violations.
     pt_errors = _validate_page_type(page_type, slide_types)
-    if pt_errors:
-        for e in pt_errors:
-            warnings.append(e)
-        return {"slide_plan": slide_plan, "warnings": warnings, "llm_calls": llm_calls}
+    for e in pt_errors:
+        warnings.append(e)
 
     # Validate slots
-    slot_errors = _validate_slots(page_type, slots, slide_types)
+    slot_errors = [] if pt_errors else _validate_slots(page_type, slots, slide_types)
     if slot_errors:
         for e in slot_errors:
             warnings.append(e)
@@ -799,15 +832,22 @@ def plan_pin_and_paper_slide(
 
     # ---- Phase 1.5: route correction retry (item-count invariant) -------------
     n_kp = _count_source_key_points(source_slide)
-    invariant_violations = _check_item_count_invariant(page_type, n_kp)
-    if invariant_violations:
+    invariant_violations = (
+        [] if pt_errors else _check_item_count_invariant(page_type, n_kp)
+    )
+    if pt_errors or invariant_violations:
         # Trigger a route-correction retry
+        reasons = [*pt_errors, *invariant_violations]
         warnings.append(
             f"route_correction_retry: {source_slide_id} — "
-            f"page_type={page_type!r} for {n_kp} KP: {'; '.join(invariant_violations)}"
+            f"page_type={page_type!r} for {n_kp} KP: {'; '.join(reasons)}"
         )
         correction_prompt = _build_correction_prompt(
-            source_slide, page_type, n_kp, slide_types,
+            source_slide,
+            page_type,
+            n_kp,
+            slide_types,
+            previous_page_plan=slide_plan,
         )
         try:
             raw_corr = llm_client(correction_prompt)

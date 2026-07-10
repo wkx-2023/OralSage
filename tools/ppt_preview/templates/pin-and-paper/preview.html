@@ -1138,6 +1138,11 @@ section.slide::after {
   color: var(--chapter-number);
 }
 
+.s-cta .pane.l h2,
+.s-cta .pane.l p {
+  color: var(--paper);
+}
+
 .s-cta .pane.r .step {
   border-top-color: rgba(158, 137, 191, .35);
 }
@@ -1170,6 +1175,19 @@ window.__PIN_PAPER_MODE__ = (function() {
   if (h === 'production') return 'production';
   if (h === 'generalized') return 'generalized';
   return 'default';
+})();
+window.__PIN_PAPER_PLAN_URL__ = (function() {
+  var value = new URLSearchParams(location.search).get('plan');
+  if (!value) return '';
+  // Runtime exporters serve the plan from the same local HTTP origin.
+  if (!/^\/[A-Za-z0-9._\/-]+\.json$/.test(value) || value.indexOf('..') !== -1) {
+    return '';
+  }
+  return value;
+})();
+window.__PIN_PAPER_EXPORT_PAGE__ = (function() {
+  var value = parseInt(new URLSearchParams(location.search).get('page') || '1', 10);
+  return Number.isFinite(value) && value > 0 ? value : 1;
 })();
 </script>
 <script src="deck-stage.js"></script>
@@ -1564,6 +1582,9 @@ window.__PIN_PAPER_MODE__ = (function() {
    * deck-stage's history.replaceState('#1') doesn't overwrite #production.
    */
   function getFixturePath() {
+    if (window.__PIN_PAPER_PLAN_URL__) {
+      return window.__PIN_PAPER_PLAN_URL__;
+    }
     var mode = window.__PIN_PAPER_MODE__ || 'default';
     if (mode === 'real-production') {
       return 'fixtures/real-llm-production-plan.v1.json';
@@ -1581,6 +1602,9 @@ window.__PIN_PAPER_MODE__ = (function() {
   }
 
   function getFixtureLabel() {
+    if (window.__PIN_PAPER_PLAN_URL__) {
+      return 'OralSage 运行时课程计划';
+    }
     var mode = window.__PIN_PAPER_MODE__ || 'default';
     if (mode === 'real-production') {
       return '真实LLM生产版（牙周炎 handout → slides.v1 → real LLM plan）';
@@ -1694,6 +1718,18 @@ window.__PIN_PAPER_MODE__ = (function() {
         deckStage.appendChild(slideEl);
       }
     });
+
+    setTimeout(function() {
+      var target = Math.min(
+        Math.max(window.__PIN_PAPER_EXPORT_PAGE__ - 1, 0),
+        Math.max(deckStage.length - 1, 0)
+      );
+      deckStage.goTo(target);
+      var overlay = deckStage.shadowRoot && deckStage.shadowRoot.querySelector('.overlay');
+      if (overlay) overlay.removeAttribute('data-visible');
+      window.__PIN_PAPER_RENDER_READY__ = true;
+      window.__PIN_PAPER_RENDERED_SLIDE_COUNT__ = deckStage.querySelectorAll('section.slide').length;
+    }, 0);
 
     console.log('Pin & Paper preview loaded: ' + total + ' slides');
     console.log('  Fixture path: ' + fixturePath);

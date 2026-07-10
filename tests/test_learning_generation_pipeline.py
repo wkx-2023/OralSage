@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import shutil
 import tempfile
 import unittest
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,7 +19,15 @@ from backend.services.learning.handout_cache import (
 )
 from backend.services.learning.orchestrator import _resolve_qa_outline_node
 from backend.services.learning.orchestrator import LearningOrchestrator
+from backend.services.learning.pin_and_paper_planner import plan_pin_and_paper_slide
 from backend.services.learning.planner import repair_non_content_planner_fields
+from backend.services.learning.ppt_pipeline import (
+    _find_browser,
+    _source_hash,
+    _write_json_atomic,
+    export_pin_and_paper_pptx,
+    refresh_ppt_resources,
+)
 from backend.services.learning.resource_factory import generate_handout_section
 from backend.services.learning.tutor import build_tutor_step_rule
 
@@ -248,6 +260,351 @@ class OrchestrationStateTests(unittest.TestCase):
             self.assertEqual(result["resource_json"]["schema_version"], "slides.v1")
             self.assertEqual(result["resource_json"]["slides"][0]["title"], "Definition")
             self.assertEqual(orchestrator._slides_resource_status(session_id)["status"], "ready")
+
+
+class PptPipelineTests(unittest.TestCase):
+    def _handout(self, node_id: str) -> dict:
+        return {
+            "outline_node_id": node_id,
+            "title": f"Section {node_id}",
+            "section_status": "llm_generated",
+            "content": {
+                "overview": f"Evidence-backed overview for {node_id}.",
+                "key_points": [
+                    {"heading": "Point one", "explanation": "Traceable explanation one.", "evidence_refs": ["chunk:one"]},
+                    {"heading": "Point two", "explanation": "Traceable explanation two.", "evidence_refs": ["chunk:two"]},
+                ],
+                "clinical_example": "",
+                "common_confusions": [],
+            },
+        }
+
+    def test_invented_three_card_type_is_corrected_with_complete_schema(self) -> None:
+        source_slide = {
+            "slide_id": "slide_node_2",
+            "outline_node_id": "node_2",
+            "title": "Risk factors",
+            "content": {
+                "key_points": [
+                    {"heading": "One", "explanation": "First"},
+                    {"heading": "Two", "explanation": "Second"},
+                    {"heading": "Three", "explanation": "Third"},
+                ],
+            },
+            "blocks": [
+                {"block_id": "block_1", "body": "First"},
+                {"block_id": "block_2", "body": "Second"},
+                {"block_id": "block_3", "body": "Third"},
+            ],
+        }
+        first_plan = {
+            "source_slide_id": "slide_node_2",
+            "source_outline_node_id": "node_2",
+            "page_type": "notes_3up",
+            "rationale": "Three parallel points.",
+            "slots": {"headline": "Risk factors", "cards": []},
+            "content_warnings": [],
+        }
+        corrected_plan = {
+            "source_slide_id": "slide_node_2",
+            "source_outline_node_id": "node_2",
+            "page_type": "notes",
+            "rationale": "Three parallel points.",
+            "slots": {
+                "headline": "Risk factors",
+                "subtitle": "",
+                "cards": [
+                    {"label": str(index), "title": title, "body": body, "scribble": "", "source_block_ids": [f"block_{index}"]}
+                    for index, (title, body) in enumerate(
+                        (("One", "First"), ("Two", "Second"), ("Three", "Third")),
+                        start=1,
+                    )
+                ],
+                "footer_left": "",
+                "footer_right": "",
+            },
+            "content_warnings": [],
+        }
+        prompts: list[str] = []
+
+        def llm_client(prompt: str) -> str:
+            prompts.append(prompt)
+            return json.dumps(first_plan if len(prompts) == 1 else corrected_plan)
+
+        result = plan_pin_and_paper_slide(source_slide, llm_client=llm_client)
+
+        self.assertEqual(result["slide_plan"]["page_type"], "notes")
+        self.assertEqual(len(result["slide_plan"]["slots"]["cards"]), 3)
+        self.assertEqual(result["llm_calls"], 2)
+        self.assertIn("YOUR PREVIOUS FULL PAGE PLAN", prompts[1])
+        self.assertIn('The corrected page_type MUST be "notes".', prompts[1])
+        self.assertIn("Do not return an empty slots object", prompts[1])
+
+    def test_partial_plan_uses_formal_slides_and_reuses_node_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            session_id = "session"
+            outline = {
+                "title": "Course",
+                "nodes": [
+                    {"id": "node_1", "title": "One"},
+                    {"id": "node_2", "title": "Two"},
+                    {"id": "node_3", "title": "Three"},
+                ],
+            }
+            for node_id in ("node_1", "node_2"):
+                save_handout_cache_ready(session_id, node_id, self._handout(node_id), "test", root)
+
+            def planned_deck(deck, **_kwargs):
+                return {
+                    "slides": [
+                        {
+                            "source_slide_id": slide["slide_id"],
+                            "source_outline_node_id": slide["outline_node_id"],
+                            "page_type": "notes_2up",
+                            "rationale": "Two source points.",
+                            "slots": {
+                                "headline": slide["title"],
+                                "subtitle": "",
+                                "cards": [
+                                    {"label": "01", "title": "One", "body": "Body one", "scribble": ""},
+                                    {"label": "02", "title": "Two", "body": "Body two", "scribble": ""},
+                                ],
+                                "footer_left": "OralSage",
+                                "footer_right": "",
+                            },
+                            "content_warnings": [],
+                        }
+                        for slide in deck["slides"]
+                    ],
+                    "warnings": [],
+                    "_llm_calls": len(deck["slides"]),
+                }
+
+            with patch(
+                "backend.services.learning.ppt_pipeline.plan_deck_concurrent",
+                side_effect=planned_deck,
+            ) as planner:
+                result = refresh_ppt_resources(
+                    session_id=session_id,
+                    outline=outline,
+                    resource_root=root,
+                    llm_client=lambda _prompt: "{}",
+                    export_pptx=False,
+                )
+                second = refresh_ppt_resources(
+                    session_id=session_id,
+                    outline=outline,
+                    resource_root=root,
+                    llm_client=lambda _prompt: "{}",
+                    export_pptx=False,
+                )
+
+            plan = result["pin_and_paper_plan"]
+            self.assertEqual(plan["status"], "partial")
+            self.assertEqual(plan["ready_node_ids"], ["node_1", "node_2"])
+            self.assertEqual(plan["missing_node_ids"], ["node_3"])
+            self.assertEqual(plan["content_slide_count"], 2)
+            self.assertEqual(len(result["slides"]["resource_json"]["slides"]), 2)
+            self.assertEqual(second["pin_and_paper_plan"]["content_slide_count"], 2)
+            self.assertEqual(planner.call_count, 1)
+
+    def test_failed_concurrent_plan_does_not_overwrite_ready_node_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            session_id = "session"
+            outline = {"title": "Course", "nodes": [{"id": "node_1", "title": "One"}]}
+            save_handout_cache_ready(session_id, "node_1", self._handout("node_1"), "test", root)
+            valid_plan = {
+                "source_slide_id": "slide_node_1",
+                "source_outline_node_id": "node_1",
+                "page_type": "notes_2up",
+                "rationale": "Two source points.",
+                "slots": {
+                    "headline": "One",
+                    "subtitle": "",
+                    "cards": [
+                        {"label": "1", "title": "One", "body": "First", "scribble": ""},
+                        {"label": "2", "title": "Two", "body": "Second", "scribble": ""},
+                    ],
+                    "footer_left": "",
+                    "footer_right": "",
+                },
+                "content_warnings": [],
+            }
+
+            def stale_failed_result(deck, **_kwargs):
+                slide = deck["slides"][0]
+                cache_path = root / session_id / "slides" / "pin_and_paper" / "node_1.json"
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(json.dumps({
+                    "schema_version": "learning.pin_and_paper_node_plan.v1",
+                    "session_id": session_id,
+                    "outline_node_id": "node_1",
+                    "source_slide_hash": _source_hash(slide),
+                    "status": "ready",
+                    "slide_plan": valid_plan,
+                    "warnings": [],
+                    "error": None,
+                }), encoding="utf-8")
+                return {
+                    "slides": [{
+                        **valid_plan,
+                        "page_type": "notes_3up",
+                    }],
+                    "warnings": ["stale invalid result"],
+                    "_llm_calls": 1,
+                }
+
+            with patch(
+                "backend.services.learning.ppt_pipeline.plan_deck_concurrent",
+                side_effect=stale_failed_result,
+            ):
+                result = refresh_ppt_resources(
+                    session_id=session_id,
+                    outline=outline,
+                    resource_root=root,
+                    llm_client=lambda _prompt: "{}",
+                    export_pptx=False,
+                )
+
+            self.assertEqual(result["pin_and_paper_plan"]["status"], "ready")
+            cache = json.loads(
+                (root / session_id / "slides" / "pin_and_paper" / "node_1.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(cache["status"], "ready")
+            self.assertEqual(cache["slide_plan"]["page_type"], "notes_2up")
+
+    def test_concurrent_json_cache_writes_remain_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "cache.json"
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                list(executor.map(
+                    lambda index: _write_json_atomic(path, {"writer": index}),
+                    range(64),
+                ))
+
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertIn(payload["writer"], range(64))
+            self.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
+
+    def test_failed_rebuild_preserves_last_good_pptx(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            session_id = "session"
+            session_dir = root / session_id
+            session_dir.mkdir(parents=True)
+            output_path = session_dir / "lesson.pptx"
+            output_path.write_bytes(b"previous valid pptx")
+            plan_path = session_dir / "slides" / "pin_and_paper_plan.v1.json"
+            plan_path.parent.mkdir(parents=True)
+            plan_path.write_text("{}", encoding="utf-8")
+            fake_exporter = root / "tools" / "export.mjs"
+            fake_exporter.parent.mkdir(parents=True)
+            fake_exporter.write_text("", encoding="utf-8")
+            (fake_exporter.parent / "node_modules" / "pptxgenjs").mkdir(parents=True)
+            plan = {
+                "status": "ready",
+                "expected_node_ids": ["node_1"],
+                "ready_node_ids": ["node_1"],
+                "missing_node_ids": [],
+                "content_slide_count": 1,
+                "slides": [{
+                    "source_outline_node_id": "node_1",
+                    "page_type": "quote",
+                    "slots": {"headline": "Definition"},
+                }],
+            }
+
+            with (
+                patch("backend.services.learning.ppt_pipeline._EXPORTER_PATH", fake_exporter),
+                patch("backend.services.learning.ppt_pipeline.shutil.which", return_value="node"),
+                patch(
+                    "backend.services.learning.ppt_pipeline._render_plan_to_pngs",
+                    side_effect=RuntimeError("render failed"),
+                ),
+            ):
+                status = export_pin_and_paper_pptx(
+                    session_id=session_id,
+                    plan=plan,
+                    plan_path=plan_path,
+                    resource_root=root,
+                )
+
+            self.assertFalse(status["ok"])
+            self.assertEqual(output_path.read_bytes(), b"previous valid pptx")
+
+    @unittest.skipUnless(
+        _find_browser() is not None
+        and shutil.which("node")
+        and (REPO_ROOT / "tools" / "ppt_export" / "node_modules" / "pptxgenjs").exists(),
+        "Edge/Chrome and PptxGenJS are required",
+    )
+    def test_html_renderer_exports_distinct_pptx_pages(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            session_id = "session"
+            plan = {
+                "schema_version": "pin_and_paper_slide_plan.v1",
+                "template_slug": "pin-and-paper",
+                "deck_title": "Course",
+                "session_id": session_id,
+                "status": "ready",
+                "expected_node_ids": ["node_1"],
+                "ready_node_ids": ["node_1"],
+                "missing_node_ids": [],
+                "content_slide_count": 1,
+                "slides": [
+                    {
+                        "source_slide_id": "cover",
+                        "source_outline_node_id": "",
+                        "page_type": "cover",
+                        "rationale": "Cover",
+                        "slots": {
+                            "eyebrow": "ORALSAGE", "title": "Course",
+                            "subtitle_line1": "Line one", "subtitle_line2": "Line two",
+                            "presenter": "OralSage", "presenter_role": "Learning assistant",
+                            "date_label": "2026.07.10", "handwritten_note": "Start here",
+                        },
+                        "content_warnings": [],
+                    },
+                    {
+                        "source_slide_id": "slide_node_1",
+                        "source_outline_node_id": "node_1",
+                        "page_type": "quote",
+                        "rationale": "Definition",
+                        "slots": {
+                            "headline": "Definition", "quote_text": "Evidence-backed definition.",
+                            "attribution_name": "Source", "attribution_detail": "Textbook",
+                            "footer_left": "OralSage", "footer_right": "01",
+                        },
+                        "content_warnings": [],
+                    },
+                ],
+            }
+            plan_path = root / session_id / "slides" / "pin_and_paper_plan.v1.json"
+            plan_path.parent.mkdir(parents=True)
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            status = export_pin_and_paper_pptx(
+                session_id=session_id,
+                plan=plan,
+                plan_path=plan_path,
+                resource_root=root,
+            )
+
+            self.assertTrue(status["ok"])
+            self.assertEqual(status["validation"]["slide_count"], 2)
+            with zipfile.ZipFile(status["pptx_path"]) as archive:
+                images = [
+                    archive.read(name)
+                    for name in sorted(archive.namelist())
+                    if name.startswith("ppt/media/") and name.endswith(".png")
+                ]
+            self.assertEqual(len(images), 2)
+            self.assertNotEqual(
+                hashlib.sha256(images[0]).hexdigest(),
+                hashlib.sha256(images[1]).hexdigest(),
+            )
 
 
 class AudioManifestTests(unittest.TestCase):
