@@ -815,7 +815,7 @@ def _learning_session_resource_dir(session_id: str) -> Path:
 
 @app.get("/api/learning/session/{session_id}/slides")
 async def learning_session_slides(session_id: str) -> JSONResponse:
-    """Return the aligned ``slides.v1`` courseware deck."""
+    """Return the formal ``slides.v1`` deck used by the PPT preview chain."""
     path = _learning_session_resource_dir(session_id) / "slides" / "slides.v1.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Slides resource not found")
@@ -826,27 +826,9 @@ async def learning_session_slides(session_id: str) -> JSONResponse:
     return JSONResponse({"ok": True, "module": "learning", "action": "slides", "result": deck})
 
 
-@app.get("/api/learning/session/{session_id}/pptx-status")
-async def learning_session_pptx_status(session_id: str) -> JSONResponse:
-    """Return truthful PPTX generation and completeness state."""
-    path = _learning_session_resource_dir(session_id) / "pptx_status.json"
-    if not path.exists():
-        return JSONResponse({
-            "ok": True,
-            "module": "learning",
-            "action": "pptx_status",
-            "result": {"status": "missing", "ok": False},
-        })
-    try:
-        status = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"PPTX status is invalid: {exc}") from exc
-    return JSONResponse({"ok": True, "module": "learning", "action": "pptx_status", "result": status})
-
-
 @app.post("/api/learning/session/{session_id}/resources/retry")
 async def learning_session_retry_resources(session_id: str) -> JSONResponse:
-    """Resume failed or interrupted courseware generation for a session."""
+    """Resume failed or interrupted handout generation and refresh slides.v1."""
     result = learning_orchestrator.retry_failed_resources(session_id)
     return JSONResponse({
         "ok": bool(result.get("started")),
@@ -854,27 +836,6 @@ async def learning_session_retry_resources(session_id: str) -> JSONResponse:
         "action": "retry_resources",
         "result": result,
     })
-
-
-@app.get("/api/learning/session/{session_id}/pptx")
-async def learning_session_pptx_file(session_id: str) -> FileResponse:
-    """Download a fully generated lesson PPTX."""
-    session_dir = _learning_session_resource_dir(session_id)
-    status_path = session_dir / "pptx_status.json"
-    try:
-        status = json.loads(status_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail="PPTX resource is not ready") from exc
-    if status.get("status") != "ready" or status.get("ok") is not True:
-        raise HTTPException(status_code=409, detail="PPTX resource is not ready")
-    candidate = (session_dir / "lesson.pptx").resolve()
-    if session_dir not in candidate.parents or not candidate.exists() or not candidate.is_file():
-        raise HTTPException(status_code=404, detail="PPTX file not found")
-    return FileResponse(
-        candidate,
-        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        filename=f"{session_id}.pptx",
-    )
 
 
 @app.get("/api/learning/session/{session_id}/audio/{outline_node_id}/{filename}")

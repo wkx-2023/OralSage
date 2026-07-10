@@ -333,7 +333,7 @@ def build_reading_list(topic: str, outline: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_pptx_status(slides_path: Path) -> dict[str, Any]:
-    """Return the initial status before courseware/PPTX background generation.
+    """Return a placeholder PPTX status; export is not implemented here.
 
     Parameters
     ----------
@@ -342,9 +342,9 @@ def build_pptx_status(slides_path: Path) -> dict[str, Any]:
     """
     return {
         "ok": False,
-        "status": "pending",
+        "status": "not_implemented",
         "message": (
-            "正在等待完整讲义与逐页讲稿；准备完成后将由 PptxGenJS 导出。"
+            "MVP 当前先生成 slides.json，PPTX 导出将在后续接入。"
         ),
         "slides_path": str(slides_path),
     }

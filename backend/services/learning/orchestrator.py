@@ -22,7 +22,6 @@ from typing import Any, Callable
 
 from .assessment import assess_answer
 from .audio import ensure_handout_audio, get_section_audio, reconcile_audio_manifest
-from .courseware import build_courseware_resources, get_courseware_status
 from .handout_cache import (
     get_handout_cache,
     list_handout_cache_status,
@@ -40,7 +39,10 @@ from .memory import LearningMemory
 from .planner import complete_progressive_lesson_plan, plan_lesson
 from .profile_memory import build_profile_slice, update_learner_memory_from_event
 from .qa import answer_interruption_question, answer_question_with_evidence
-from .resource_factory import generate_resources
+from .resource_factory import (
+    generate_resources,
+    generate_slides_resource_from_session_cache,
+)
 from .resource_factory import generate_handout_section as _generate_handout_section
 from .tutor import build_tutor_step as _build_tutor_step
 from .tutor import build_tutor_signals
@@ -298,7 +300,7 @@ class LearningOrchestrator:
             outline_nodes=nodes,
             resource_root=self.resource_root,
         )
-        courseware = self._refresh_courseware(session_id, outline)
+        slides_resource = self._refresh_slides_resource(session_id, outline)
 
         return {
             "session": session,
@@ -314,7 +316,7 @@ class LearningOrchestrator:
                 first_node_id,
             ),
             "audio_manifest": audio_manifest,
-            "courseware": courseware,
+            "slides_resource": slides_resource,
             "outline_status": (
                 "initial_ready" if outline_completion_started else "complete"
             ),
@@ -486,23 +488,38 @@ class LearningOrchestrator:
         except Exception:
             return None
 
-    def _refresh_courseware(
+    def _refresh_slides_resource(
         self,
         session_id: str,
         outline: dict[str, Any],
     ) -> dict[str, Any]:
-        """Best-effort refresh of aligned slides, audio status, and PPTX."""
+        """Build the formal slides.v1 resource from the session cache."""
         try:
-            return build_courseware_resources(
+            return generate_slides_resource_from_session_cache(
                 session_id=session_id,
                 outline=outline,
-                resource_root=self.resource_root,
+                output_root=self.resource_root,
             )
         except Exception as exc:
             return {
                 "status": "failed",
-                "error": f"courseware_refresh_raised: {exc}",
+                "error": f"slides_resource_refresh_raised: {exc}",
             }
+
+    def _slides_resource_status(self, session_id: str) -> dict[str, Any]:
+        """Read the formal slides.v1 resource state without generating content."""
+        path = Path(self.resource_root) / session_id / "slides" / "slides.v1.json"
+        if not path.exists():
+            return {"status": "missing", "resource_path": str(path), "slide_count": 0}
+        try:
+            deck = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            return {"status": "failed", "resource_path": str(path), "error": str(exc)}
+        return {
+            "status": "ready",
+            "resource_path": str(path),
+            "slide_count": len(deck.get("slides", [])) if isinstance(deck, dict) else 0,
+        }
 
     def retry_failed_resources(self, session_id: str) -> dict[str, Any]:
         """Resume failed or interrupted generation from persisted evidence."""
@@ -530,16 +547,12 @@ class LearningOrchestrator:
         if len(nodes) > 1:
             self._start_handout_prefetch_background(session_id, outline)
         elif first_ready:
-            self._refresh_courseware(session_id, outline)
+            self._refresh_slides_resource(session_id, outline)
         return {
             "started": True,
             "first_section_ready": first_ready,
             "background_prefetch_started": len(nodes) > 1,
-            "resource_status": get_courseware_status(
-                session_id=session_id,
-                outline=outline,
-                resource_root=self.resource_root,
-            ),
+            "resource_status": self._slides_resource_status(session_id),
         }
 
     def _prepare_first_handout_section_sync(
@@ -792,7 +805,7 @@ class LearningOrchestrator:
             outline_nodes=nodes,
             resource_root=self.resource_root,
         )
-        self._refresh_courseware(session_id, outline)
+        self._refresh_slides_resource(session_id, outline)
 
     def _generate_and_cache_tutor_step_draft(
         self,
@@ -1445,7 +1458,7 @@ class LearningOrchestrator:
                         cache_miss_sync_generation = False
 
                 if hs.get("section_status") == "llm_generated" and cache_miss_sync_generation:
-                    self._refresh_courseware(session_id, outline)
+                    self._refresh_slides_resource(session_id, outline)
 
                 if hs.get("section_status") == "llm_generated":
                     # Cache for later QA reads (avoids regeneration)
@@ -2231,11 +2244,7 @@ class LearningOrchestrator:
             outline_rec["outline"].get("nodes", []) if outline_rec else []
         )
         summary = self.memory.session_summary(session_id)
-        resource_status = get_courseware_status(
-            session_id=session_id,
-            outline=outline_rec["outline"] if outline_rec else {},
-            resource_root=self.resource_root,
-        )
+        resource_status = self._slides_resource_status(session_id)
 
         return {
             "session_id": session["id"],

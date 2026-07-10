@@ -1,21 +1,18 @@
 from __future__ import annotations
 
 import json
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from backend.services.learning.audio import reconcile_audio_manifest
-from backend.services.learning.courseware import build_courseware_resources, export_pptx
 from backend.services.learning.handout_cache import (
     get_handout_cache,
     save_handout_cache_failed,
     save_handout_cache_pending,
     save_handout_cache_ready,
 )
-from backend.services.learning.lecture_script import build_and_save_lecture_script
 from backend.services.learning.orchestrator import _resolve_qa_outline_node
 from backend.services.learning.orchestrator import LearningOrchestrator
 from backend.services.learning.planner import repair_non_content_planner_fields
@@ -218,15 +215,42 @@ class OrchestrationStateTests(unittest.TestCase):
         self.assertEqual(result["blocked_outline_node_id"], "node_2")
         self.assertEqual(orchestrator.memory.current, "node_1")
 
+    def test_refresh_slides_resource_uses_formal_session_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            session_id = "session"
+            node_id = "node_1"
+            handout = {
+                "outline_node_id": node_id,
+                "title": "Definition",
+                "section_status": "llm_generated",
+                "content": {
+                    "overview": "Evidence-backed overview.",
+                    "key_points": [{
+                        "heading": "Core concept",
+                        "explanation": "A traceable explanation from the handout.",
+                        "evidence_refs": ["chunk:source"],
+                    }],
+                    "clinical_example": "",
+                    "common_confusions": [],
+                },
+            }
+            save_handout_cache_ready(session_id, node_id, handout, "test", root)
+            orchestrator = object.__new__(LearningOrchestrator)
+            orchestrator.resource_root = root
 
-class CoursewareTests(unittest.TestCase):
-    def _content_fixture(self) -> dict:
-        return json.loads(
-            (REPO_ROOT / "scripts" / "fixtures" / "handout_section_fixture.json").read_text(
-                encoding="utf-8"
+            result = orchestrator._refresh_slides_resource(
+                session_id,
+                {"title": "Course", "nodes": [{"id": node_id, "title": "Definition"}]},
             )
-        )
 
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["resource_json"]["schema_version"], "slides.v1")
+            self.assertEqual(result["resource_json"]["slides"][0]["title"], "Definition")
+            self.assertEqual(orchestrator._slides_resource_status(session_id)["status"], "ready")
+
+
+class AudioManifestTests(unittest.TestCase):
     def test_audio_manifest_is_partial_when_only_three_of_five_sections_exist(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -249,103 +273,6 @@ class CoursewareTests(unittest.TestCase):
             self.assertEqual(result["status"], "partial")
             self.assertEqual(result["ready_section_count"], 3)
             self.assertEqual(result["missing_section_ids"], ["node_3", "node_5"])
-
-    def test_partial_deck_removes_stale_pptx(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            session_dir = root / "session"
-            slides_dir = session_dir / "slides"
-            slides_dir.mkdir(parents=True)
-            slides_path = slides_dir / "slides.v1.json"
-            slides_path.write_text("{}", encoding="utf-8")
-            stale_pptx = session_dir / "lesson.pptx"
-            stale_pptx.write_bytes(b"stale")
-
-            status = export_pptx(
-                deck={
-                    "session_id": "session",
-                    "status": "partial",
-                    "expected_section_count": 2,
-                    "ready_section_count": 1,
-                    "missing_node_ids": ["node_2"],
-                    "slide_count": 1,
-                },
-                slides_path=slides_path,
-                resource_root=root,
-            )
-
-            self.assertEqual(status["status"], "partial")
-            self.assertFalse(stale_pptx.exists())
-
-    @unittest.skipUnless(
-        shutil.which("node")
-        and (REPO_ROOT / "tools" / "ppt_export" / "node_modules" / "pptxgenjs").exists(),
-        "PptxGenJS runtime is not installed",
-    )
-    def test_complete_scripts_export_a_valid_pptx(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            session_id = "session"
-            content = self._content_fixture()
-            outline = {"title": "Course", "nodes": []}
-            audio_sections = []
-            for index in range(1, 3):
-                node_id = f"node_{index}"
-                title = f"Section {index}"
-                handout = {
-                    "outline_node_id": node_id,
-                    "title": title,
-                    "section_status": "llm_generated",
-                    "content": content,
-                }
-                save_handout_cache_ready(session_id, node_id, handout, "test", root)
-                script = build_and_save_lecture_script(
-                    session_id=session_id,
-                    outline_node_id=node_id,
-                    handout_section=handout,
-                    resource_root=root,
-                )
-                outline["nodes"].append({"id": node_id, "title": title})
-                audio_sections.append({
-                    "outline_node_id": node_id,
-                    "status": "ready",
-                    "slide_count": script["slide_count"],
-                    "audio_count": script["slide_count"],
-                    "slides": [
-                        {
-                            "slide_id": item["slide_id"],
-                            "status": "ready",
-                            "audio_file": f"audio_files/{node_id}/{item['slide_id']}.mp3",
-                            "text_hash": item["text_hash"],
-                        }
-                        for item in script["slides"]
-                    ],
-                })
-            session_dir = root / session_id
-            (session_dir / "audio_manifest.json").write_text(
-                json.dumps({"session_id": session_id, "status": "ready", "sections": audio_sections}),
-                encoding="utf-8",
-            )
-
-            result = build_courseware_resources(
-                session_id=session_id,
-                outline=outline,
-                resource_root=root,
-            )
-            self.assertEqual(result["status"], "ready")
-            self.assertEqual(result["slides"]["status"], "ready")
-            self.assertTrue(result["pptx_status"]["ok"])
-            self.assertTrue(Path(result["pptx_status"]["pptx_path"]).exists())
-            self.assertEqual(
-                result["pptx_status"]["validation"]["slide_count"],
-                result["slides"]["slide_count"] + 1,
-            )
-            self.assertGreaterEqual(
-                result["pptx_status"]["validation"]["notes_count"],
-                result["slides"]["slide_count"],
-            )
-            self.assertTrue(Path(result["pin_and_paper_plan_path"]).exists())
-
 
 if __name__ == "__main__":
     unittest.main()

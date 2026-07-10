@@ -679,6 +679,480 @@ section.slide.ink .footer { color: var(--paper); opacity: .75; }
   margin-left: 8px;
   vertical-align: middle;
 }
+
+/* ============ OralSage purple medical theme override ============ */
+:root {
+  --paper: #f7f4f8;
+  --paper-2: #e8e1f0;
+  --paper-3: #baaccf;
+  --cream: #f7f4f8;
+  --ink: #624c95;
+  --ink-soft: #7e72a6;
+  --ink-line: #9e89bf;
+  --black: #3e3a39;
+  --red: #9e89bf;
+  --title-purple: #625195;
+  --chapter-purple: #624c95;
+  --section-purple: #624c95;
+  --body-text: #3e3a39;
+  --chapter-number: #b6a4ce;
+  --fill-light: #e8e1f0;
+  --fill-soft: #f7f4f8;
+  --decor-dark: #9e89bf;
+  --decor-mid: #baaccf;
+}
+
+html, body,
+body,
+.top,
+.footer,
+.scribble,
+.stamp,
+.s-cover .super,
+.s-cover h1,
+.s-cover .handwritten,
+.s-cover .row .who,
+.s-cover .row .date,
+.s-agenda h2,
+.s-agenda .row-item .num,
+.s-agenda .row-item .lab,
+.s-agenda .row-item .meta,
+.s-notes h2,
+.s-notes .card .num,
+.s-notes .card h3,
+.s-sec .marker,
+.s-sec .label,
+.s-sec h2,
+.s-notice .head .pre,
+.s-notice .head h2,
+.s-notice .col h3,
+.s-notice .col .meta,
+.s-notice .col .src,
+.s-chart .left h2,
+.s-chart .left .legend .li,
+.s-chart .right .yhead,
+.s-chart .plot .yticks,
+.s-chart .right .xticks,
+.s-process .head h2,
+.s-process .head .sub,
+.s-process .node .n,
+.s-process .node h3,
+.s-process .timeline,
+.s-matrix .head h2,
+.s-matrix .cell.head-row,
+.s-matrix .cell.row-label,
+.s-matrix .pill,
+.s-stats .head h2,
+.s-stats .stat .big,
+.s-stats .stat h3,
+.s-quote .qmark,
+.s-quote blockquote,
+.s-quote .who,
+.s-cta .pane.l .super,
+.s-cta .pane.l h2,
+.s-cta .pane.r h3,
+.s-cta .pane.r .step .n,
+.s-cta .pane.r .step h4 {
+  font-family: SimHei, "黑体", "Microsoft YaHei", "微软雅黑", Arial, sans-serif !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+body { color: var(--body-text); }
+
+section.slide,
+section.slide.deep,
+section.slide.cream {
+  background: var(--fill-soft) url("assets/oralsage/page.png") center / cover no-repeat;
+  color: var(--body-text);
+}
+
+section.slide.ink {
+  background: linear-gradient(135deg, var(--chapter-purple), var(--decor-dark));
+  color: var(--fill-soft);
+}
+
+section.slide::before {
+  background: none;
+  opacity: 0;
+}
+
+section.slide::after {
+  content: "";
+  position: absolute;
+  inset: auto 70px 54px auto;
+  width: 108px;
+  height: 9px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--decor-mid), var(--decor-dark));
+  opacity: .7;
+  pointer-events: none;
+}
+
+.top {
+  top: 34px;
+  left: 56px;
+  right: 56px;
+  color: var(--decor-dark);
+  font-size: 18px;
+  opacity: .95;
+}
+
+.top .lockup {
+  gap: 18px;
+  color: var(--chapter-purple);
+  font-weight: 700;
+}
+
+.top .lockup svg { display: none; }
+.top .template-logo {
+  width: 142px;
+  height: auto;
+  display: block;
+}
+
+.top .meta {
+  color: var(--ink-soft);
+  font-size: 17px;
+  gap: 26px;
+  opacity: .95;
+}
+
+.footer {
+  left: 64px;
+  right: 64px;
+  bottom: 36px;
+  color: var(--ink-soft);
+  font-size: 16px;
+  opacity: .8;
+}
+
+.footer span:last-child {
+  color: var(--chapter-number);
+  font-weight: 700;
+}
+
+.pin,
+.pin-1,
+.pin-2,
+.pin-big,
+.pin-deco {
+  display: none !important;
+}
+
+.s-cover {
+  background: var(--fill-soft) url("assets/oralsage/cover.png") center / cover no-repeat !important;
+}
+
+.s-cover::after { display: none; }
+
+.s-cover .stage {
+  padding: 106px 104px 102px;
+  display: block;
+}
+
+.s-cover .cover-logo {
+  position: absolute;
+  left: 92px;
+  top: 66px;
+  width: 210px;
+  height: auto;
+}
+
+.s-cover .cover-robot {
+  position: absolute;
+  right: 112px;
+  bottom: 150px;
+  width: 330px;
+  height: auto;
+  filter: drop-shadow(0 16px 28px rgba(98, 81, 149, .16));
+}
+
+.s-cover .super {
+  position: absolute;
+  left: 116px;
+  top: 318px;
+  color: var(--ink-soft);
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.s-cover h1 {
+  position: absolute;
+  left: 110px;
+  right: 560px;
+  top: 380px;
+  max-width: none;
+  color: var(--title-purple);
+  font-size: 82px;
+  line-height: 1.22;
+  font-weight: 700;
+}
+
+.s-cover .handwritten {
+  left: 116px;
+  right: auto;
+  bottom: 278px;
+  max-width: 780px;
+  color: var(--ink-soft);
+  font-size: 32px;
+  line-height: 1.45;
+  text-align: left;
+  transform: none;
+}
+
+.s-cover .handwritten .underline {
+  border-bottom: 0;
+}
+
+.s-cover .row {
+  position: absolute;
+  left: 116px;
+  right: 116px;
+  bottom: 122px;
+  color: var(--ink-soft);
+}
+
+.s-cover .row .who,
+.s-cover .row .date {
+  color: var(--ink-soft);
+  font-size: 22px;
+  line-height: 1.45;
+}
+
+.s-cover .row .who small {
+  color: var(--ink-soft);
+  font-size: 18px;
+}
+
+.s-agenda h2,
+.s-notes h2,
+.s-notice .head h2,
+.s-process .head h2,
+.s-matrix .head h2,
+.s-stats .head h2,
+.s-cta .pane.l h2 {
+  color: var(--section-purple);
+  font-weight: 700;
+}
+
+.s-agenda h2 {
+  left: 110px;
+  top: 132px;
+  font-size: 72px;
+}
+
+.s-agenda .list {
+  left: 150px;
+  right: 150px;
+  top: 286px;
+  bottom: 124px;
+  gap: 18px;
+}
+
+.s-agenda .row-item {
+  grid-template-columns: 110px 1fr 0 220px;
+  gap: 24px;
+  padding: 26px 34px;
+  background: rgba(247, 244, 248, .84);
+  border: 0;
+  border-radius: 22px;
+  box-shadow: 0 12px 30px rgba(98, 76, 149, .08);
+}
+
+.s-agenda .row-item .num {
+  color: var(--chapter-number);
+  font-size: 42px;
+  font-weight: 700;
+}
+
+.s-agenda .row-item .lab {
+  color: var(--chapter-purple);
+  font-size: 36px;
+  font-weight: 700;
+}
+
+.s-agenda .row-item .meta {
+  color: var(--ink-soft);
+  font-size: 17px;
+}
+
+.s-notes .head,
+.s-notice .head,
+.s-process .head,
+.s-matrix .head,
+.s-stats .head {
+  left: 96px;
+  right: 96px;
+  top: 116px;
+}
+
+.s-notes h2 { font-size: 58px; line-height: 1.18; }
+.s-notes .sub,
+.s-process .head .sub,
+.s-matrix .head .sub,
+.s-stats .head .sub,
+.s-cta .pane.l p {
+  color: var(--body-text);
+  font-size: 23px;
+  line-height: 1.62;
+}
+
+.s-notes .grid,
+.s-notes .grid.notes-2up,
+.s-notes .grid.notes-4up,
+.s-stats .grid {
+  left: 96px;
+  right: 96px;
+  top: 338px;
+  bottom: 112px;
+  gap: 30px;
+}
+
+.s-notes .card,
+.s-notice .col,
+.s-process .node,
+.s-matrix .table,
+.s-stats .stat,
+.s-quote .panel,
+.s-cta .pane {
+  background: rgba(247, 244, 248, .9);
+  border: 2px solid rgba(158, 137, 191, .45);
+  border-radius: 22px;
+  box-shadow: 0 14px 34px rgba(98, 76, 149, .10);
+}
+
+.s-notes .card.alt,
+.s-notice .col.b,
+.s-process .node.alt,
+.s-stats .stat.alt,
+.s-matrix .cell.head-row {
+  background: var(--fill-light);
+}
+
+.s-notes .card.alt2,
+.s-process .node.alt2,
+.s-stats .stat.alt2 {
+  background: var(--fill-soft);
+  transform: none;
+}
+
+.s-notes .card h3,
+.s-notice .col h3,
+.s-process .node h3,
+.s-stats .stat h3,
+.s-cta .pane.r .step h4 {
+  color: var(--section-purple);
+}
+
+.s-notes .card p,
+.s-notice .col p,
+.s-notice .col ul,
+.s-process .node p,
+.s-matrix .cell,
+.s-stats .stat p,
+.s-cta .pane.r .step p {
+  color: var(--body-text);
+  font-size: 20px;
+  line-height: 1.55;
+}
+
+.s-notes .card .num,
+.s-process .node .n,
+.s-stats .stat .big,
+.s-cta .pane.r .step .n {
+  color: var(--chapter-number);
+}
+
+.s-sec {
+  background: linear-gradient(135deg, var(--fill-light), var(--fill-soft)) !important;
+  color: var(--section-purple);
+}
+
+.s-sec .marker,
+.s-sec .label,
+.s-sec h2,
+.s-sec .scribble {
+  color: var(--section-purple);
+}
+
+.s-sec h2 {
+  font-size: 92px;
+  right: 160px;
+  bottom: 260px;
+}
+
+.s-sec .scribble {
+  font-size: 28px;
+  transform: none;
+}
+
+.s-notice .head .pre {
+  color: var(--chapter-number);
+  border-right-color: var(--decor-mid);
+}
+
+.s-matrix .cell {
+  border-color: rgba(158, 137, 191, .35);
+}
+
+.s-matrix .cell.head-row {
+  color: var(--section-purple);
+  border-right-color: rgba(158, 137, 191, .35);
+}
+
+.s-matrix .pill {
+  border-color: var(--decor-mid);
+}
+
+.s-chart.ink {
+  background: linear-gradient(135deg, var(--section-purple), var(--decor-dark)) !important;
+}
+
+.s-chart .left h2,
+.s-chart .left p,
+.s-chart .left .legend .li {
+  color: var(--fill-soft);
+}
+
+.s-chart .right {
+  background: var(--fill-soft);
+  border-color: rgba(158, 137, 191, .45);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .16);
+}
+
+.s-quote .qmark {
+  color: var(--chapter-number);
+}
+
+.s-quote blockquote {
+  color: var(--body-text);
+}
+
+.s-cta .stage {
+  gap: 34px;
+}
+
+.s-cta .pane.l .super,
+.s-cta .pane.r h3 {
+  color: var(--chapter-number);
+}
+
+.s-cta .pane.r .step {
+  border-top-color: rgba(158, 137, 191, .35);
+}
+
+.template-robot {
+  position: absolute;
+  right: 84px;
+  bottom: 82px;
+  width: 150px;
+  height: auto;
+  opacity: .95;
+  filter: drop-shadow(0 10px 18px rgba(98, 81, 149, .12));
+  pointer-events: none;
+  z-index: 3;
+}
 </style>
 <!-- Capture fixture intent BEFORE deck-stage rewrites location.hash to a page number. -->
 <script>
@@ -771,7 +1245,7 @@ window.__PIN_PAPER_MODE__ = (function() {
     var slots = slidePlan.slots || {};
     var label = pageTypeLabels[pageType] || pageType;
     return '<div class="top">'
-      + '<span class="lockup"><svg><use href="#mark"/></svg> ' + esc(label) + '</span>'
+      + '<span class="lockup"><img class="template-logo" src="assets/oralsage/logo.png" alt="OralSage"> ' + esc(label) + '</span>'
       + '<span class="meta"><span>OralSage</span><span>' + esc(slots.eyebrow || '') + '</span></span>'
       + '</div>';
   }
@@ -783,7 +1257,8 @@ window.__PIN_PAPER_MODE__ = (function() {
     var right = esc(slots.footer_right || '');
     var page = String(idx + 1).padStart(2, '0');
     var totalStr = String(total).padStart(2, '0');
-    return '<div class="footer"><span>' + left + '</span><span>' + page + ' / ' + totalStr + '</span></div>';
+    return '<img class="template-robot" src="assets/oralsage/robot-2.png" alt="">'
+      + '<div class="footer"><span>' + left + '</span><span>' + page + ' / ' + totalStr + '</span></div>';
   }
 
   var pageTypeLabels = {
@@ -798,6 +1273,8 @@ window.__PIN_PAPER_MODE__ = (function() {
     return '<section class="slide s-cover" data-label="封面">'
       + '<svg class="pin-1" viewBox="0 0 360 110"><use href="#pin"/></svg>'
       + '<svg class="pin-2" viewBox="0 0 360 130"><use href="#pin-open"/></svg>'
+      + '<img class="cover-logo" src="assets/oralsage/logo.png" alt="OralSage">'
+      + '<img class="cover-robot" src="assets/oralsage/robot-1.png" alt="">'
       + '<div class="stage">'
       + '<div class="super">' + esc(slots.eyebrow || '') + '</div>'
       + '<h1>' + esc(slots.title || '') + '</h1>'

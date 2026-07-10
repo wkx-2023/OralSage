@@ -268,15 +268,12 @@ def _print_state(orchestrator: LearningOrchestrator, session_id: str) -> None:
     resources = state.get("resource_status", {})
     if resources:
         print()
-        print("【Courseware Status】")
-        print(f"  overall:          {resources.get('status')}")
-        print(f"  handout:          {resources.get('handout', {}).get('ready_count')}/{resources.get('expected_section_count')}")
-        print(f"  lecture_script:   {resources.get('lecture_script', {}).get('ready_count')}/{resources.get('expected_section_count')}")
-        print(f"  audio:            {resources.get('audio', {}).get('status')}")
-        print(f"  slides:           {resources.get('slides', {}).get('status')} ({resources.get('slides', {}).get('slide_count')} pages)")
-        print(f"  pptx:             {resources.get('pptx', {}).get('status')}")
-        if resources.get('pptx', {}).get('error'):
-            print(f"  pptx_error:       {resources.get('pptx', {}).get('error')}")
+        print("【PPT Slides Status】")
+        print(f"  status:           {resources.get('status')}")
+        print(f"  slide_count:      {resources.get('slide_count')}")
+        print(f"  resource_path:    {resources.get('resource_path')}")
+        if resources.get('error'):
+            print(f"  error:            {resources.get('error')}")
 
     # Show handout cache status table
     try:

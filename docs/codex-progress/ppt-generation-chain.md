@@ -427,3 +427,12 @@
 - 若目视质量可接受，下一步做 PPTX 导出或 HTML-to-PPTX 转换探索。
 - 若目视质量仍有问题，优先调整 Pin & Paper prompt/slot contract/retry 校验，而不是改 CSS 或手写 fixture。
 - 接 API/Orchestrator 前，仍建议先用真实 session cache 做一次 `handout_section -> slides.v1 -> real LLM plan -> preview` 的端到端验收。
+
+## 2026-07-10 集成清理
+
+- 工作区：`C:\Users\luzhiyi\OralSage`；目标：将正式 Pin & Paper 分支合入整合主路径，并移除误加的 courseware/PPTX 导出链路。
+- 正式 PPT 分支 `de4c804` 已原样合入；`tools/ppt_preview/templates/pin-and-paper/**` 与远端正式分支逐字一致。
+- Orchestrator 现在通过既有 `generate_slides_resource_from_session_cache()` 从 session 的 handout/Tutor cache 生成 `slides/slides.v1.json`；`/api/learning/session/{session_id}/slides` 保留为正式读取入口。
+- 已删除临时 `courseware.py`、`tools/ppt_export/**`、PPTX 下载/状态 API、相关导出测试与所有运行时引用；保留音频及 `lecture_script`，不改其主链逻辑。
+- 验证：`python -m unittest tests.test_learning_generation_pipeline`（9 项通过）、`python scripts/smoke_test_learning_slides.py`、`python scripts/smoke_test_pin_and_paper_planner.py`、`python scripts/smoke_test_pin_and_paper_template.py` 均通过。独立 preview smoke 在当前环境的浏览器初始化阶段超时；已用实际浏览器验证 real-production 运行时 source 为 `fixtures/real-llm-production-plan.v1.json`，真实标记出现，默认 fixture 标记未出现。
+- 风险：真实用户输入的全链路仍待单独验收；Pin & Paper 继续开发时不得重新引入 courseware/PPTX 并行链路。
