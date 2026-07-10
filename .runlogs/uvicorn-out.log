@@ -1,0 +1,104 @@
+INFO:     127.0.0.1:15903 - "GET /api/system/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:15904 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41807 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41807 - "GET /css/base.css?v=20260706-plan-nav HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40881 - "GET /css/home.css?v=20260703-core-cards-lower2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:23517 - "GET /js/common.js?v=20260702-learning-shell HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59070 - "GET /assets/images/oralsage-hero.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41511 - "GET /js/home.js?v=20260703-account-plain HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59070 - "GET /assets/images/oralsage-logo.jpg HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59070 - "GET /pages/evidence.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59070 - "GET /css/evidence-page.css?v=20260502f HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41511 - "GET /js/evidence.js?v=20260502f HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41511 - "GET /api/knowledge/topics HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41511 - "POST /api/knowledge/view HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:59070 - "GET /pages/knowledge-graph.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54979 - "GET /js/knowledge-graph.js?v=20260629-kg-node-size-contrast HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59070 - "GET /css/knowledge-graph.css?v=20260629-kg-node-size-contrast HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54979 - "GET /api/knowledge-graph/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:23023 - "POST /api/knowledge-graph/neighborhood HTTP/1.1" 200 OK
+INFO:     127.0.0.1:23023 - "POST /api/knowledge-graph/neighborhood HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41726 - "POST /api/knowledge-graph/neighborhood HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41726 - "POST /api/knowledge-graph/neighborhood HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41726 - "GET /pages/evidence.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41726 - "GET /css/base.css?v=20260706-plan-nav HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42813 - "GET /css/evidence-page.css?v=20260502f HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60498 - "GET /js/common.js?v=20260702-learning-shell HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54811 - "GET /js/evidence.js?v=20260502f HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60498 - "GET /api/knowledge/topics HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54811 - "GET /assets/images/oralsage-logo.jpg HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:54811 - "POST /api/knowledge/view HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:60498 - "GET /pages/learning-profile.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42813 - "GET /css/learning-profile.css?v=20260708-style-clean-v3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60498 - "GET /css/learner-assessment.css?v=20260708-assessment-scroll-v5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41726 - "GET /js/learner-assessment-ui.js?v=20260708-assessment-ui-v4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /js/learning-profile.js?v=20260708-profile-metrics-v3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/profile/demo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/plan/demo/month?year=2026&month=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/assessment HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/profile/demo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/plan/demo/month?year=2026&month=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/profile/demo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/plan/demo/month?year=2026&month=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/profile/demo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/plan/demo/month?year=2026&month=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "POST /api/learning/assessment/submit HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/profile/demo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/plan/demo/month?year=2026&month=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/profile/demo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/plan/demo/month?year=2026&month=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/profile/demo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /api/learning/plan/demo/month?year=2026&month=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /pages/learning-plan.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57669 - "GET /css/learning-plan.css?v=20260708-recommend-no-scroll-v1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44322 - "GET /assets/images/learning-plan-encourage.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8329 - "GET /js/learning-plan.js?v=20260708-plan-recommend-toast-v2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44322 - "GET /api/learning/profile/demo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8329 - "GET /api/learning/plan/demo/month?year=2026&month=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8329 - "GET /pages/master-chat.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8329 - "GET /css/master-chat.css?v=20260706-plan-nav HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44322 - "GET /js/master-chat.js?v=20260702-learning-shell HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44322 - "GET /api/learning/profile/demo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8329 - "GET /api/learning/plan/demo/month?year=2026&month=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8329 - "GET /api/learning/profile/demo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8329 - "GET /api/learning/plan/demo/month?year=2026&month=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8329 - "GET /api/knowledge/topics HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8329 - "POST /api/knowledge/view HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:44322 - "GET /pages/knowledge-graph.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44322 - "GET /css/knowledge-graph.css?v=20260629-kg-node-size-contrast HTTP/1.1" 200 OK
+INFO:     127.0.0.1:18695 - "GET /js/knowledge-graph.js?v=20260629-kg-node-size-contrast HTTP/1.1" 200 OK
+INFO:     127.0.0.1:18695 - "GET /api/knowledge-graph/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:18695 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:18695 - "GET /css/home.css?v=20260703-core-cards-lower2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53266 - "GET /js/home.js?v=20260703-account-plain HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44322 - "GET /assets/images/oralsage-hero.png HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:1689 - "GET /api/system/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:10930 - "GET /api/v1/internal/clawbridge/bootstrap HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60498 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62210 - "GET /assets/images/oralsage-hero.png HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:15441 - "GET /css/home.css?v=20260703-core-cards-lower2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60498 - "GET /css/base.css?v=20260706-plan-nav HTTP/1.1" 200 OK
+INFO:     127.0.0.1:31235 - "GET /js/common.js?v=20260702-learning-shell HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60498 - "GET /js/home.js?v=20260703-account-plain HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60498 - "GET /assets/images/oralsage-logo.jpg HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:60498 - "GET /pages/learning-profile.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60498 - "GET /css/learner-assessment.css?v=20260708-assessment-scroll-v5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:31235 - "GET /css/learning-profile.css?v=20260708-style-clean-v3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62210 - "GET /js/learning-profile.js?v=20260708-profile-metrics-v3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:15441 - "GET /js/learner-assessment-ui.js?v=20260708-assessment-ui-v4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62210 - "GET /api/learning/profile/demo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62210 - "GET /api/learning/plan/demo/month?year=2026&month=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62210 - "GET /pages/weixin-account.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:31235 - "GET /js/common.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62210 - "GET /css/base.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:15441 - "GET /css/weixin-account.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60498 - "GET /js/weixin-account.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60498 - "GET /api/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:20484 - "POST /api/auth/weixin/qr/start HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:37384 - "POST /api/auth/web-login HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:37384 - "POST /api/weixin/plan/push-daily HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:60840 - "POST /api/auth/weixin/qr/start HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:1616 - "POST /api/auth/weixin/qr/start HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:46110 - "POST /api/auth/web-login HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:42702 - "POST /api/weixin/plan/push-daily HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:42702 - "DELETE /api/auth/weixin/bind HTTP/1.1" 405 Method Not Allowed

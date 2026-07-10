@@ -93,7 +93,7 @@ from .services.learning.study_plan import (
     update_study_plan_item,
 )
 from .services.clawbridge_client import ClawBridgeClient, ClawBridgeError
-from .services.weixin_auth import WeixinAuthStore, session_cookie_name
+from .services.weixin_auth import WeixinAuthError, WeixinAuthStore, session_cookie_name
 from .services.weixin_plan_bot import build_daily_plan_text, handle_weixin_plan_message
 
 
@@ -1156,20 +1156,8 @@ def _resolve_internal_weixin_user(
     )
 
 
-@app.post("/api/auth/web-login")
-async def web_login(payload: dict[str, Any] | None = None) -> JSONResponse:
-    """Create a lightweight web session for the account page.
-
-    The project did not have a login module before the Weixin migration, so this
-    endpoint provides the minimal cookie session needed by the QR bind flow.
-    """
-    data = payload or {}
-    user, token = weixin_auth_store.login(
-        user_id=str(data.get("user_id") or "demo"),
-        display_name=str(data.get("display_name") or data.get("user_id") or "demo"),
-    )
-    json_response = JSONResponse({"ok": True, "module": "weixin_auth", "user": user})
-    json_response.set_cookie(
+def _set_weixin_auth_cookie(response: JSONResponse, token: str) -> JSONResponse:
+    response.set_cookie(
         key=session_cookie_name(),
         value=token,
         httponly=True,
@@ -1177,10 +1165,43 @@ async def web_login(payload: dict[str, Any] | None = None) -> JSONResponse:
         path="/",
         max_age=30 * 24 * 3600,
     )
-    return json_response
+    return response
+
+
+@app.post("/api/auth/register")
+@app.post("/api/v1/auth/register")
+async def web_register(payload: dict[str, Any] | None = None) -> JSONResponse:
+    data = payload or {}
+    try:
+        user, token = weixin_auth_store.register(
+            username=str(data.get("username") or data.get("user_id") or ""),
+            password=str(data.get("password") or ""),
+            display_name=str(data.get("display_name") or data.get("username") or data.get("user_id") or ""),
+        )
+    except WeixinAuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"message": str(exc)}) from exc
+    json_response = JSONResponse({"ok": True, "module": "weixin_auth", "user": user})
+    return _set_weixin_auth_cookie(json_response, token)
+
+
+@app.post("/api/auth/web-login")
+@app.post("/api/auth/login")
+@app.post("/api/v1/auth/login")
+async def web_login(payload: dict[str, Any] | None = None) -> JSONResponse:
+    data = payload or {}
+    try:
+        user, token = weixin_auth_store.login(
+            username=str(data.get("username") or data.get("user_id") or ""),
+            password=str(data.get("password") or ""),
+        )
+    except WeixinAuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"message": str(exc)}) from exc
+    json_response = JSONResponse({"ok": True, "module": "weixin_auth", "user": user})
+    return _set_weixin_auth_cookie(json_response, token)
 
 
 @app.post("/api/auth/logout")
+@app.post("/api/v1/auth/logout")
 async def web_logout(request: Request) -> JSONResponse:
     weixin_auth_store.logout(request.cookies.get(session_cookie_name()))
     response = JSONResponse({"ok": True})
@@ -1189,6 +1210,7 @@ async def web_logout(request: Request) -> JSONResponse:
 
 
 @app.get("/api/auth/me")
+@app.get("/api/v1/auth/me")
 async def web_me(request: Request) -> JSONResponse:
     user = weixin_auth_store.get_user_by_session(request.cookies.get(session_cookie_name()))
     return JSONResponse({"ok": True, "user": user, "authenticated": user is not None})
@@ -1238,7 +1260,11 @@ async def weixin_qr_status(request: Request, session_id: str = Query(min_length=
             }
         )
     try:
-        status = ClawBridgeClient(timeout_seconds=40).get_qr_status(session_id=session_id, timeout_ms=35000)
+        status = await asyncio.to_thread(
+            ClawBridgeClient(timeout_seconds=8).get_qr_status,
+            session_id=session_id,
+            timeout_ms=5000,
+        )
     except ClawBridgeError as exc:
         updated = weixin_auth_store.update_bind_session(session_id, {"status": "error", "message": str(exc)})
         return JSONResponse(

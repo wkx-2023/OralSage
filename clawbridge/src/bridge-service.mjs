@@ -1,3 +1,5 @@
+import QRCode from "qrcode";
+
 import {
   buildClawbotInstanceId,
   collectInboundImages,
@@ -18,6 +20,22 @@ import {
 import { sendInboundChatMessage } from "./backend-client.mjs";
 
 const TYPING_KEEPALIVE_INTERVAL_MS = 5000;
+
+async function renderQrImageDataUrl(target) {
+  const value = String(target ?? "").trim();
+  if (!value) {
+    throw new ClawBridgeServiceError("Weixin iLink did not return a usable QR code.", 502);
+  }
+  if (value.startsWith("data:image/")) {
+    return value;
+  }
+  return QRCode.toDataURL(value, {
+    errorCorrectionLevel: "M",
+    margin: 2,
+    scale: 8,
+    type: "image/png"
+  });
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -227,10 +245,12 @@ export class ClawBridgeService {
       baseUrl: this.config.weixinPluginBaseUrl,
       timeoutMs: this.config.apiTimeoutMs
     });
+    const qrImageDataUrl = await renderQrImageDataUrl(qr.qrDataUrl);
     const session = {
       sessionId,
       qrcode: qr.qrcode,
-      qrDataUrl: qr.qrDataUrl,
+      qrDataUrl: qrImageDataUrl,
+      qrTargetUrl: qr.qrDataUrl,
       status: "waiting",
       pollBaseUrl: this.config.weixinPluginBaseUrl,
       message: "Scan the QR code with Weixin to connect ClawBot.",
@@ -242,7 +262,7 @@ export class ClawBridgeService {
     await this.store.setQrSession(session);
     return {
       sessionId,
-      qrDataUrl: qr.qrDataUrl,
+      qrDataUrl: qrImageDataUrl,
       message: session.message
     };
   }

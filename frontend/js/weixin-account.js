@@ -2,20 +2,84 @@
   window.oralUi?.boot({
     key: 'weixin-account',
     title: '微信连接',
-    subtitle: '连接 ClawBot，用微信接收每日计划、打卡和修改计划',
+    subtitle: '登录 OralSage 学习账号后连接 ClawBot，用微信接收每日计划、打卡和修改计划',
   });
 
   const state = {
     sessionId: '',
     pollTimer: null,
+    pollInFlight: false,
+    authMode: 'login',
   };
 
   const $ = (id) => document.getElementById(id);
 
+  function setText(id, value) {
+    const element = $(id);
+    if (element) {
+      element.textContent = value;
+    }
+  }
+
   function log(message, data = null) {
     const output = $('output');
+    const statusMessage = $('status-message');
     const line = data ? `${message}\n${JSON.stringify(data, null, 2)}` : message;
+    if (statusMessage) {
+      statusMessage.textContent = message;
+    }
     output.textContent = `${new Date().toLocaleTimeString()}  ${line}\n\n${output.textContent || ''}`;
+  }
+
+  function toggleDebugLog() {
+    const output = $('output');
+    const toggle = $('debug-toggle');
+    const shouldShow = output.hidden;
+    output.hidden = !shouldShow;
+    toggle.setAttribute('aria-expanded', String(shouldShow));
+    toggle.textContent = shouldShow ? '隐藏调试信息' : '查看调试信息';
+  }
+
+  function showQrLoading() {
+    const qrBox = $('qr-box');
+    const qrImg = $('qr-img');
+    qrBox.hidden = false;
+    qrBox.classList.add('is-loading');
+    qrBox.classList.remove('is-error');
+    qrImg.hidden = true;
+    qrImg.removeAttribute('src');
+    $('qr-link').removeAttribute('href');
+    $('qr-note').textContent = '正在生成微信二维码，请稍等。';
+    qrBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function showQrError(message) {
+    const qrBox = $('qr-box');
+    qrBox.hidden = false;
+    qrBox.classList.remove('is-loading');
+    qrBox.classList.add('is-error');
+    $('qr-img').hidden = true;
+    $('qr-note').textContent = message;
+  }
+
+  function stopPolling({ clearSession = false } = {}) {
+    if (state.pollTimer) {
+      window.clearTimeout(state.pollTimer);
+      state.pollTimer = null;
+    }
+    if (clearSession) {
+      state.sessionId = '';
+    }
+  }
+
+  function setAuthMode(mode) {
+    state.authMode = mode === 'register' ? 'register' : 'login';
+    const isRegister = state.authMode === 'register';
+    $('confirm-password-field').hidden = !isRegister;
+    $('password').autocomplete = isRegister ? 'new-password' : 'current-password';
+    $('login-btn').textContent = isRegister ? '注册并登录' : '登录';
+    $('login-tab').classList.toggle('is-active', !isRegister);
+    $('register-tab').classList.toggle('is-active', isRegister);
   }
 
   async function request(url, options = {}) {
@@ -37,33 +101,52 @@
 
   async function refreshMe() {
     const me = await request('/api/auth/me');
-    $('current-user').textContent = me.user ? `${me.user.display_name || me.user.user_id}（${me.user.user_id}）` : '未登录';
+    setText('current-user', me.user ? `${me.user.display_name || me.user.username || me.user.user_id}（${me.user.username || me.user.user_id}）` : '未登录');
     if (me.user) {
       await refreshBindStatus();
     } else {
-      $('bind-state').textContent = '未连接';
+      setText('bind-state', '未连接');
     }
     return me;
   }
 
   async function refreshBindStatus() {
     const status = await request('/api/auth/weixin/bind-status');
-    $('bind-state').textContent = status.bound
+    setText('bind-state', status.bound
       ? `已连接：${status.weixin_user_id_masked || status.clawbot_instance_id || ''}`
-      : '未连接';
+      : '未连接');
     return status;
   }
 
-  async function login() {
-    const payload = {
-      user_id: $('user-id').value.trim() || 'demo',
-      display_name: $('display-name').value.trim() || $('user-id').value.trim() || 'demo',
+  function authPayload() {
+    const username = $('user-id').value.trim();
+    const password = $('password').value;
+    if (!username) {
+      throw new Error('请输入用户名。');
+    }
+    if (!password) {
+      throw new Error('请输入密码。');
+    }
+    if (state.authMode === 'register' && password !== $('confirm-password').value) {
+      throw new Error('两次输入的密码不一致。');
+    }
+    return {
+      username,
+      user_id: username,
+      display_name: username,
+      password,
     };
-    const result = await request('/api/auth/web-login', {
+  }
+
+  async function submitAuth() {
+    const payload = {
+      ...authPayload(),
+    };
+    const result = await request(state.authMode === 'register' ? '/api/auth/register' : '/api/auth/login', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
-    log('登录成功', result);
+    log(state.authMode === 'register' ? '注册成功，已登录。' : '登录成功。', result);
     await refreshMe();
   }
 
@@ -72,7 +155,7 @@
     if (me.authenticated && me.user) {
       return me.user;
     }
-    await login();
+    await submitAuth();
     const refreshed = await request('/api/auth/me');
     if (!refreshed.authenticated || !refreshed.user) {
       throw new Error('Web login is required.');
@@ -81,43 +164,61 @@
   }
 
   async function startQr() {
-    await ensureLoggedIn();
-    const result = await request('/api/auth/weixin/qr/start', { method: 'POST' });
-    state.sessionId = result.session_id;
-    $('qr-img').src = result.qr_data_url;
-    $('qr-link').href = result.qr_data_url;
-    $('qr-note').textContent = result.message || '请用微信扫描二维码完成连接。';
-    $('qr-box').hidden = false;
-    log('二维码已生成，正在轮询扫码状态。', result);
-    startPolling();
+    const qrBtn = $('qr-btn');
+    qrBtn.disabled = true;
+    showQrLoading();
+    log('正在生成微信二维码。');
+    try {
+      await ensureLoggedIn();
+      const result = await request('/api/auth/weixin/qr/start', { method: 'POST' });
+      state.sessionId = result.session_id;
+      $('qr-img').src = result.qr_data_url;
+      $('qr-img').hidden = false;
+      $('qr-link').href = result.qr_data_url;
+      $('qr-note').textContent = result.message || '请用微信扫描二维码完成连接。';
+      $('qr-box').classList.remove('is-loading', 'is-error');
+      log('二维码已生成，正在轮询扫码状态。', result);
+      startPolling();
+    } finally {
+      qrBtn.disabled = false;
+    }
   }
 
   function startPolling() {
-    if (state.pollTimer) {
-      window.clearInterval(state.pollTimer);
-    }
-    state.pollTimer = window.setInterval(pollQrStatus, 2500);
+    stopPolling();
     void pollQrStatus();
   }
 
+  function scheduleNextPoll(delayMs = 2500) {
+    stopPolling();
+    state.pollTimer = window.setTimeout(pollQrStatus, delayMs);
+  }
+
   async function pollQrStatus() {
-    if (!state.sessionId) return;
+    if (!state.sessionId || state.pollInFlight) return;
+    let shouldContinue = true;
+    state.pollInFlight = true;
     try {
       const status = await request(`/api/auth/weixin/qr/status?session_id=${encodeURIComponent(state.sessionId)}`);
       $('qr-note').textContent = status.message || '等待扫码确认。';
       if (status.bound || status.status === 'bound') {
-        window.clearInterval(state.pollTimer);
-        state.pollTimer = null;
+        shouldContinue = false;
+        stopPolling({ clearSession: true });
         $('qr-box').hidden = true;
         log('微信连接成功。', status.binding || status);
         await refreshBindStatus();
       } else if (status.status === 'expired' || status.status === 'error') {
-        window.clearInterval(state.pollTimer);
-        state.pollTimer = null;
+        shouldContinue = false;
+        stopPolling({ clearSession: true });
         log(`二维码状态：${status.status}`, status);
       }
     } catch (err) {
       log(`轮询失败：${err.message}`);
+    } finally {
+      state.pollInFlight = false;
+      if (shouldContinue && state.sessionId) {
+        scheduleNextPoll();
+      }
     }
   }
 
@@ -126,6 +227,15 @@
     const result = await request('/api/auth/weixin/bind', { method: 'DELETE' });
     log('已解绑微信。', result);
     await refreshBindStatus();
+  }
+
+  async function logout() {
+    stopPolling({ clearSession: true });
+    $('qr-box').hidden = true;
+    const result = await request('/api/auth/logout', { method: 'POST' });
+    log('已退出登录。', result);
+    setText('current-user', '未登录');
+    setText('bind-state', '未连接');
   }
 
   async function pushDaily() {
@@ -137,13 +247,23 @@
     log('今日计划已推送到微信。', result);
   }
 
-  $('login-btn').addEventListener('click', () => login().catch((err) => log(`登录失败：${err.message}`)));
-  $('qr-btn').addEventListener('click', () => startQr().catch((err) => log(`获取二维码失败：${err.message}`)));
+  $('login-tab').addEventListener('click', () => setAuthMode('login'));
+  $('register-tab').addEventListener('click', () => setAuthMode('register'));
+  $('login-btn').addEventListener('click', () => submitAuth().catch((err) => log(`${state.authMode === 'register' ? '注册' : '登录'}失败：${err.message}`)));
+  $('qr-btn').addEventListener('click', () => startQr().catch((err) => {
+    const message = `获取二维码失败：${err.message}`;
+    showQrError(message);
+    log(message);
+  }));
   $('unbind-btn').addEventListener('click', () => unbind().catch((err) => log(`解绑失败：${err.message}`)));
   $('push-btn').addEventListener('click', () => pushDaily().catch((err) => log(`推送失败：${err.message}`)));
+  $('logout-btn').addEventListener('click', () => logout().catch((err) => log(`退出登录失败：${err.message}`)));
+  $('debug-toggle').addEventListener('click', toggleDebugLog);
+  window.addEventListener('pagehide', () => stopPolling({ clearSession: true }));
 
   refreshMe().catch(() => {
-    $('current-user').textContent = '未登录';
-    $('bind-state').textContent = '未连接';
+    setText('current-user', '未登录');
+    setText('bind-state', '未连接');
   });
+  setAuthMode('login');
 })();

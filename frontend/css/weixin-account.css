@@ -10,7 +10,7 @@
 }
 
 .weixin-panel {
-  width: min(920px, 100%);
+  width: min(1100px, 100%);
   display: grid;
   gap: 22px;
   border: 1px solid rgba(102, 88, 190, 0.12);
@@ -38,16 +38,91 @@
 
 .summary {
   margin: 10px 0 0;
-  max-width: 680px;
+  max-width: 760px;
   color: #746e9f;
   line-height: 1.7;
 }
 
+.weixin-content {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(300px, 1fr);
+  gap: 38px;
+  align-items: center;
+  padding-left: 34px;
+}
+
+.weixin-workflow {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  transform: translateY(22px);
+}
+
+.assistant-visual {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  min-height: 420px;
+  overflow: hidden;
+}
+
+.assistant-visual img {
+  width: min(100%, 520px);
+  max-height: 520px;
+  object-fit: contain;
+  filter: drop-shadow(0 20px 34px rgba(92, 75, 170, 0.14));
+}
+
+.visual-summary {
+  display: grid;
+  gap: 4px;
+  max-width: 390px;
+  margin: 0;
+  color: #5f4cad;
+  font-family: 'LXGW WenKai Screen', 'Noto Sans SC', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.65;
+  text-align: center;
+}
+
+.visual-summary span {
+  display: block;
+}
+
+.auth-tabs {
+  display: inline-flex;
+  justify-self: start;
+  gap: 4px;
+  border: 1px solid #ddd8f5;
+  border-radius: 10px;
+  background: #f8f6ff;
+  padding: 4px;
+}
+
+.auth-tab {
+  min-height: 34px;
+  border-radius: 7px;
+  background: transparent;
+  color: #625aa4;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.auth-tab:hover {
+  background: #eee9ff;
+}
+
+.auth-tab.is-active {
+  background: #6e5cc8;
+  color: #ffffff;
+}
+
 .login-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: 1fr;
   gap: 12px;
-  align-items: end;
+  align-items: stretch;
 }
 
 .login-row label {
@@ -55,6 +130,10 @@
   gap: 7px;
   color: #6b65a0;
   font-size: 13px;
+}
+
+.login-row label[hidden] {
+  display: none;
 }
 
 .login-row input {
@@ -93,34 +172,54 @@ button:disabled {
   opacity: 0.58;
 }
 
-.status-card {
+.actions {
+  display: grid;
+  gap: 10px;
+}
+
+.primary-action,
+.secondary-action {
+  width: 100%;
+}
+
+.primary-action {
+  border: 1px solid #cabff2;
+  background: #eee9ff;
+  color: #5f4cad;
+}
+
+.primary-action:hover {
+  background: #e4dcff;
+  color: #4f3f9a;
+}
+
+.secondary-action {
+  border: 1px solid #ddd8f5;
+  background: #ffffff;
+  color: #5f55a8;
+}
+
+.secondary-action:hover {
+  background: #f5f2ff;
+}
+
+.management-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
-.status-card > div {
+.quiet-action {
+  min-height: 36px;
   border: 1px solid #ece8fb;
-  border-radius: 14px;
-  background: #f8f6ff;
-  padding: 14px;
+  background: #fbfaff;
+  color: #7b72ad;
+  font-size: 13px;
 }
 
-.status-label {
-  display: block;
-  margin-bottom: 6px;
-  color: #8d86be;
-  font-size: 12px;
-}
-
-.status-card strong {
-  color: #433a9f;
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+.quiet-action:hover {
+  background: #f5f2ff;
+  color: #5f55a8;
 }
 
 .qr-box {
@@ -131,6 +230,11 @@ button:disabled {
   border-radius: 16px;
   background: #fbfaff;
   padding: 16px;
+}
+
+.qr-box[hidden],
+.qr-box img[hidden] {
+  display: none;
 }
 
 .qr-box img {
@@ -146,6 +250,44 @@ button:disabled {
   color: #746e9f;
 }
 
+.qr-box.is-loading {
+  border-style: solid;
+  background: #f6fbff;
+}
+
+.qr-box.is-error {
+  border-color: #efb2b2;
+  background: #fff7f7;
+}
+
+.qr-box.is-error p {
+  color: #a23d3d;
+}
+
+.status-message {
+  border: 1px solid #dfe9f7;
+  border-radius: 12px;
+  background: #f4f9ff;
+  color: #3e5f8f;
+  padding: 12px 14px;
+  line-height: 1.55;
+}
+
+.debug-toggle {
+  justify-self: start;
+  min-height: 36px;
+  border: 1px solid #ddd8f5;
+  background: #ffffff;
+  color: #5f55a8;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.debug-toggle:hover {
+  background: #f5f2ff;
+}
+
 .output {
   min-height: 120px;
   max-height: 260px;
@@ -159,9 +301,32 @@ button:disabled {
   line-height: 1.6;
 }
 
+.output[hidden] {
+  display: none;
+}
+
 @media (max-width: 720px) {
-  .login-row,
-  .status-card {
+  .weixin-content {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding-left: 0;
+  }
+
+  .assistant-visual {
+    min-height: 260px;
+    order: -1;
+  }
+
+  .weixin-workflow {
+    transform: none;
+  }
+
+  .assistant-visual img {
+    width: min(100%, 330px);
+    max-height: 320px;
+  }
+
+  .login-row {
     grid-template-columns: 1fr;
   }
 
