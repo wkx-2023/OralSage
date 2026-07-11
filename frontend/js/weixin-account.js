@@ -249,6 +249,15 @@
     log('今日计划已推送到微信。', result);
   }
 
+  async function pushSummary() {
+    await ensureLoggedIn();
+    const result = await request('/api/weixin/plan/push-summary', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    log('今日总结已推送到微信。', result);
+  }
+
   $('login-tab').addEventListener('click', () => setAuthMode('login'));
   $('register-tab').addEventListener('click', () => setAuthMode('register'));
   $('login-btn').addEventListener('click', () => submitAuth().catch((err) => log(`${state.authMode === 'register' ? '注册' : '登录'}失败：${err.message}`)));
@@ -259,6 +268,7 @@
   }));
   $('unbind-btn').addEventListener('click', () => unbind().catch((err) => log(`解绑失败：${err.message}`)));
   $('push-btn').addEventListener('click', () => pushDaily().catch((err) => log(`推送失败：${err.message}`)));
+  $('summary-btn').addEventListener('click', () => pushSummary().catch((err) => log(`推送总结失败：${err.message}`)));
   $('logout-btn').addEventListener('click', () => logout().catch((err) => log(`退出登录失败：${err.message}`)));
   $('debug-toggle').addEventListener('click', toggleDebugLog);
   window.addEventListener('pagehide', () => stopPolling({ clearSession: true }));

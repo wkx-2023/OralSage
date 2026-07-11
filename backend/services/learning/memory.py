@@ -1113,6 +1113,39 @@ class LearningMemory:
             result.append(d)
         return result
 
+    def list_answer_records_for_user(
+        self,
+        user_id: str,
+        *,
+        start_at: str | None = None,
+        end_at: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Return answer records for one user, optionally constrained by UTC ISO time."""
+        limit = max(1, min(int(limit), 1000))
+        clauses = ["user_id = ?"]
+        params: list[Any] = [user_id]
+        if start_at:
+            clauses.append("created_at >= ?")
+            params.append(start_at)
+        if end_at:
+            clauses.append("created_at < ?")
+            params.append(end_at)
+        params.append(limit)
+        rows = self._conn.execute(
+            f"""SELECT * FROM answer_records
+                WHERE {' AND '.join(clauses)}
+                ORDER BY created_at ASC
+                LIMIT ?""",
+            params,
+        ).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["grading"] = json.loads(item.pop("grading_json", "{}"))
+            result.append(item)
+        return result
+
     # -- mastery records ------------------------------------------------
 
     def upsert_mastery(

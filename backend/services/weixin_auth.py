@@ -396,6 +396,45 @@ class WeixinAuthStore:
             "binding_revision": data["binding_revision"],
         }
 
+    def list_bound_users(self) -> list[dict[str, Any]]:
+        """Return all active web users that have a Weixin binding."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    b.user_id,
+                    b.weixin_account_id,
+                    b.weixin_user_id,
+                    b.clawbot_instance_id,
+                    b.binding_revision,
+                    b.bound_at,
+                    u.display_name,
+                    u.role
+                FROM weixin_bindings b
+                LEFT JOIN web_users u ON u.user_id = b.user_id
+                ORDER BY b.bound_at ASC
+                """
+            ).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            data = dict(row)
+            result.append(
+                {
+                    "bound": True,
+                    "user_id": data["user_id"],
+                    "username": data["user_id"],
+                    "display_name": data.get("display_name") or data["user_id"],
+                    "role": data.get("role") or "user",
+                    "weixin_account_id": data["weixin_account_id"],
+                    "weixin_user_id": data["weixin_user_id"],
+                    "weixin_user_id_masked": mask_external_id(data["weixin_user_id"]),
+                    "weixin_bound_at": data["bound_at"],
+                    "clawbot_instance_id": data["clawbot_instance_id"],
+                    "binding_revision": data["binding_revision"],
+                }
+            )
+        return result
+
     def get_bound_user(
         self,
         *,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime, time as datetime_time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 import base64
@@ -94,7 +95,7 @@ from .services.learning.study_plan import (
 )
 from .services.clawbridge_client import ClawBridgeClient, ClawBridgeError
 from .services.weixin_auth import WeixinAuthError, WeixinAuthStore, session_cookie_name
-from .services.weixin_plan_bot import build_daily_plan_text, handle_weixin_plan_message
+from .services.weixin_plan_bot import build_daily_plan_text, build_daily_summary_text, handle_weixin_plan_message
 
 
 learning_orchestrator = LearningOrchestrator()
@@ -125,6 +126,33 @@ def _stream_headers() -> dict[str, str]:
 
 def _elapsed(started_at: float) -> float:
     return round(time.perf_counter() - started_at, 3)
+
+
+SHANGHAI_TZ = timezone(timedelta(hours=8), name="Asia/Shanghai")
+
+
+def _env_enabled(name: str, default: bool = True) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
+
+
+def _parse_push_time(name: str, default_value: str) -> datetime_time:
+    raw = os.getenv(name, default_value).strip() or default_value
+    try:
+        hour_text, minute_text = raw.split(":", 1)
+        return datetime_time(hour=max(0, min(23, int(hour_text))), minute=max(0, min(59, int(minute_text))))
+    except (TypeError, ValueError):
+        return datetime_time.fromisoformat(default_value)
+
+
+def _seconds_until_next(target_time: datetime_time, *, now: datetime | None = None) -> float:
+    current = now or datetime.now(SHANGHAI_TZ)
+    target = datetime.combine(current.date(), target_time, tzinfo=SHANGHAI_TZ)
+    if target <= current:
+        target += timedelta(days=1)
+    return max(1.0, (target - current).total_seconds())
 
 
 def _progress_event(
@@ -1484,6 +1512,59 @@ async def clawbridge_chatbox_messages(
     )
 
 
+def _build_weixin_plan_text(action: str, *, user_id: str, plan_date: str | None = None) -> str:
+    if action == "summary":
+        return build_daily_summary_text(learning_orchestrator.memory, user_id=user_id, plan_date=plan_date)
+    return build_daily_plan_text(learning_orchestrator.memory, user_id=user_id, plan_date=plan_date)
+
+
+def _push_weixin_plan_to_binding(
+    binding: dict[str, Any],
+    *,
+    action: str,
+    plan_date: str | None = None,
+) -> dict[str, Any]:
+    user_id = str(binding.get("user_id") or "").strip()
+    if not user_id:
+        raise ClawBridgeError("Weixin binding does not include a user_id.")
+    text = _build_weixin_plan_text(action, user_id=user_id, plan_date=plan_date)
+    sent = ClawBridgeClient().send_text(
+        text=text,
+        clawbot_instance_id=binding.get("clawbot_instance_id"),
+        weixin_account_id=binding.get("weixin_account_id"),
+    )
+    return {
+        "sent": sent,
+        "text": text,
+        "user_id": user_id,
+    }
+
+
+def _push_weixin_plan_to_all_bound(*, action: str, plan_date: str | None = None) -> dict[str, Any]:
+    bindings = weixin_auth_store.list_bound_users()
+    sent: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    for binding in bindings:
+        try:
+            sent.append(_push_weixin_plan_to_binding(binding, action=action, plan_date=plan_date))
+        except Exception as exc:
+            failed.append(
+                {
+                    "user_id": binding.get("user_id"),
+                    "message": str(exc),
+                    "error_type": type(exc).__name__,
+                }
+            )
+    return {
+        "action": action,
+        "total": len(bindings),
+        "sent_count": len(sent),
+        "failed_count": len(failed),
+        "sent": sent,
+        "failed": failed,
+    }
+
+
 @app.post("/api/weixin/plan/push-daily")
 async def weixin_push_daily_plan(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
     user = _require_web_user(request)
@@ -1492,16 +1573,26 @@ async def weixin_push_daily_plan(request: Request, payload: dict[str, Any] | Non
     binding = weixin_auth_store.get_bind_status_for_user(str(user["user_id"]))
     if not binding.get("bound"):
         raise HTTPException(status_code=409, detail={"message": "Current account is not connected to Weixin ClawBot."})
-    text = build_daily_plan_text(learning_orchestrator.memory, user_id=str(user["user_id"]), plan_date=plan_date)
     try:
-        sent = ClawBridgeClient().send_text(
-            text=text,
-            clawbot_instance_id=binding.get("clawbot_instance_id"),
-            weixin_account_id=binding.get("weixin_account_id"),
-        )
+        result = _push_weixin_plan_to_binding(binding, action="daily", plan_date=plan_date)
     except ClawBridgeError as exc:
         raise HTTPException(status_code=503, detail={"message": str(exc)}) from exc
-    return JSONResponse({"ok": True, "module": "weixin_plan", "action": "push_daily", "sent": sent, "text": text})
+    return JSONResponse({"ok": True, "module": "weixin_plan", "action": "push_daily", **result})
+
+
+@app.post("/api/weixin/plan/push-summary")
+async def weixin_push_daily_summary(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
+    user = _require_web_user(request)
+    data = payload or {}
+    plan_date = str(data.get("plan_date") or "").strip() or None
+    binding = weixin_auth_store.get_bind_status_for_user(str(user["user_id"]))
+    if not binding.get("bound"):
+        raise HTTPException(status_code=409, detail={"message": "Current account is not connected to Weixin ClawBot."})
+    try:
+        result = _push_weixin_plan_to_binding(binding, action="summary", plan_date=plan_date)
+    except ClawBridgeError as exc:
+        raise HTTPException(status_code=503, detail={"message": str(exc)}) from exc
+    return JSONResponse({"ok": True, "module": "weixin_plan", "action": "push_summary", **result})
 
 
 @app.post("/api/learning/route")
@@ -2098,6 +2189,55 @@ async def stream_mcp_agent(agent_name: str, req: GenericAgentRequest) -> Streami
         yield f"event: interface_removed\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), status_code=501, media_type="text/event-stream")
+
+
+async def _weixin_auto_push_job(*, action: str, env_name: str, default_time: str) -> None:
+    while True:
+        target_time = _parse_push_time(env_name, default_time)
+        sleep_seconds = _seconds_until_next(target_time)
+        await asyncio.sleep(sleep_seconds)
+        plan_date = datetime.now(SHANGHAI_TZ).date().isoformat()
+        try:
+            result = await asyncio.to_thread(_push_weixin_plan_to_all_bound, action=action, plan_date=plan_date)
+            print(
+                f"[weixin-auto-push] action={action} date={plan_date} "
+                f"sent={result['sent_count']} failed={result['failed_count']} total={result['total']}"
+            )
+        except Exception as exc:
+            print(f"[weixin-auto-push] action={action} failed: {type(exc).__name__}: {exc}")
+        await asyncio.sleep(60)
+
+
+@app.on_event("startup")
+async def _start_weixin_auto_push_jobs() -> None:
+    if not _env_enabled("ORALSAGE_WEIXIN_AUTO_PUSH_ENABLED", True):
+        app.state.weixin_auto_push_tasks = []
+        return
+    app.state.weixin_auto_push_tasks = [
+        asyncio.create_task(
+            _weixin_auto_push_job(
+                action="daily",
+                env_name="ORALSAGE_WEIXIN_DAILY_PUSH_TIME",
+                default_time="08:00",
+            )
+        ),
+        asyncio.create_task(
+            _weixin_auto_push_job(
+                action="summary",
+                env_name="ORALSAGE_WEIXIN_SUMMARY_PUSH_TIME",
+                default_time="21:30",
+            )
+        ),
+    ]
+
+
+@app.on_event("shutdown")
+async def _stop_weixin_auto_push_jobs() -> None:
+    tasks = list(getattr(app.state, "weixin_auto_push_tasks", []) or [])
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 if (FRONTEND_DIR / "assets").exists():
