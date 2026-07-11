@@ -1,45 +1,49 @@
 {
   "slug": "pin-and-paper",
-  "name": "Pin & Paper",
-  "tagline": "Yellow paper with safety-pin illustrations, ink-blue handwritten Caveat, paper-grain texture.",
+  "name": "OralSage Lavender Clinical",
+  "tagline": "Soft lavender medical learning cards with restrained OralSage branding and strict text capacity.",
   "mood": [
-    "crafted",
-    "handmade",
-    "warm",
-    "thoughtful",
-    "literary"
+    "calm",
+    "clinical",
+    "focused",
+    "soft",
+    "professional"
   ],
   "occasion": [
-    "research findings with personality",
-    "qualitative report",
-    "founder reflection",
-    "creator essay deck",
-    "workshop debrief"
+    "medical learning slides",
+    "courseware",
+    "structured knowledge review",
+    "clinical education",
+    "student self-study"
   ],
   "tone": [
-    "literary",
-    "intimate",
-    "warm",
-    "grounded"
+    "quiet",
+    "trustworthy",
+    "clear",
+    "supportive"
   ],
   "formality": "medium",
   "density": "medium",
   "palette": {
-    "paper": "#EFE56A",
-    "cream": "#F8F1D6",
-    "ink": "#1F3A8A",
-    "red": "#C2342B",
-    "description": "saturated yellow paper, soft cream alternate, deep ink-blue type, plus rust red, kraft, and olive accents; visible paper grain texture"
+    "background": "#f7f4f8",
+    "panel": "#e8e1f0",
+    "accentSoft": "#baaccf",
+    "accent": "#9e89bf",
+    "title": "#625195",
+    "sectionTitle": "#624c95",
+    "mutedText": "#7e72a6",
+    "bodyText": "#3e3a39",
+    "description": "soft lavender medical courseware palette; pale fills carry large surfaces, purple titles carry hierarchy, charcoal body text carries readability"
   },
   "typography": {
-    "display": "Caveat",
-    "body": "Space Grotesk",
-    "mono": "DM Mono",
-    "style": "handwritten script for warmth + grotesk for legibility + mono for captions; textbook annotation feel"
+    "display": "Chinese sans-serif bold",
+    "body": "Chinese sans-serif regular",
+    "mono": "minimal metadata labels",
+    "style": "high-legibility Chinese courseware typography with restrained metadata labels"
   },
   "scheme": "light",
-  "best_for": "Anything that should feel hand-crafted, warm, and literary: qualitative research findings, founder reflections, longform brand stories, workshop debriefs. The signature safety-pin illustrations and paper-grain texture make it especially good for any deck \u2014 including tech or business \u2014 that wants personality and warmth over polish.",
-  "avoid_for": "Decks that need to feel digital-native polished or rigorously data-driven \u2014 handwritten Caveat is intentionally informal.",
-  "slide_count": 11,
+  "best_for": "OralSage medical learning decks that need calm, readable, structured Chinese courseware with moderate density and clear card-based hierarchy.",
+  "avoid_for": "Very long textbook excerpts without compression, dense tables that require scrolling, or highly decorative marketing decks.",
+  "slide_count": 13,
   "navigation": "deck-stage runtime (arrow keys, space, PgUp/PgDn, Home/End)"
 }

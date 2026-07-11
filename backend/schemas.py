@@ -169,6 +169,15 @@ class LearningSubmitAnswerRequest(BaseModel):
     use_llm_policy: bool = False
 
 
+class LearningFinalExamAnswer(BaseModel):
+    question_id: str
+    selected_option: str = ""
+
+
+class LearningFinalExamSubmitRequest(BaseModel):
+    answers: list[LearningFinalExamAnswer] = Field(default_factory=list)
+
+
 class LearningProfileSliceRequest(BaseModel):
     user_id: str
     role: str = "qa"

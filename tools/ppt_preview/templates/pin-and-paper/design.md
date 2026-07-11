@@ -295,6 +295,66 @@ components:
     description: "Hand-script numeral used as step numbers in process diagrams and ordered CTA steps. The script face makes ordering feel hand-counted, not algorithmic."
 ---
 
+## Current OralSage Lavender Theme Override
+
+The active OralSage runtime theme is a **soft lavender medical learning card
+system** layered on top of the original Pin & Paper source template.  The
+legacy yellow-paper / safety-pin language below remains useful as upstream
+attribution and historical reference, but current OralSage PPT work should use
+the lavender rules in this section first.
+
+### Palette
+
+- **Main background**: `#f7f4f8`. Use as the dominant page surface and large
+  quiet fields.
+- **Large soft fills**: `#e8e1f0`. Use for card-group fields, pale panels, and
+  large low-contrast blocks.
+- **Decorative lavender**: `#baaccf`. Use only for large numerals, soft rules,
+  low-emphasis dividers, and decorative accents. Do not use for small text.
+- **Medium accent lavender**: `#9e89bf`. Use for icons, borders, dividers, and
+  subtle emphasis.
+- **Title purple**: `#625195`. Use for cover titles.
+- **Section purple**: `#624c95`. Use for agenda titles and content-section
+  titles.
+- **Muted purple text**: `#7e72a6`. Use for subtitles, dates, metadata, and
+  secondary labels.
+- **Body text**: `#3e3a39`. Use for all paragraph and explanatory body copy.
+
+### Page Roles
+
+- **Cover**: title in `#625195`; subtitle/date/presenter in `#7e72a6`; soft
+  lavender background imagery may remain. Robot artwork may appear as a brand
+  decoration.
+- **Agenda**: chapter numbers in `#b6a4ce` at large size; chapter titles in
+  `#624c95`; metadata in `#7e72a6`.
+- **Content pages**: section title in `#624c95`; explanatory text in `#3e3a39`;
+  card/panel borders and separators in `#baaccf` or `#9e89bf`.
+
+### Fixed Assets
+
+The existing `cover.png`, `page.png`, OralSage logo, and robot artwork may be
+retained.  Robot artwork is decorative only: it must not participate in content
+layout, must not overlap cards or body text, and should be visually secondary
+to the medical learning content.
+
+### Text Capacity And Layout Safety
+
+The renderer is a fixed 1920x1080 canvas, so capacity is part of the design
+system:
+
+- `notes_2up`: each card title <= 20 chars; each body <= 160 chars.
+- `notes`: each card title <= 18 chars; each body <= 120 chars.
+- `notes_4up`: each card title <= 16 chars; each body <= 90 chars.
+- `notice`: each column title <= 18 chars; each body <= 120 chars.
+- `cta`: each step title <= 14 chars; each body <= 90 chars.
+- `process`: each step title <= 14 chars; each body <= 70 chars.
+- `matrix`: column headers <= 10 chars; criteria <= 14 chars; cells <= 24 chars.
+
+Never rely on CSS clipping, internal scrollbars, tiny type, or decorative
+artwork covering text to make an overfull page appear acceptable.  Long source
+content must be compressed by the planner, routed to a more spacious page type,
+or split into continuation slides.
+
 ## Overview
 
 Pin & Paper is a **field-notebook editorial system** built on a single material premise: every slide is yellow legal-pad paper. The paper is rendered through a base color (`{colors.paper}` — saturated cadmium yellow), two soft radial-gradient highlights (upper-left light, lower-right shadow), and a non-optional fractal-noise grain overlay on a `::before` pseudo-element with multiply blend. This stack creates a surface that reads as physical paper under raking light. Without the grain, the system collapses into flat cartoon-yellow; the texture is foundational, not decorative.

@@ -29,6 +29,12 @@ from .handout_cache import (
     save_handout_cache_pending,
     save_handout_cache_ready,
 )
+from .final_exam import (
+    build_and_save_final_exam,
+    get_final_exam as read_final_exam,
+    submit_final_exam as grade_and_save_final_exam_submission,
+)
+from .lecture_script import build_and_save_lecture_script
 from .tutor_cache import (
     get_tutor_cache,
     save_tutor_cache_failed,
@@ -38,7 +44,11 @@ from .tutor_cache import (
 from .memory import LearningMemory
 from .planner import complete_progressive_lesson_plan, plan_lesson
 from .ppt_pipeline import get_ppt_resource_status, refresh_ppt_resources
-from .profile_memory import build_profile_slice, update_learner_memory_from_event
+from .profile_memory import (
+    build_profile_slice,
+    reduce_memory_signals,
+    update_learner_memory_from_event,
+)
 from .qa import answer_interruption_question, answer_question_with_evidence
 from .resource_factory import (
     generate_resources,
@@ -94,6 +104,20 @@ class LearningOrchestrator:
         self._outline_completion_events: dict[str, threading.Event] = {}
         self._outline_completion_errors: dict[str, str] = {}
         self._handout_prefetch_threads: dict[str, threading.Thread] = {}
+        self._audio_generation_threads: dict[tuple[str, str], threading.Thread] = {}
+        self._audio_generation_pending: dict[tuple[str, str], tuple[dict[str, Any], str, dict[str, Any]]] = {}
+        self._audio_generation_hashes: dict[tuple[str, str], str] = {}
+        self._audio_generation_guard = threading.Lock()
+        try:
+            audio_max_concurrency = int(
+                os.environ.get("LEARNING_AUDIO_MAX_CONCURRENCY", "2")
+            )
+        except ValueError:
+            audio_max_concurrency = 2
+        self._audio_max_concurrency = max(1, min(audio_max_concurrency, 8))
+        self._audio_generation_slots = threading.BoundedSemaphore(
+            self._audio_max_concurrency
+        )
         self._ppt_refresh_threads: dict[str, threading.Thread] = {}
         self._ppt_refresh_pending: set[str] = set()
         self._ppt_refresh_guard = threading.Lock()
@@ -459,22 +483,139 @@ class LearningOrchestrator:
         outline_node_id: str,
         handout_section: dict[str, Any],
         source: str,
+        force: bool = False,
     ) -> dict[str, Any]:
-        """Best-effort slide-level audio generation for a handout section."""
+        """Persist the lecture script and enqueue non-blocking audio generation."""
         try:
-            return ensure_handout_audio(
+            lecture_script = build_and_save_lecture_script(
                 session_id=session_id,
                 outline_node_id=outline_node_id,
                 handout_section=handout_section,
-                source=source,
                 resource_root=self.resource_root,
             )
         except Exception as exc:  # noqa: BLE001 - audio must not block handout
             return {
                 "outline_node_id": outline_node_id,
                 "status": "failed",
-                "error": f"ensure_handout_audio_raised: {exc}",
+                "error": f"lecture_script_generation_raised: {exc}",
             }
+        return self._schedule_audio_generation(
+            session_id=session_id,
+            outline_node_id=outline_node_id,
+            handout_section=handout_section,
+            source=source,
+            lecture_script=lecture_script,
+            force=force,
+        )
+
+    def _schedule_audio_generation(
+        self,
+        *,
+        session_id: str,
+        outline_node_id: str,
+        handout_section: dict[str, Any],
+        source: str,
+        lecture_script: dict[str, Any],
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Coalesce one background TTS worker per session section."""
+        key = (session_id, outline_node_id)
+        source_hash = str(lecture_script.get("source_handout_hash") or "")
+        current = get_section_audio(
+            session_id,
+            outline_node_id,
+            resource_root=self.resource_root,
+        )
+        same_source = bool(
+            source_hash
+            and isinstance(current, dict)
+            and current.get("source_handout_hash") == source_hash
+        )
+        if same_source and current.get("status") == "ready":
+            return {"started": False, "status": "ready", "cache_hit": True}
+        if (
+            same_source
+            and current.get("status") in {"failed", "partial", "skipped"}
+            and not force
+        ):
+            return {
+                "started": False,
+                "status": current.get("status"),
+                "retry_deferred": True,
+            }
+
+        payload = (handout_section, source, lecture_script)
+        with self._audio_generation_guard:
+            existing = self._audio_generation_threads.get(key)
+            if existing and existing.is_alive():
+                active_hash = self._audio_generation_hashes.get(key, "")
+                if source_hash and source_hash != active_hash:
+                    self._audio_generation_pending[key] = payload
+                return {"started": False, "status": "generating", "already_running": True}
+            thread = threading.Thread(
+                target=self._audio_generation_worker,
+                args=(session_id, outline_node_id, *payload),
+                daemon=True,
+                name=f"audio-generation-{session_id[:8]}-{outline_node_id}",
+            )
+            self._audio_generation_threads[key] = thread
+            self._audio_generation_hashes[key] = source_hash
+            thread.start()
+        return {"started": True, "status": "generating", "already_running": False}
+
+    def _audio_generation_worker(
+        self,
+        session_id: str,
+        outline_node_id: str,
+        handout_section: dict[str, Any],
+        source: str,
+        lecture_script: dict[str, Any],
+    ) -> None:
+        key = (session_id, outline_node_id)
+        while True:
+            try:
+                with self._audio_generation_slots:
+                    ensure_handout_audio(
+                        session_id=session_id,
+                        outline_node_id=outline_node_id,
+                        handout_section=handout_section,
+                        source=source,
+                        resource_root=self.resource_root,
+                        lecture_script=lecture_script,
+                    )
+            except Exception:
+                pass
+            with self._audio_generation_guard:
+                pending = self._audio_generation_pending.pop(key, None)
+                if pending is None:
+                    self._audio_generation_threads.pop(key, None)
+                    self._audio_generation_hashes.pop(key, None)
+                    return
+                handout_section, source, lecture_script = pending
+                self._audio_generation_hashes[key] = str(
+                    lecture_script.get("source_handout_hash") or ""
+                )
+
+    def _fan_out_handout_resources(
+        self,
+        *,
+        session_id: str,
+        outline: dict[str, Any],
+        outline_node_id: str,
+        handout_section: dict[str, Any],
+        source: str,
+        force_audio: bool = False,
+    ) -> dict[str, Any]:
+        """Persist the script, then independently schedule Audio and PPT."""
+        audio = self._ensure_handout_section_audio(
+            session_id=session_id,
+            outline_node_id=outline_node_id,
+            handout_section=handout_section,
+            source=source,
+            force=force_audio,
+        )
+        ppt = self._schedule_ppt_refresh(session_id, outline)
+        return {"audio": audio, "ppt": ppt}
 
     def _read_section_audio(
         self,
@@ -586,6 +727,375 @@ class LearningOrchestrator:
             resource_root=self.resource_root,
         )
 
+    def wait_for_background_resources(
+        self,
+        session_id: str,
+        timeout_seconds: float = 120.0,
+    ) -> dict[str, Any]:
+        """Wait for session-scoped generation workers to finish or time out."""
+        deadline = time.monotonic() + max(0.0, timeout_seconds)
+        active_names: list[str] = []
+        while True:
+            with self._audio_generation_guard:
+                audio_threads = [
+                    thread
+                    for (sid, _node_id), thread in self._audio_generation_threads.items()
+                    if sid == session_id
+                ]
+            with self._ppt_refresh_guard:
+                ppt_thread = self._ppt_refresh_threads.get(session_id)
+            candidates = [
+                self._outline_completion_threads.get(session_id),
+                self._handout_prefetch_threads.get(session_id),
+                ppt_thread,
+                *audio_threads,
+            ]
+            threads: list[threading.Thread] = []
+            seen: set[int] = set()
+            for thread in candidates:
+                if (
+                    thread is not None
+                    and thread is not threading.current_thread()
+                    and thread.is_alive()
+                    and id(thread) not in seen
+                ):
+                    seen.add(id(thread))
+                    threads.append(thread)
+            if not threads:
+                active_names = []
+                break
+            active_names = [thread.name for thread in threads]
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            for thread in threads:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                thread.join(min(remaining, 1.0))
+
+        outline_record = self.memory.latest_outline(session_id)
+        outline = outline_record.get("outline", {}) if outline_record else {}
+        nodes = list(outline.get("nodes", []))
+        audio_manifest = reconcile_audio_manifest(
+            session_id=session_id,
+            outline_nodes=nodes,
+            resource_root=self.resource_root,
+        )
+        return {
+            "completed": not active_names,
+            "timed_out": bool(active_names),
+            "active_threads": active_names,
+            "audio_manifest": audio_manifest,
+            "ppt": get_ppt_resource_status(
+                session_id=session_id,
+                outline=outline,
+                resource_root=self.resource_root,
+            ),
+        }
+
+    def get_final_exam(self, session_id: str) -> dict[str, Any]:
+        """Read the student-facing final exam without exposing its answer key."""
+        return read_final_exam(session_id, resource_root=self.resource_root)
+
+    def ensure_final_exam(
+        self,
+        session_id: str,
+        *,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Build the personalized final exam after the lesson is complete."""
+        try:
+            outline_record = _require_outline(self.memory, session_id)
+            session = self.memory.get_session(session_id)
+            result = build_and_save_final_exam(
+                session_id=session_id,
+                user_id=str(session.get("user_id") or ""),
+                topic=str(session.get("topic") or ""),
+                outline=outline_record["outline"],
+                session_summary=self.memory.session_summary(session_id),
+                resource_root=self.resource_root,
+                force=force,
+            )
+        except Exception as exc:
+            return {
+                "schema_version": "learning.final_exam.v1",
+                "session_id": session_id,
+                "status": "failed",
+                "question_count": 0,
+                "error": f"final_exam_generation_raised: {exc}",
+            }
+
+        if not result.get("cache_hit"):
+            try:
+                self.memory.record_event(
+                    session_id=session_id,
+                    user_id=str(session.get("user_id") or ""),
+                    event_type="final_exam_generated",
+                    outline_node_id=None,
+                    payload={
+                        "surface": "quiz",
+                        "exam_id": result.get("exam_id"),
+                        "status": result.get("status"),
+                        "question_count": result.get("question_count", 0),
+                        "target_question_count": result.get(
+                            "target_question_count", 0
+                        ),
+                        "weak_kg_node_ids": result.get("coverage", {}).get(
+                            "weak_kg_node_ids", []
+                        ),
+                        "resource_path": result.get("resource_path", ""),
+                        "error": result.get("error"),
+                    },
+                )
+            except Exception:
+                pass
+        return result
+
+    def submit_final_exam(
+        self,
+        session_id: str,
+        answers: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Grade a final-exam submission and persist its learning signals."""
+        try:
+            session = self.memory.get_session(session_id)
+        except Exception:
+            return {
+                "schema_version": "learning.final_exam_submission.v1",
+                "session_id": session_id,
+                "status": "exam_not_found",
+                "error": "session_not_found",
+            }
+        user_id = str(session.get("user_id") or "")
+
+        def _persist(submission: dict[str, Any]) -> dict[str, Any]:
+            return self._persist_final_exam_submission_memory(
+                session_id=session_id,
+                user_id=user_id,
+                submission=submission,
+            )
+
+        return grade_and_save_final_exam_submission(
+            session_id=session_id,
+            answers=answers,
+            resource_root=self.resource_root,
+            on_first_submit=_persist,
+        )
+
+    def _persist_final_exam_submission_memory(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        submission: dict[str, Any],
+    ) -> dict[str, Any]:
+        question_results = [
+            result
+            for result in submission.get("question_results", []) or []
+            if isinstance(result, dict)
+        ]
+        exam_id = str(submission.get("exam_id") or "")
+        exam_revision = submission.get("exam_revision", 1)
+        answer_records_count = 0
+        mastery_updates: list[dict[str, Any]] = []
+        per_question_event_ids: list[str] = []
+
+        for result in question_results:
+            question_id = str(result.get("question_id") or "")
+            selected_option = str(result.get("selected_option") or "")
+            is_correct = bool(result.get("is_correct"))
+            is_unanswered = bool(result.get("is_unanswered"))
+            answer_status = (
+                "correct"
+                if is_correct
+                else "unanswered"
+                if is_unanswered
+                else "wrong"
+            )
+            mastery_delta = 0.12 if is_correct else -0.04 if is_unanswered else -0.08
+            kg_node_ids = self._final_exam_result_kg_node_ids(result)
+            outline_node_id = self._first_string(result.get("outline_node_ids"))
+            concept_name = (
+                self._first_string(result.get("knowledge_points"))
+                or str(result.get("stem") or question_id)[:80]
+                or "final_exam_question"
+            )
+            grading = {
+                "is_correct": is_correct,
+                "score": float(result.get("score", 0.0)),
+                "mastery_delta": mastery_delta,
+                "answer_status": answer_status,
+                "exam_id": exam_id,
+                "exam_revision": exam_revision,
+                "selected_option": selected_option,
+                "correct_answer": result.get("correct_answer", ""),
+                "explanation": result.get("explanation", ""),
+                "related_kg_node_ids": kg_node_ids,
+                "source": "final_exam",
+            }
+            self.memory.record_answer(
+                session_id=session_id,
+                user_id=user_id,
+                question_id=question_id,
+                outline_node_id=outline_node_id,
+                user_answer=selected_option,
+                grading=grading,
+            )
+            answer_records_count += 1
+
+            evidence = {
+                "source": "final_exam",
+                "exam_id": exam_id,
+                "exam_revision": exam_revision,
+                "question_id": question_id,
+                "outline_node_id": outline_node_id,
+                "user_answer": selected_option,
+                "correct_answer": result.get("correct_answer", ""),
+                "answer_status": answer_status,
+                "is_correct": is_correct,
+                "score": result.get("score", 0.0),
+                "mastery_delta": mastery_delta,
+            }
+            for kg_id in kg_node_ids:
+                mastery_updates.append(self.memory.upsert_mastery(
+                    user_id=user_id,
+                    session_id=session_id,
+                    concept_name=concept_name,
+                    mastery_delta=mastery_delta,
+                    kg_node_id=kg_id,
+                    evidence=evidence,
+                    confidence_delta=0.06,
+                ))
+
+            per_question_event_ids.append(self.memory.record_event(
+                session_id=session_id,
+                user_id=user_id,
+                event_type="final_exam_answer_submitted",
+                outline_node_id=outline_node_id,
+                payload={
+                    "surface": "quiz_final_exam",
+                    "exam_id": exam_id,
+                    "exam_revision": exam_revision,
+                    "question_id": question_id,
+                    "question_stem": result.get("stem", ""),
+                    "kg_node_ids": kg_node_ids,
+                    "user_answer": selected_option,
+                    "is_correct": is_correct,
+                    "is_unanswered": is_unanswered,
+                    "score": result.get("score", 0.0),
+                    "mastery_delta": mastery_delta,
+                    "related_kg_node_ids": [] if is_correct else kg_node_ids,
+                    "misconception_summary": (
+                        ""
+                        if is_correct
+                        else self._final_exam_misconception_text(result)
+                    ),
+                    "content_status": "graded",
+                },
+            ))
+
+        summary_event_id = self.memory.record_event(
+            session_id=session_id,
+            user_id=user_id,
+            event_type="final_exam_submitted",
+            outline_node_id=None,
+            payload={
+                "surface": "quiz_final_exam",
+                "exam_id": exam_id,
+                "exam_revision": exam_revision,
+                "score": submission.get("score", 0.0),
+                "question_count": submission.get("question_count", 0),
+                "correct_count": submission.get("correct_count", 0),
+                "wrong_count": submission.get("wrong_count", 0),
+                "unanswered_count": submission.get("unanswered_count", 0),
+                "source_event_ids": per_question_event_ids,
+            },
+        )
+
+        weakness_signals = []
+        for result in question_results:
+            if result.get("is_correct"):
+                continue
+            kg_node_ids = self._final_exam_result_kg_node_ids(result)
+            weakness_signals.append({
+                "slot": "weaknesses",
+                "aspect": "misconception",
+                "action": "reinforce",
+                "label": str(result.get("question_id") or "")[:80],
+                "content": self._final_exam_misconception_text(result),
+                "kg_node_ids": kg_node_ids,
+                "confidence": 0.75,
+                "severity_delta": 0.06 if result.get("is_unanswered") else 0.10,
+                "evidence_event_ids": [summary_event_id],
+                "reason": "final exam incorrect or unanswered question",
+            })
+
+        learner_memory_update = reduce_memory_signals(
+            self.memory,
+            user_id=user_id,
+            session_id=session_id,
+            event_id=summary_event_id,
+            surface="quiz_final_exam",
+            extraction={
+                "should_update": bool(weakness_signals),
+                "signals": weakness_signals,
+                "trace": {
+                    "mode": "deterministic_final_exam_submission",
+                    "uses_llm": False,
+                },
+            },
+            append_summary=True,
+        )
+        return {
+            "answer_records_count": answer_records_count,
+            "mastery_update_count": len(mastery_updates),
+            "event_ids": per_question_event_ids + [summary_event_id],
+            "learner_memory_applied_count": learner_memory_update.get(
+                "applied_count", 0
+            ),
+            "compact_profile_confidence": (
+                learner_memory_update.get("compact_profile") or {}
+            ).get("confidence"),
+        }
+
+    @staticmethod
+    def _first_string(value: Any) -> str:
+        if isinstance(value, list):
+            for item in value:
+                text = str(item or "").strip()
+                if text:
+                    return text
+            return ""
+        return str(value or "").strip()
+
+    @staticmethod
+    def _final_exam_result_kg_node_ids(result: dict[str, Any]) -> list[str]:
+        seen: set[str] = set()
+        output: list[str] = []
+        for key in ("kg_node_ids", "course_kg_node_ids"):
+            value = result.get(key, [])
+            values = value if isinstance(value, list) else [value]
+            for item in values:
+                text = str(item or "").strip()
+                if text and text not in seen:
+                    seen.add(text)
+                    output.append(text)
+        return output
+
+    @staticmethod
+    def _final_exam_misconception_text(result: dict[str, Any]) -> str:
+        status = "unanswered" if result.get("is_unanswered") else "incorrect"
+        stem = str(result.get("stem") or result.get("question_id") or "").strip()
+        explanation = str(result.get("explanation") or "").strip()
+        correct = str(result.get("correct_answer") or "").strip()
+        parts = [f"Final exam {status}: {stem[:120]}"]
+        if correct:
+            parts.append(f"Correct answer: {correct}")
+        if explanation:
+            parts.append(f"Explanation: {explanation[:160]}")
+        return "; ".join(parts)
+
     def rebuild_ppt_resources(self, session_id: str) -> dict[str, Any]:
         """Refresh formal slides and enqueue Pin & Paper/PPTX generation."""
         outline_record = _require_outline(self.memory, session_id)
@@ -630,6 +1140,23 @@ class LearningOrchestrator:
             self._start_handout_prefetch_background(session_id, outline)
         elif first_ready:
             self._refresh_slides_resource(session_id, outline)
+        for node in nodes:
+            node_id = str(node.get("id") or "")
+            cached = get_handout_cache(
+                session_id,
+                node_id,
+                resource_root=self.resource_root,
+            )
+            if self._is_ready_handout_cache(cached):
+                handout_section = cached.get("handout_section") or {}
+                if handout_section:
+                    self._ensure_handout_section_audio(
+                        session_id=session_id,
+                        outline_node_id=node_id,
+                        handout_section=handout_section,
+                        source="resources_retry",
+                        force=True,
+                    )
         ppt_refresh = self._schedule_ppt_refresh(session_id, outline)
         return {
             "started": True,
@@ -717,8 +1244,9 @@ class LearningOrchestrator:
                 source="first_section_sync",
                 resource_root=self.resource_root,
             )
-            self._ensure_handout_section_audio(
+            self._fan_out_handout_resources(
                 session_id=session_id,
+                outline=outline,
                 outline_node_id=first_node_id,
                 handout_section=hs,
                 source="first_section_sync",
@@ -784,8 +1312,9 @@ class LearningOrchestrator:
                 hs = existing.get("handout_section")
                 if hs and isinstance(hs, dict):
                     self._last_handout_sections[node_id] = hs
-                    self._ensure_handout_section_audio(
+                    self._fan_out_handout_resources(
                         session_id=session_id,
+                        outline=outline,
                         outline_node_id=node_id,
                         handout_section=hs,
                         source="background_prefetch_cache_hit",
@@ -843,12 +1372,15 @@ class LearningOrchestrator:
                     source="background_prefetch",
                     resource_root=self.resource_root,
                 )
-                self._ensure_handout_section_audio(
+                self._fan_out_handout_resources(
                     session_id=session_id,
+                    outline=outline,
                     outline_node_id=node_id,
                     handout_section=hs,
                     source="background_prefetch",
                 )
+                # Audio and PPT now fan out immediately from the persisted
+                # lecture script; Tutor generation continues independently.
                 self._last_handout_sections[node_id] = hs
 
                 # --- Generate and cache tutor_step draft ---
@@ -1455,8 +1987,9 @@ class LearningOrchestrator:
                             source="cache_miss_sync_generation",
                             resource_root=self.resource_root,
                         )
-                        self._ensure_handout_section_audio(
+                        self._fan_out_handout_resources(
                             session_id=session_id,
+                            outline=outline,
                             outline_node_id=current_node_id or "",
                             handout_section=hs,
                             source="cache_miss_sync_generation",
@@ -1491,8 +2024,9 @@ class LearningOrchestrator:
                             source="cache_miss_sync_generation",
                             resource_root=self.resource_root,
                         )
-                        self._ensure_handout_section_audio(
+                        self._fan_out_handout_resources(
                             session_id=session_id,
+                            outline=outline,
                             outline_node_id=current_node_id or "",
                             handout_section=hs,
                             source="cache_miss_sync_generation",
@@ -1536,8 +2070,9 @@ class LearningOrchestrator:
                     if self._is_ready_handout_cache(refreshed_handout_cache):
                         hs = refreshed_handout_cache.get("handout_section") or {}
                         if hs and current_node_id:
-                            self._ensure_handout_section_audio(
+                            self._fan_out_handout_resources(
                                 session_id=session_id,
+                                outline=outline,
                                 outline_node_id=current_node_id,
                                 handout_section=hs,
                                 source="next_step_refreshed_handout_cache",
@@ -1607,6 +2142,25 @@ class LearningOrchestrator:
                         }
 
                     if step.get("content_status") != "failed":
+                        if (
+                            step.get("content_status") == "llm_generated"
+                            and current_node_id
+                        ):
+                            try:
+                                save_tutor_cache_ready(
+                                    session_id,
+                                    current_node_id,
+                                    tutor_step=step,
+                                    source="tutor_cache_miss_sync_generation",
+                                    handout_source=handout_generation_source,
+                                    resource_root=self.resource_root,
+                                )
+                                tutor_generation_source = (
+                                    "tutor_cache_miss_sync_generation"
+                                )
+                                self._schedule_ppt_refresh(session_id, outline)
+                            except Exception:
+                                pass
                         # --- Record tutor exposure ---
                         signals = build_tutor_signals(step)
                         used_kg = signals.get("used_kg_node_ids", kg_node_ids)
@@ -2306,6 +2860,8 @@ class LearningOrchestrator:
             },
         )
 
+        final_exam = self.ensure_final_exam(session_id) if lesson_completed else None
+
         return {
             "assessment": assessment,
             "current_outline_node_id_before": before,
@@ -2315,6 +2871,7 @@ class LearningOrchestrator:
             "mastery_updates": mastery_updates,
             "learner_memory_update": learner_memory_update,
             "progress_memory_update": progress_memory_update,
+            "final_exam": final_exam,
         }
 
     # ------------------------------------------------------------------
@@ -2342,6 +2899,7 @@ class LearningOrchestrator:
             outline=outline_rec["outline"] if outline_rec else {},
             resource_root=self.resource_root,
         )
+        final_exam = self.get_final_exam(session_id)
 
         return {
             "session_id": session["id"],
@@ -2355,6 +2913,12 @@ class LearningOrchestrator:
             "answer_count": len(summary.get("answers", [])),
             "mastery_count": len(summary.get("mastery", [])),
             "resource_status": resource_status,
+            "final_exam_status": {
+                "status": final_exam.get("status", "missing"),
+                "question_count": final_exam.get("question_count", 0),
+                "resource_path": final_exam.get("resource_path", ""),
+                "error": final_exam.get("error"),
+            },
         }
 
     def route(
@@ -2554,6 +3118,7 @@ class LearningOrchestrator:
                     "lesson_completed": True,
                 },
             )
+            final_exam = self.ensure_final_exam(session_id)
             return {
                 "current_outline_node_id_before": before,
                 "current_outline_node_id_after": None,
@@ -2561,6 +3126,7 @@ class LearningOrchestrator:
                 "lesson_completed": True,
                 "tutor_step": None,
                 "progress_memory_update": progress_memory_update,
+                "final_exam": final_exam,
             }
 
         self.memory.set_current_outline_node(session_id, next_id)

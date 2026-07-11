@@ -233,6 +233,36 @@ def _print_assessment(result: dict[str, Any]) -> None:
             print(f"recommendation.action: {recommendation.get('action')}")
             print(f"recommendation.reason: {recommendation.get('reason')}")
 
+    if result.get("lesson_completed"):
+        print("\n课程知识点已讲完，已根据知识点和薄弱项生成综合试卷。")
+        _print_final_exam(result.get("final_exam"))
+
+
+def _print_final_exam(exam: dict[str, Any] | None) -> None:
+    _print_bar("Final Exam")
+    if not exam:
+        print("未返回试卷资源。")
+        return
+    print(f"status: {exam.get('status')}")
+    print(
+        f"questions: {exam.get('question_count', 0)}/"
+        f"{exam.get('target_question_count', 0)}"
+    )
+    print(f"resource_path: {exam.get('resource_path', '')}")
+    if exam.get("error"):
+        print(f"error: {exam.get('error')}")
+    questions = exam.get("questions") or []
+    for index, question in enumerate(questions, start=1):
+        print(f"\n[{index}] {question.get('stem', '')}")
+        for option in question.get("options", []):
+            if isinstance(option, dict):
+                print(f"    {option.get('key')}. {option.get('text')}")
+            else:
+                print(f"    {option}")
+        reason = question.get("selection_reason", "")
+        if reason:
+            print(f"    selection_reason: {reason}")
+
 
 def _choose_question(questions: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not questions:
@@ -265,6 +295,12 @@ def _print_state(orchestrator: LearningOrchestrator, session_id: str) -> None:
     print(f"events: {state.get('event_count')}")
     print(f"answers: {state.get('answer_count')}")
     print(f"mastery: {state.get('mastery_count')}")
+    exam_status = state.get("final_exam_status", {})
+    print(
+        "final_exam: "
+        f"{exam_status.get('status', 'missing')} "
+        f"({exam_status.get('question_count', 0)} questions)"
+    )
     resources = state.get("resource_status", {})
     if resources:
         print()
@@ -345,6 +381,12 @@ def main() -> None:
         action="store_true",
         help="保留 data/learning_terminal_demo；默认每次清空重建",
     )
+    parser.add_argument(
+        "--background-wait-seconds",
+        type=float,
+        default=180.0,
+        help="退出前等待讲义、语音和 PPT 后台任务的秒数，默认 180",
+    )
     args = parser.parse_args()
 
     demo_dir = Path("data/learning_terminal_demo")
@@ -402,13 +444,27 @@ def main() -> None:
 
     while True:
         _print_actions()
-        raw = input("\n选择 > ")
+        try:
+            raw = input("\n选择 > ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            raw = "quit"
         text = _clean_text(raw).strip()
         if not text:
             continue
         lower = text.lower()
 
         if lower in {"0", "quit", "q", "exit"}:
+            print("正在等待讲义、语音和 PPT 后台任务收尾...", flush=True)
+            background = orchestrator.wait_for_background_resources(
+                session_id,
+                timeout_seconds=max(0.0, args.background_wait_seconds),
+            )
+            print(
+                "后台任务状态: "
+                f"completed={background.get('completed')} "
+                f"active={background.get('active_threads', [])}"
+            )
             print("已退出。")
             break
 
@@ -439,6 +495,7 @@ def main() -> None:
                 print(f"handout_generation_error: {result.get('handout_generation_error')}")
             if result.get("lesson_completed"):
                 print("课程已到末尾。")
+                _print_final_exam(result.get("final_exam"))
                 current_step = None
                 current_questions = []
             else:
@@ -468,6 +525,9 @@ def main() -> None:
                 ],
             )
             _print_assessment(result)
+            if result.get("lesson_completed"):
+                current_step = None
+                current_questions = []
             continue
 
         if lower in {"1", "ask", "question", "提问", "问"}:

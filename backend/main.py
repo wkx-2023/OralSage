@@ -29,6 +29,7 @@ from .schemas import (
     KnowledgeGraphNeighborhoodRequest,
     KnowledgeViewRequest,
     LearningContinueRequest,
+    LearningFinalExamSubmitRequest,
     LearnerAssessmentSubmitRequest,
     LearningExecuteRequest,
     LearningMemoryConsolidateRequest,
@@ -220,6 +221,7 @@ def capabilities() -> dict[str, Any]:
             "learning_agent_mvp",
             "learning_study_plan",
             "learning_learner_assessment",
+            "learning_final_exam",
         ],
         "modules": [
             "pathology_qa",
@@ -284,6 +286,9 @@ def capabilities() -> dict[str, Any]:
             "/api/learning/continue/stream",
             "/api/learning/answer",
             "/api/learning/answer/stream",
+            "/api/learning/session/{session_id}/final-exam",
+            "/api/learning/session/{session_id}/final-exam/rebuild",
+            "/api/learning/session/{session_id}/final-exam/submit",
             "/api/router/chat",
             "/api/agents/{agent_name}/invoke",
             "/api/agents/{agent_name}/stream",
@@ -802,6 +807,71 @@ async def learning_session_audio_manifest(session_id: str) -> JSONResponse:
             "action": "audio_manifest",
             "result": manifest,
         }
+    )
+
+
+@app.get("/api/learning/session/{session_id}/final-exam")
+async def learning_session_final_exam(session_id: str) -> JSONResponse:
+    """Return the student-facing final exam generated at lesson completion."""
+    result = learning_orchestrator.get_final_exam(session_id)
+    if result.get("status") == "missing":
+        session = learning_orchestrator.memory.get_session(session_id)
+        if session.get("current_outline_node_id") is not None:
+            raise HTTPException(status_code=409, detail="Lesson is not complete")
+        result = learning_orchestrator.ensure_final_exam(session_id)
+    return JSONResponse({
+        "ok": result.get("status") in {"ready", "partial"},
+        "module": "learning",
+        "action": "final_exam",
+        "result": result,
+    })
+
+
+@app.post("/api/learning/session/{session_id}/final-exam/rebuild")
+async def learning_session_rebuild_final_exam(session_id: str) -> JSONResponse:
+    """Rebuild the final exam from current mastery and weakness signals."""
+    session = learning_orchestrator.memory.get_session(session_id)
+    if session.get("current_outline_node_id") is not None:
+        raise HTTPException(status_code=409, detail="Lesson is not complete")
+    result = learning_orchestrator.ensure_final_exam(session_id, force=True)
+    return JSONResponse({
+        "ok": result.get("status") in {"ready", "partial"},
+        "module": "learning",
+        "action": "rebuild_final_exam",
+        "result": result,
+    })
+
+
+@app.post("/api/learning/session/{session_id}/final-exam/submit")
+async def learning_session_submit_final_exam(
+    session_id: str,
+    req: LearningFinalExamSubmitRequest,
+) -> JSONResponse:
+    """Grade a completed final exam and persist the learning result."""
+    result = learning_orchestrator.submit_final_exam(
+        session_id,
+        [item.model_dump() for item in req.answers],
+    )
+    status = result.get("status")
+    status_code = 200
+    if status == "exam_not_found":
+        status_code = 404
+    elif status == "exam_not_ready":
+        status_code = 409
+    elif status == "invalid_submission":
+        status_code = 422
+    elif status == "exam_already_submitted":
+        status_code = 409
+    elif status == "memory_persistence_failed":
+        status_code = 500
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "ok": status == "graded",
+            "module": "learning",
+            "action": "submit_final_exam",
+            "result": result,
+        },
     )
 
 

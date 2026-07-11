@@ -195,7 +195,7 @@ def _derive_eyebrow(title: str) -> str:
     if "的" in title:
         parts = title.split("的")
         title = parts[-1] if len(parts[-1]) >= 2 else title
-    return _compress_chinese_text(title.strip("·"), 20)
+    return _compress_chinese_text(title.strip("·"), 14)
 
 
 def _derive_headline(title: str) -> str:
@@ -204,7 +204,7 @@ def _derive_headline(title: str) -> str:
     The slide title is the authoritative short heading.  Never promote
     overview body text to headline position.
     """
-    return _compress_chinese_text(title, 40)
+    return _compress_chinese_text(title, 34)
 
 
 def _derive_short_topic_label(title: str) -> str:
@@ -293,8 +293,8 @@ def _make_fake_llm_from_source(slide_types: dict):
                 # in a fixed 16:9 slide without scrolling
                 steps.append({
                     "num": str(i + 1),
-                    "title": _compress_chinese_text(kpb.get("title", ""), 30),
-                    "body": _compress_chinese_text(kpb.get("body", ""), 120),
+                    "title": _compress_chinese_text(kpb.get("title", ""), 14),
+                    "body": _compress_chinese_text(kpb.get("body", ""), 90),
                     "source_block_ids": [kpb.get("block_id", "")],
                 })
             # Derive short eyebrow from title: remove common prefixes
@@ -302,7 +302,7 @@ def _make_fake_llm_from_source(slide_types: dict):
             slots = {
                 "eyebrow": eyebrow,
                 "headline": _derive_headline(title),
-                "body": _compress_chinese_text(overview_text, 120),
+                "body": _compress_chinese_text(overview_text, 110),
                 "steps": steps,
                 "footer_left": "OralSage",
                 "footer_right": _compress_chinese_text(title, 30),
@@ -314,11 +314,11 @@ def _make_fake_llm_from_source(slide_types: dict):
                 # meta should be a short DIFFERENT label, not a duplicate of title.
                 # Leave empty — the renderer already shows title in <h3>.
                 columns.append({
-                    "title": _compress_chinese_text(kpb.get("title", ""), 30),
-                    "body": _compress_chinese_text(kpb.get("body", ""), 200),
+                    "title": _compress_chinese_text(kpb.get("title", ""), 18),
+                    "body": _compress_chinese_text(kpb.get("body", ""), 120),
                     "meta": "",
                     "source": _compress_chinese_text(
-                        ", ".join(kpb.get("evidence_refs", []) or ["OralSage"]), 40),
+                        ", ".join(kpb.get("evidence_refs", []) or ["OralSage"]), 24),
                     "source_block_ids": [kpb.get("block_id", "")],
                 })
             slots = {
@@ -331,24 +331,31 @@ def _make_fake_llm_from_source(slide_types: dict):
 
         elif page_type in ("notes", "notes_2up", "notes_4up"):
             cards = []
+            if page_type == "notes_2up":
+                title_budget, body_budget, label_budget, scribble_budget = 20, 160, 12, 20
+            elif page_type == "notes_4up":
+                title_budget, body_budget, label_budget, scribble_budget = 16, 90, 10, 16
+            else:
+                title_budget, body_budget, label_budget, scribble_budget = 18, 120, 10, 18
             for i, kpb in enumerate(kp_blocks):
                 # Derive scribble from confusion if available
                 scribble = ""
                 if i < len(confusion_blocks):
                     scribble = _compress_chinese_text(
-                        confusion_blocks[i].get("title", "")[:30], 50)
+                        confusion_blocks[i].get("title", "")[:30], scribble_budget)
                 # Short label: use first 8 chars of title + number
                 short_label = kpb.get('title', '')[:8]
                 cards.append({
-                    "label": f"{short_label}·{i+1:02d}"[:20],
-                    "title": _compress_chinese_text(kpb.get("title", ""), 30),
-                    "body": _compress_chinese_text(kpb.get("body", ""), 200),
+                    "label": f"{short_label}·{i+1:02d}"[:label_budget],
+                    "title": _compress_chinese_text(kpb.get("title", ""), title_budget),
+                    "body": _compress_chinese_text(kpb.get("body", ""), body_budget),
                     "scribble": scribble,
                     "source_block_ids": [kpb.get("block_id", "")],
                 })
-            subtitle = _compress_chinese_text(overview_text, 60)
+            subtitle_budget = 52 if page_type == "notes_2up" else (38 if page_type == "notes_4up" else 46)
+            subtitle = _compress_chinese_text(overview_text, subtitle_budget)
             slots = {
-                "headline": _compress_chinese_text(title, 40),
+                "headline": _compress_chinese_text(title, 34 if page_type != "notes_4up" else 32),
                 "subtitle": subtitle,
                 "cards": cards,
                 "footer_left": "OralSage",
@@ -362,7 +369,7 @@ def _make_fake_llm_from_source(slide_types: dict):
             # Use body text if available (richer), else titles
             source_texts = [b for b in kp_bodies if b] or kp_titles
             quote_body = "。".join(source_texts[:3])
-            quote_body = _compress_chinese_text(quote_body, 120)
+            quote_body = _compress_chinese_text(quote_body, 100)
             # Derive a short headline from title
             headline = _derive_short_topic_label(title)
             slots = {
@@ -382,8 +389,8 @@ def _make_fake_llm_from_source(slide_types: dict):
                 "cards": [
                     {
                         "label": f"01",
-                        "title": _compress_chinese_text(kp_blocks[0].get("title", ""), 30) if kp_blocks else "",
-                        "body": _compress_chinese_text(kp_blocks[0].get("body", ""), 200) if kp_blocks else "",
+                        "title": _compress_chinese_text(kp_blocks[0].get("title", ""), 18) if kp_blocks else "",
+                        "body": _compress_chinese_text(kp_blocks[0].get("body", ""), 120) if kp_blocks else "",
                         "scribble": "",
                         "source_block_ids": [kp_blocks[0].get("block_id", "")] if kp_blocks else [],
                     }

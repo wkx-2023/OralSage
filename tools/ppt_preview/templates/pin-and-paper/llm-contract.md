@@ -4,7 +4,7 @@ Use this contract when asking an LLM to plan Chinese PPT pages in the Pin & Pape
 
 ## Goal
 
-The LLM should output a structured Chinese slide plan that can be rendered into the local Pin & Paper template. It must choose one of the 11 page types in `slide-types.json` and fill that page type's slots from existing OralSage slide content.
+The LLM should output a structured Chinese slide plan that can be rendered into the local Pin & Paper template. It must choose one of the 13 page types in `slide-types.json` and fill that page type's slots from existing OralSage slide content.
 
 All user-visible text MUST be Chinese unless the source input is intentionally English. Stable code fields (`page_type`, `type`, `source_class`) may remain in English.
 
@@ -178,6 +178,11 @@ When the source slide contains multiple parallel knowledge points:
 
 Keep text within Pin & Paper's 1920×1080 slide constraints.
 
+OralSage uses page-type-specific layout budgets. When a page-specific budget
+exists, it overrides the generic slot budget below. Card grids are intentionally
+strict: `notes_4up` is the tightest, `notes` is medium, and `notes_2up` has the
+most room per card.
+
 ### Top-Level Slots
 
 | Slot | Max Chars | Description |
@@ -186,8 +191,8 @@ Keep text within Pin & Paper's 1920×1080 slide constraints.
 | `headline` | 40 | main headline (varies by page type) |
 | `title` | 30 | cover title (per line) |
 | `subtitle` | 60 | subtitle or sub-headline |
-| `body` | 200 | narrative body paragraph |
-| `quote_text` | 120 | quote main text |
+| `body` | 160 | narrative body paragraph |
+| `quote_text` | 100 | quote main text |
 | `attribution_name` | 30 | quote attribution name |
 | `attribution_detail` | 60 | quote attribution detail |
 | `presenter` | 20 | cover presenter name |
@@ -207,7 +212,7 @@ Keep text within Pin & Paper's 1920×1080 slide constraints.
 | `num` (step/card) | 4 | step or card number |
 | `label` (agenda/notes) | 20 | agenda item label |
 | `title` (card/step/col) | 30 | card or step title |
-| `body` (card/step/col) | 200 | card or step body text |
+| `body` (card/step/col) | 120 | default card or step body text; page-specific overrides may be stricter |
 | `meta` (agenda/col) | 30 | metadata label |
 | `source` (col) | 40 | source citation |
 | `value` (stat) | 12 | stat value |
@@ -220,6 +225,41 @@ Keep text within Pin & Paper's 1920×1080 slide constraints.
 | `x_labels[*]` | 16 | chart x-axis label |
 | `y_labels[*]` | 10 | chart y-axis label |
 | `timeline[*]` | 30 | process timeline label |
+
+### Page-Specific Layout Budgets
+
+| Page / Slot | Max Chars | Notes |
+|-------------|-----------|-------|
+| `cover.title` | 28 | Cover title |
+| `cover.handwritten_note` | 44 | Cover note |
+| `notes.headline` | 34 | Notes page title |
+| `notes.subtitle` | 46 | Notes subtitle |
+| `notes.cards[*].label` | 10 | 3-card label |
+| `notes.cards[*].title` | 18 | 3-card title |
+| `notes.cards[*].body` | 120 | 3-card body |
+| `notes.cards[*].scribble` | 18 | 3-card annotation |
+| `notes_2up.cards[*].title` | 20 | Spacious 2-card title |
+| `notes_2up.cards[*].body` | 160 | Spacious 2-card body |
+| `notes_4up.headline` | 32 | Four-card page title |
+| `notes_4up.subtitle` | 38 | Four-card subtitle |
+| `notes_4up.cards[*].label` | 10 | Four-card label |
+| `notes_4up.cards[*].title` | 16 | Four-card title |
+| `notes_4up.cards[*].body` | 90 | Four-card body |
+| `notice.eyebrow` | 14 | Notice label |
+| `notice.headline` | 34 | Notice headline |
+| `notice.columns[*].title` | 18 | Column title |
+| `notice.columns[*].body` | 120 | Column body |
+| `notice.columns[*].source` | 24 | Source label |
+| `cta.eyebrow` | 14 | CTA label |
+| `cta.headline` | 34 | CTA headline |
+| `cta.body` | 110 | Left-panel body |
+| `cta.steps[*].title` | 14 | Step title |
+| `cta.steps[*].body` | 90 | Step body |
+| `process.steps[*].title` | 14 | Process card title |
+| `process.steps[*].body` | 70 | Process card body |
+| `matrix.columns[*]` | 10 | Matrix header |
+| `matrix.rows[*].criterion` | 14 | Matrix row label |
+| `matrix.rows[*].cells[*]` | 24 | Matrix cell |
 
 ### Budget Enforcement
 
@@ -268,10 +308,12 @@ Keep text within Pin & Paper's 1920×1080 slide constraints.
 
 ## Visual Rules
 
-- Keep the yellow paper background, paper-grain texture, and safety-pin SVG illustrations from `template.html` and `design.md`.
-- Keep the original font configuration: Space Grotesk (headlines/body), Caveat (handwritten annotations), DM Mono (labels/meta).
-- Do NOT introduce new colors, gradients, image-heavy layouts, or unrelated visual motifs.
-- Do NOT invert text on cream/paper fills.
+- Use the active OralSage soft-lavender medical learning theme described in `design.md`.
+- Primary surfaces are `#f7f4f8` and `#e8e1f0`; title text uses `#625195` / `#624c95`; body text uses `#3e3a39`; secondary metadata uses `#7e72a6`.
+- Existing OralSage background images and robot artwork may appear as brand decoration, but they must never cover or compete with medical content.
+- Safety-pin SVGs and red stamp styling are legacy Pin & Paper elements. They are not required in OralSage runtime output and must not be used as content-bearing elements.
+- Do NOT introduce unrelated colors, gradients, image-heavy layouts, or unrelated visual motifs.
+- Do NOT invert body text on pale lavender fills.
 - Do NOT create more cards than the selected page type supports.
 - Do NOT output raw HTML or CSS.
 - Do NOT reference other templates from the upstream repository.

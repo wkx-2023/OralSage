@@ -55,8 +55,8 @@ _TOP_LEVEL_BUDGETS: dict[str, dict[str, Any]] = {
     "subtitle":           {"max_chars": 60,  "description": "subtitle or sub-headline"},
     "subtitle_line1":     {"max_chars": 30,  "description": "cover subtitle line 1"},
     "subtitle_line2":     {"max_chars": 30,  "description": "cover subtitle line 2"},
-    "body":               {"max_chars": 200, "description": "narrative body paragraph"},
-    "quote_text":         {"max_chars": 120, "description": "quote main text"},
+    "body":               {"max_chars": 160, "description": "narrative body paragraph"},
+    "quote_text":         {"max_chars": 100, "description": "quote main text"},
     "attribution_name":   {"max_chars": 30,  "description": "quote attribution name"},
     "attribution_detail": {"max_chars": 60,  "description": "quote attribution detail"},
     "presenter":          {"max_chars": 20,  "description": "cover presenter name"},
@@ -74,7 +74,7 @@ _ITEM_BUDGETS: dict[str, dict[str, Any]] = {
     "num":       {"max_chars": 4,   "description": "step / card number"},
     "label":     {"max_chars": 20,  "description": "agenda item / card label"},
     "title":     {"max_chars": 30,  "description": "card / step / column title"},
-    "body":      {"max_chars": 200, "description": "card / step / column body text"},
+    "body":      {"max_chars": 120, "description": "card / step / column body text"},
     "meta":      {"max_chars": 30,  "description": "metadata label"},
     "source":    {"max_chars": 40,  "description": "source citation"},
     "value":     {"max_chars": 12,  "description": "stat value"},
@@ -91,6 +91,127 @@ _CELL_BUDGETS: dict[str, dict[str, Any]] = {
     "x_labels":  {"max_chars": 16,  "description": "chart x-axis label"},
     "y_labels":  {"max_chars": 10,  "description": "chart y-axis label"},
     "timeline":  {"max_chars": 30,  "description": "process timeline label"},
+}
+
+# Renderer capacity is not uniform across page types.  Card grids have much
+# less room per item than notice/CTA pages, so the planner uses stricter,
+# page-aware overrides before content reaches the browser renderer.
+_PAGE_TYPE_TOP_LEVEL_BUDGETS: dict[str, dict[str, dict[str, Any]]] = {
+    "cover": {
+        "title": {"max_chars": 28, "description": "cover title"},
+        "handwritten_note": {"max_chars": 44, "description": "cover note"},
+    },
+    "agenda": {
+        "headline": {"max_chars": 34, "description": "agenda headline"},
+    },
+    "notes": {
+        "headline": {"max_chars": 34, "description": "notes headline"},
+        "subtitle": {"max_chars": 46, "description": "notes subtitle"},
+    },
+    "notes_2up": {
+        "headline": {"max_chars": 34, "description": "two-card notes headline"},
+        "subtitle": {"max_chars": 52, "description": "two-card notes subtitle"},
+    },
+    "notes_4up": {
+        "headline": {"max_chars": 32, "description": "four-card notes headline"},
+        "subtitle": {"max_chars": 38, "description": "four-card notes subtitle"},
+    },
+    "notice": {
+        "eyebrow": {"max_chars": 14, "description": "notice eyebrow"},
+        "headline": {"max_chars": 34, "description": "notice headline"},
+    },
+    "process": {
+        "headline": {"max_chars": 34, "description": "process headline"},
+        "subtitle": {"max_chars": 44, "description": "process subtitle"},
+    },
+    "matrix": {
+        "headline": {"max_chars": 34, "description": "matrix headline"},
+        "subtitle": {"max_chars": 44, "description": "matrix subtitle"},
+    },
+    "stats": {
+        "headline": {"max_chars": 34, "description": "stats headline"},
+        "subtitle": {"max_chars": 44, "description": "stats subtitle"},
+    },
+    "quote": {
+        "headline": {"max_chars": 34, "description": "quote headline"},
+        "quote_text": {"max_chars": 100, "description": "quote text"},
+    },
+    "cta": {
+        "eyebrow": {"max_chars": 14, "description": "cta eyebrow"},
+        "headline": {"max_chars": 34, "description": "cta headline"},
+        "body": {"max_chars": 110, "description": "cta left body"},
+    },
+}
+
+_PAGE_TYPE_ITEM_BUDGETS: dict[str, dict[str, dict[str, dict[str, Any]]]] = {
+    "agenda": {
+        "items": {
+            "label": {"max_chars": 18, "description": "agenda item label"},
+            "meta": {"max_chars": 18, "description": "agenda item metadata"},
+        },
+    },
+    "notes": {
+        "cards": {
+            "label": {"max_chars": 10, "description": "3-card label"},
+            "title": {"max_chars": 18, "description": "3-card title"},
+            "body": {"max_chars": 120, "description": "3-card body"},
+            "scribble": {"max_chars": 18, "description": "3-card note"},
+        },
+    },
+    "notes_2up": {
+        "cards": {
+            "label": {"max_chars": 12, "description": "2-card label"},
+            "title": {"max_chars": 20, "description": "2-card title"},
+            "body": {"max_chars": 160, "description": "2-card body"},
+            "scribble": {"max_chars": 20, "description": "2-card note"},
+        },
+    },
+    "notes_4up": {
+        "cards": {
+            "label": {"max_chars": 10, "description": "4-card label"},
+            "title": {"max_chars": 16, "description": "4-card title"},
+            "body": {"max_chars": 90, "description": "4-card body"},
+            "scribble": {"max_chars": 16, "description": "4-card note"},
+        },
+    },
+    "notice": {
+        "columns": {
+            "title": {"max_chars": 18, "description": "notice column title"},
+            "body": {"max_chars": 120, "description": "notice column body"},
+            "meta": {"max_chars": 18, "description": "notice column metadata"},
+            "source": {"max_chars": 24, "description": "notice source label"},
+        },
+    },
+    "process": {
+        "steps": {
+            "title": {"max_chars": 14, "description": "process step title"},
+            "body": {"max_chars": 70, "description": "process step body"},
+        },
+        "timeline": {
+            "timeline": {"max_chars": 18, "description": "process timeline label"},
+        },
+    },
+    "matrix": {
+        "columns": {
+            "columns": {"max_chars": 10, "description": "matrix column header"},
+        },
+        "rows": {
+            "criterion": {"max_chars": 14, "description": "matrix criterion"},
+            "cells": {"max_chars": 24, "description": "matrix cell"},
+        },
+    },
+    "stats": {
+        "stats": {
+            "title": {"max_chars": 12, "description": "stat title"},
+            "body": {"max_chars": 56, "description": "stat body"},
+        },
+    },
+    "cta": {
+        "steps": {
+            "title": {"max_chars": 14, "description": "cta step title"},
+            "body": {"max_chars": 90, "description": "cta step body"},
+        },
+    },
 }
 
 # ============================================================================
@@ -126,6 +247,10 @@ RULES (hard constraints):
 10. For EVERY array item (cards, steps, columns), include a
    ``source_block_ids`` field: a list of block_id(s) from the source slide
    whose content was used to create this item.  This is REQUIRED.
+11. Respect PAGE-SPECIFIC TEXT CAPACITY.  Card grids have strict per-card
+   budgets: notes cards are shorter than notes_2up; notes_4up is the tightest.
+   If source content is too long, compress it before returning JSON.  Do not
+   expect the renderer to resize, scroll, hide, or truncate text.
 
 If source content is insufficient for a slot, use an empty string "".
 If source content needs compression to fit, shorten aggressively while keeping meaning.
@@ -356,6 +481,28 @@ def _check_slots_for_html_css(slots: dict, page_type: str) -> list[str]:
 # ============================================================================
 
 
+def _get_top_level_budget(page_type: str, slot_name: str) -> dict[str, Any] | None:
+    page_budgets = _PAGE_TYPE_TOP_LEVEL_BUDGETS.get(page_type, {})
+    return page_budgets.get(slot_name) or _TOP_LEVEL_BUDGETS.get(slot_name)
+
+
+def _get_item_budget(page_type: str, slot_name: str, item_slot_name: str) -> dict[str, Any] | None:
+    page_budgets = _PAGE_TYPE_ITEM_BUDGETS.get(page_type, {})
+    slot_budgets = page_budgets.get(slot_name, {})
+    return (
+        slot_budgets.get(item_slot_name)
+        or _ITEM_BUDGETS.get(item_slot_name)
+        or _TOP_LEVEL_BUDGETS.get(item_slot_name)
+        or _CELL_BUDGETS.get(item_slot_name)
+    )
+
+
+def _get_primitive_array_budget(page_type: str, slot_name: str) -> dict[str, Any] | None:
+    page_budgets = _PAGE_TYPE_ITEM_BUDGETS.get(page_type, {})
+    slot_budgets = page_budgets.get(slot_name, {})
+    return slot_budgets.get(slot_name) or _CELL_BUDGETS.get(slot_name)
+
+
 def _check_slide_budget(
     slots: dict,
     page_type: str,
@@ -375,7 +522,7 @@ def _check_slide_budget(
 
     for slot_name, slot_value in slots.items():
         # Top-level string slot
-        budget = _TOP_LEVEL_BUDGETS.get(slot_name)
+        budget = _get_top_level_budget(page_type, slot_name)
         if budget and isinstance(slot_value, str):
             _check_str(slot_value, f"{page_type}.{slot_name}",
                        budget["max_chars"], budget["description"])
@@ -387,7 +534,7 @@ def _check_slide_budget(
 
             if not item_slot_names:
                 # Primitive array (e.g., matrix.columns, chart legend/x_labels/y_labels, process timeline)
-                cell_budget = _CELL_BUDGETS.get(slot_name)
+                cell_budget = _get_primitive_array_budget(page_type, slot_name)
                 if cell_budget:
                     for i, item in enumerate(slot_value):
                         if isinstance(item, str):
@@ -401,20 +548,12 @@ def _check_slide_budget(
                     for islot in item_slot_names:
                         islot_val = item.get(islot)
                         if isinstance(islot_val, str):
-                            ib = _ITEM_BUDGETS.get(islot)
-                            if ib:
-                                _check_str(islot_val, f"{page_type}.{slot_name}[{i}].{islot}",
-                                           ib["max_chars"], ib["description"])
-                            tb = _TOP_LEVEL_BUDGETS.get(islot)
-                            if tb:
-                                _check_str(islot_val, f"{page_type}.{slot_name}[{i}].{islot}",
-                                           tb["max_chars"], tb["description"])
-                            cb = _CELL_BUDGETS.get(islot)
+                            cb = _get_item_budget(page_type, slot_name, islot)
                             if cb:
                                 _check_str(islot_val, f"{page_type}.{slot_name}[{i}].{islot}",
                                            cb["max_chars"], cb["description"])
                         elif isinstance(islot_val, list):
-                            cb = _CELL_BUDGETS.get(islot) or _CELL_BUDGETS.get("cells")
+                            cb = _get_item_budget(page_type, slot_name, islot) or _CELL_BUDGETS.get("cells")
                             if cb:
                                 for j, cell in enumerate(islot_val):
                                     if isinstance(cell, str):
@@ -427,14 +566,14 @@ def _check_slide_budget(
                         if ek in _ATTRIBUTION_META_FIELDS:
                             continue
                         if isinstance(ev, str):
-                            cb = _CELL_BUDGETS.get(ek) or _ITEM_BUDGETS.get(ek)
+                            cb = _get_item_budget(page_type, slot_name, ek)
                             if cb:
                                 _check_str(ev, f"{page_type}.{slot_name}[{i}].{ek}",
                                            cb["max_chars"], cb["description"])
                         elif isinstance(ev, list):
                             for j, cell in enumerate(ev):
                                 if isinstance(cell, str):
-                                    cb = _CELL_BUDGETS.get(ek) or _CELL_BUDGETS.get("cells")
+                                    cb = _get_item_budget(page_type, slot_name, ek) or _CELL_BUDGETS.get("cells")
                                     if cb:
                                         _check_str(cell, f"{page_type}.{slot_name}[{i}].{ek}[{j}]",
                                                    cb["max_chars"], cb["description"])
@@ -481,6 +620,19 @@ def _build_text_budget_compact() -> str:
     lines.append("### Cell / list entries:")
     for name, info in _CELL_BUDGETS.items():
         lines.append(f"  {name}: max {info['max_chars']} chars ({info['description']})")
+    lines.append("### Page-specific layout overrides (use these when present):")
+    for page_type, slot_infos in _PAGE_TYPE_TOP_LEVEL_BUDGETS.items():
+        for slot_name, info in slot_infos.items():
+            lines.append(
+                f"  {page_type}.{slot_name}: max {info['max_chars']} chars ({info['description']})"
+            )
+    for page_type, slot_infos in _PAGE_TYPE_ITEM_BUDGETS.items():
+        for slot_name, item_infos in slot_infos.items():
+            for item_slot_name, info in item_infos.items():
+                lines.append(
+                    f"  {page_type}.{slot_name}[*].{item_slot_name}: "
+                    f"max {info['max_chars']} chars ({info['description']})"
+                )
     return "\n".join(lines)
 
 
@@ -551,7 +703,7 @@ def _build_compression_prompt(
     parts.append(_COMPRESSION_PROMPT_HEADER)
     parts.append("")
     parts.append("=" * 60)
-    parts.append("SOURCE SLIDE (unchanged)")
+    parts.append("SOURCE SLIDE")
     parts.append("=" * 60)
     parts.append(_format_source_slide(source_slide))
     parts.append("")
@@ -684,7 +836,7 @@ def _build_correction_prompt(
         parts.append(json.dumps(previous_page_plan, ensure_ascii=False, indent=2))
         parts.append("")
     parts.append("=" * 60)
-    parts.append("SOURCE SLIDE (unchanged)")
+    parts.append("SOURCE SLIDE")
     parts.append("=" * 60)
     parts.append(_format_source_slide(source_slide))
     parts.append("")

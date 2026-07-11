@@ -1,16 +1,25 @@
 from __future__ import annotations
 
-import json
+import base64
 import hashlib
+import json
+import os
 import shutil
 import tempfile
+import threading
+import time
 import unittest
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.services.learning.audio import reconcile_audio_manifest
+from backend.services.learning.audio import (
+    XfyunSmartTTSClient,
+    XfyunTTSConfig,
+    ensure_handout_audio,
+    reconcile_audio_manifest,
+)
 from backend.services.learning.handout_cache import (
     get_handout_cache,
     save_handout_cache_failed,
@@ -260,6 +269,223 @@ class OrchestrationStateTests(unittest.TestCase):
             self.assertEqual(result["resource_json"]["schema_version"], "slides.v1")
             self.assertEqual(result["resource_json"]["slides"][0]["title"], "Definition")
             self.assertEqual(orchestrator._slides_resource_status(session_id)["status"], "ready")
+
+    def test_script_fans_out_audio_and_ppt_without_waiting_for_tts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            orchestrator = LearningOrchestrator(memory=object(), resource_root=Path(temp))
+            tts_started = threading.Event()
+            release_tts = threading.Event()
+            events: list[str] = []
+            script = {
+                "status": "ready",
+                "source_handout_hash": "hash-one",
+                "slides": [{"slide_id": "slide_001", "text": "Narration"}],
+            }
+
+            def blocked_audio(**_kwargs):
+                events.append("audio_started")
+                tts_started.set()
+                release_tts.wait(5)
+                events.append("audio_finished")
+                return {"status": "ready"}
+
+            with (
+                patch(
+                    "backend.services.learning.orchestrator.build_and_save_lecture_script",
+                    side_effect=lambda **_kwargs: events.append("script_saved") or script,
+                ),
+                patch(
+                    "backend.services.learning.orchestrator.ensure_handout_audio",
+                    side_effect=blocked_audio,
+                ),
+                patch.object(
+                    orchestrator,
+                    "_schedule_ppt_refresh",
+                    side_effect=lambda *_args: events.append("ppt_scheduled") or {"started": True},
+                ),
+                patch(
+                    "backend.services.learning.orchestrator.get_section_audio",
+                    return_value=None,
+                ),
+            ):
+                started_at = time.perf_counter()
+                result = orchestrator._fan_out_handout_resources(
+                    session_id="session",
+                    outline={"nodes": [{"id": "node_1"}]},
+                    outline_node_id="node_1",
+                    handout_section={"title": "Section", "content": {"overview": "Text"}},
+                    source="test",
+                )
+                elapsed = time.perf_counter() - started_at
+                self.assertTrue(tts_started.wait(1))
+                self.assertLess(elapsed, 0.5)
+                self.assertEqual(events[0], "script_saved")
+                self.assertIn("ppt_scheduled", events)
+                self.assertNotIn("audio_finished", events)
+                self.assertTrue(result["audio"]["started"])
+                thread = orchestrator._audio_generation_threads[("session", "node_1")]
+                release_tts.set()
+                thread.join(2)
+                self.assertFalse(thread.is_alive())
+
+    def test_failed_audio_is_not_retried_on_cache_hit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            orchestrator = LearningOrchestrator(memory=object(), resource_root=Path(temp))
+            script = {
+                "status": "ready",
+                "source_handout_hash": "same-hash",
+                "slides": [{"slide_id": "slide_001", "text": "Narration"}],
+            }
+            with (
+                patch(
+                    "backend.services.learning.orchestrator.build_and_save_lecture_script",
+                    return_value=script,
+                ),
+                patch(
+                    "backend.services.learning.orchestrator.get_section_audio",
+                    return_value={
+                        "status": "failed",
+                        "source_handout_hash": "same-hash",
+                    },
+                ),
+                patch(
+                    "backend.services.learning.orchestrator.ensure_handout_audio",
+                ) as synthesize,
+            ):
+                result = orchestrator._ensure_handout_section_audio(
+                    session_id="session",
+                    outline_node_id="node_1",
+                    handout_section={"title": "Section"},
+                    source="tutor_cache_hit",
+                )
+
+            self.assertTrue(result["retry_deferred"])
+            synthesize.assert_not_called()
+            self.assertEqual(orchestrator._audio_generation_threads, {})
+
+    def test_audio_generation_respects_configured_concurrency(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.dict(
+                os.environ,
+                {"LEARNING_AUDIO_MAX_CONCURRENCY": "1"},
+            ):
+                orchestrator = LearningOrchestrator(
+                    memory=object(),
+                    resource_root=Path(temp),
+                )
+            first_started = threading.Event()
+            second_started = threading.Event()
+            release_first = threading.Event()
+
+            def blocked_audio(**kwargs):
+                node_id = kwargs["outline_node_id"]
+                if node_id == "node_1":
+                    first_started.set()
+                    release_first.wait(5)
+                else:
+                    second_started.set()
+                return {"status": "ready"}
+
+            with (
+                patch(
+                    "backend.services.learning.orchestrator.ensure_handout_audio",
+                    side_effect=blocked_audio,
+                ),
+                patch(
+                    "backend.services.learning.orchestrator.get_section_audio",
+                    return_value=None,
+                ),
+            ):
+                orchestrator._schedule_audio_generation(
+                    session_id="session",
+                    outline_node_id="node_1",
+                    handout_section={"title": "node_1"},
+                    source="test",
+                    lecture_script={
+                        "source_handout_hash": "hash-node_1",
+                        "slides": [{"slide_id": "slide_001", "text": "Text"}],
+                    },
+                )
+                self.assertTrue(first_started.wait(1))
+                orchestrator._schedule_audio_generation(
+                    session_id="session",
+                    outline_node_id="node_2",
+                    handout_section={"title": "node_2"},
+                    source="test",
+                    lecture_script={
+                        "source_handout_hash": "hash-node_2",
+                        "slides": [{"slide_id": "slide_001", "text": "Text"}],
+                    },
+                )
+                self.assertFalse(second_started.wait(0.1))
+                release_first.set()
+                self.assertTrue(second_started.wait(1))
+
+                for thread in list(orchestrator._audio_generation_threads.values()):
+                    thread.join(2)
+
+            self.assertEqual(orchestrator._audio_generation_threads, {})
+
+    def test_wait_for_background_resources_reports_timeout_then_completion(self) -> None:
+        class Memory:
+            @staticmethod
+            def latest_outline(_session_id):
+                return {"outline": {"nodes": [{"id": "node_1"}]}}
+
+        with tempfile.TemporaryDirectory() as temp:
+            orchestrator = LearningOrchestrator(
+                memory=Memory(),
+                resource_root=Path(temp),
+            )
+            worker_started = threading.Event()
+            release_worker = threading.Event()
+
+            def blocked_audio(**_kwargs):
+                worker_started.set()
+                release_worker.wait(5)
+                return {"status": "ready"}
+
+            with (
+                patch(
+                    "backend.services.learning.orchestrator.ensure_handout_audio",
+                    side_effect=blocked_audio,
+                ),
+                patch(
+                    "backend.services.learning.orchestrator.get_section_audio",
+                    return_value=None,
+                ),
+            ):
+                orchestrator._schedule_audio_generation(
+                    session_id="session",
+                    outline_node_id="node_1",
+                    handout_section={"title": "Section"},
+                    source="test",
+                    lecture_script={
+                        "source_handout_hash": "hash-one",
+                        "slides": [{"slide_id": "slide_001", "text": "Text"}],
+                    },
+                )
+                self.assertTrue(worker_started.wait(1))
+
+                timed_out = orchestrator.wait_for_background_resources(
+                    "session",
+                    timeout_seconds=0.01,
+                )
+                self.assertTrue(timed_out["timed_out"])
+                self.assertFalse(timed_out["completed"])
+                self.assertTrue(
+                    any(name.startswith("audio-generation-") for name in timed_out["active_threads"])
+                )
+
+                release_worker.set()
+                completed = orchestrator.wait_for_background_resources(
+                    "session",
+                    timeout_seconds=2,
+                )
+
+            self.assertTrue(completed["completed"])
+            self.assertFalse(completed["timed_out"])
+            self.assertEqual(completed["active_threads"], [])
 
 
 class PptPipelineTests(unittest.TestCase):
@@ -607,7 +833,242 @@ class PptPipelineTests(unittest.TestCase):
             )
 
 
+class XfyunLongTextTTSClientTests(unittest.TestCase):
+    def _config(self) -> XfyunTTSConfig:
+        return XfyunTTSConfig(
+            create_url="https://api-dx.xf-yun.com/v1/private/dts_create",
+            query_url="https://api-dx.xf-yun.com/v1/private/dts_query",
+            app_id="app-id",
+            api_key="api-key",
+            api_secret="api-secret",
+            api_password=None,
+            voice="x4_mingge",
+            language="zh",
+            encoding="lame",
+            sample_rate=16000,
+            channels=1,
+            bit_depth=16,
+            speed=50,
+            volume=50,
+            pitch=50,
+            read_punctuation=0,
+            pinyin_enabled=0,
+            timeout_seconds=30,
+            poll_interval_seconds=0.2,
+        )
+
+    def test_synthesize_creates_queries_and_downloads_long_text_audio(self) -> None:
+        class Response:
+            def __init__(self, body: bytes) -> None:
+                self.body = body
+
+            def read(self) -> bytes:
+                return self.body
+
+            def close(self) -> None:
+                pass
+
+        requests: list[object] = []
+        audio_url = "https://download.example/audio.mp3"
+
+        def fake_urlopen(request, timeout):
+            requests.append(request)
+            if len(requests) == 1:
+                return Response(
+                    json.dumps({
+                        "header": {
+                            "code": 0,
+                            "message": "success",
+                            "task_id": "task-1",
+                        },
+                        "payload": None,
+                    }).encode("utf-8")
+                )
+            if len(requests) == 2:
+                return Response(
+                    json.dumps({
+                        "header": {
+                            "code": 0,
+                            "message": "success",
+                            "task_id": "task-1",
+                            "task_status": "5",
+                        },
+                        "payload": {
+                            "audio": {
+                                "audio": base64.b64encode(
+                                    audio_url.encode("utf-8")
+                                ).decode("utf-8"),
+                            },
+                        },
+                    }).encode("utf-8")
+                )
+            self.assertEqual(request, audio_url)
+            self.assertEqual(timeout, 30)
+            return Response(b"mp3-bytes")
+
+        client = XfyunSmartTTSClient(self._config())
+        with patch("backend.services.learning.audio.urlopen", side_effect=fake_urlopen):
+            audio = client.synthesize(" 第一段讲稿。\n")
+
+        self.assertEqual(audio, b"mp3-bytes")
+        self.assertEqual(len(requests), 3)
+
+        create_request = requests[0]
+        self.assertIn("/v1/private/dts_create?", create_request.full_url)
+        self.assertIn("authorization=", create_request.full_url)
+        create_body = json.loads(create_request.data.decode("utf-8"))
+        self.assertEqual(create_body["header"]["app_id"], "app-id")
+        self.assertIn("dts", create_body["parameter"])
+        self.assertNotIn("tts", create_body["parameter"])
+        self.assertEqual(create_body["parameter"]["dts"]["vcn"], "x4_mingge")
+        self.assertEqual(create_body["parameter"]["dts"]["audio"]["encoding"], "lame")
+        self.assertEqual(
+            base64.b64decode(create_body["payload"]["text"]["text"]).decode("utf-8"),
+            "第一段讲稿。",
+        )
+
+        query_request = requests[1]
+        self.assertIn("/v1/private/dts_query?", query_request.full_url)
+        query_body = json.loads(query_request.data.decode("utf-8"))
+        self.assertEqual(query_body["header"]["task_id"], "task-1")
+
+    def test_from_env_maps_legacy_super_smart_values_to_long_text_defaults(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "XF_TTS_URL": "wss://cbm01.cn-huabei-1.xf-yun.com/v1/private/mcd9m97e6",
+                "XF_TTS_APP_ID": "app-id",
+                "XF_TTS_API_KEY": "api-key",
+                "XF_TTS_API_SECRET": "api-secret",
+                "XF_TTS_VCN": "x5_lingxiaoxuan_flow",
+            },
+            clear=False,
+        ):
+            config = XfyunTTSConfig.from_env()
+
+        self.assertEqual(config.create_url, "https://api-dx.xf-yun.com/v1/private/dts_create")
+        self.assertEqual(config.query_url, "https://api-dx.xf-yun.com/v1/private/dts_query")
+        self.assertEqual(config.voice, "x4_mingge")
+        self.assertTrue(config.configured())
+
+
 class AudioManifestTests(unittest.TestCase):
+    def test_manifest_is_generating_while_tts_is_running(self) -> None:
+        class FakeConfig:
+            encoding = "lame"
+
+            @staticmethod
+            def configured():
+                return True
+
+            @staticmethod
+            def provider_meta():
+                return {"name": "fake-tts"}
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            synth_started = threading.Event()
+            release_synth = threading.Event()
+            result: dict = {}
+            script = {
+                "schema_version": "learning.lecture_script.v1",
+                "session_id": "session",
+                "outline_node_id": "node_1",
+                "status": "ready",
+                "source_handout_hash": "source-hash",
+                "script_path": str(root / "session" / "lecture_scripts" / "node_1.json"),
+                "slides": [{
+                    "slide_id": "slide_001",
+                    "text": "Persisted narration",
+                    "text_hash": "text-hash",
+                    "text_chars": 19,
+                }],
+            }
+
+            def synthesize(_text):
+                synth_started.set()
+                release_synth.wait(5)
+                raise RuntimeError("test synthesis stopped")
+
+            def run_audio():
+                result.update(ensure_handout_audio(
+                    session_id="session",
+                    outline_node_id="node_1",
+                    handout_section={"title": "Section"},
+                    source="test",
+                    resource_root=root,
+                    lecture_script=script,
+                ))
+
+            with (
+                patch(
+                    "backend.services.learning.audio.XfyunTTSConfig.from_env",
+                    return_value=FakeConfig(),
+                ),
+                patch(
+                    "backend.services.learning.audio.XfyunSmartTTSClient.synthesize",
+                    side_effect=synthesize,
+                ),
+            ):
+                worker = threading.Thread(target=run_audio)
+                worker.start()
+                self.assertTrue(synth_started.wait(1))
+                manifest = json.loads(
+                    (root / "session" / "audio_manifest.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(manifest["status"], "generating")
+                self.assertEqual(manifest["sections"][0]["status"], "generating")
+                self.assertEqual(manifest["sections"][0]["slides"][0]["status"], "pending")
+                reconciled = reconcile_audio_manifest(
+                    session_id="session",
+                    outline_nodes=[{"id": "node_1"}],
+                    resource_root=root,
+                )
+                self.assertEqual(reconciled["status"], "generating")
+                self.assertEqual(reconciled["generating_section_ids"], ["node_1"])
+                release_synth.set()
+                worker.join(2)
+
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(result["status"], "failed")
+
+    def test_audio_uses_the_persisted_lecture_script(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = {
+                "schema_version": "learning.lecture_script.v1",
+                "session_id": "session",
+                "outline_node_id": "node_1",
+                "status": "ready",
+                "source_handout_hash": "source-hash",
+                "script_path": str(root / "session" / "lecture_scripts" / "node_1.json"),
+                "slides": [{
+                    "slide_id": "slide_001",
+                    "text": "Persisted narration",
+                    "text_hash": "text-hash",
+                    "text_chars": 19,
+                }],
+            }
+            with (
+                patch.dict(os.environ, {"LEARNING_AUDIO_TTS_ENABLED": "false"}),
+                patch(
+                    "backend.services.learning.audio.build_and_save_lecture_script",
+                    side_effect=AssertionError("lecture script must not be rebuilt"),
+                ),
+            ):
+                result = ensure_handout_audio(
+                    session_id="session",
+                    outline_node_id="node_1",
+                    handout_section={"title": "Section"},
+                    source="test",
+                    resource_root=root,
+                    lecture_script=script,
+                )
+
+            self.assertEqual(result["status"], "skipped")
+            self.assertEqual(result["source_handout_hash"], "source-hash")
+            self.assertEqual(result["lecture_script_path"], script["script_path"])
+
     def test_audio_manifest_is_partial_when_only_three_of_five_sections_exist(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -6,6 +6,8 @@ import hashlib
 import json
 import os
 import re
+import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -144,12 +146,25 @@ def save_lecture_script(
     output_dir = root / str(script["session_id"]) / "lecture_scripts"
     output_path = output_dir / f"{script['outline_node_id']}.json"
     output_dir.mkdir(parents=True, exist_ok=True)
-    tmp_path = output_path.with_suffix(".tmp")
-    tmp_path.write_text(
-        json.dumps(script, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    descriptor, tmp_name = tempfile.mkstemp(
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+        dir=str(output_dir),
     )
-    os.replace(str(tmp_path), str(output_path))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            json.dump(script, stream, ensure_ascii=False, indent=2)
+        for attempt in range(6):
+            try:
+                os.replace(str(tmp_path), str(output_path))
+                break
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.01 * (2 ** attempt))
+    finally:
+        tmp_path.unlink(missing_ok=True)
     return output_path
 
 
@@ -165,6 +180,14 @@ def build_and_save_lecture_script(
         outline_node_id=outline_node_id,
         handout_section=handout_section,
     )
+    existing = get_lecture_script(session_id, outline_node_id, resource_root)
+    if (
+        existing.get("status") == "ready"
+        and existing.get("source_handout_hash") == script.get("source_handout_hash")
+    ):
+        root = Path(resource_root) if resource_root else Path("data/learning/sessions")
+        output_path = root / session_id / "lecture_scripts" / f"{outline_node_id}.json"
+        return {**existing, "script_path": str(output_path)}
     output_path = save_lecture_script(script, resource_root)
     return {**script, "script_path": str(output_path)}
 
