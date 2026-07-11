@@ -13,7 +13,7 @@
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <link rel="stylesheet" href="/css/base.css?v=20260706-plan-nav">
   <link rel="stylesheet" href="/css/learner-assessment.css?v=20260708-assessment-scroll-v5">
-  <link rel="stylesheet" href="/css/learning-plan.css?v=20260708-recommend-no-scroll-v1">
+  <link rel="stylesheet" href="/css/learning-plan.css?v=20260711-stage-exam-bank-v2">
 </head>
 <body class="learning-plan-page">
   <div class="app-shell plan-shell">
@@ -85,6 +85,24 @@
               </div>
               <div id="recommend-list" class="recommend-list"></div>
             </section>
+            <section id="stage-exam-panel" class="stage-exam-panel" aria-label="阶段卷">
+              <div class="stage-exam-head">
+                <div>
+                  <h3>阶段卷</h3>
+                  <p id="stage-exam-summary">覆盖当前学习 session 的全部小节</p>
+                </div>
+                <button id="stage-exam-rebuild" class="text-button stage-exam-rebuild" type="button">重建</button>
+              </div>
+              <div class="stage-exam-controls">
+                <input id="stage-exam-session" type="text" placeholder="输入 session_id" autocomplete="off">
+                <button id="stage-exam-load" class="text-button stage-exam-load" type="button">生成</button>
+              </div>
+              <div class="stage-exam-controls">
+                <input id="stage-exam-topic" type="text" placeholder="输入学习主题，如：牙周炎" autocomplete="off">
+                <button id="stage-exam-start" class="text-button stage-exam-load" type="button">新建</button>
+              </div>
+              <div id="stage-exam-body" class="stage-exam-body"></div>
+            </section>
             <div id="todo-list" class="todo-list"></div>
             <div id="plan-status" class="plan-status" aria-live="polite"></div>
             <form id="plan-form" class="plan-form">
@@ -101,6 +119,6 @@
 
   <script src="/js/common.js?v=20260702-learning-shell"></script>
   <script src="/js/learner-assessment-ui.js?v=20260708-assessment-ui-v4"></script>
-  <script src="/js/learning-plan.js?v=20260708-plan-recommend-toast-v2"></script>
+  <script src="/js/learning-plan.js?v=20260711-stage-exam-bank-v2"></script>
 </body>
 </html>

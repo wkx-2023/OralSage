@@ -43,6 +43,8 @@ from .schemas import (
     LearningStartRequest,
     LearningStepRequest,
     LearningSubmitAnswerRequest,
+    StageExamGenerateRequest,
+    StageExamSubmitRequest,
     LiteratureRequest,
     LiteratureTranslateRequest,
     PathologyRequest,
@@ -91,6 +93,11 @@ from .services.learning.study_plan import (
     get_study_plan_month,
     recommend_study_plan,
     update_study_plan_item,
+)
+from .services.learning.stage_exam import (
+    generate_stage_exam,
+    public_stage_exam,
+    submit_stage_exam,
 )
 from .services.clawbridge_client import ClawBridgeClient, ClawBridgeError
 from .services.weixin_auth import WeixinAuthStore, session_cookie_name
@@ -894,6 +901,91 @@ async def learning_session_retry_resources(session_id: str) -> JSONResponse:
         "module": "learning",
         "action": "retry_resources",
         "result": result,
+    })
+
+
+def _stage_exam_evidence_map(session_id: str) -> dict[str, Any]:
+    learning_orchestrator._activate_evidence_context(session_id)
+    if learning_orchestrator._active_evidence_session_id != session_id:
+        return {}
+    return learning_orchestrator._last_outline_evidence_map or {}
+
+
+@app.get("/api/learning/session/{session_id}/stage-exam")
+async def learning_session_stage_exam(session_id: str) -> JSONResponse:
+    """Return an existing stage exam, or generate one for this session."""
+    try:
+        exam = generate_stage_exam(
+            learning_orchestrator.memory,
+            session_id,
+            resource_root=learning_orchestrator.resource_root,
+            outline_evidence_map=_stage_exam_evidence_map(session_id),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse({
+        "ok": True,
+        "module": "learning",
+        "action": "stage_exam",
+        "result": public_stage_exam(
+            exam,
+            include_answers=exam.get("status") == "submitted",
+        ),
+    })
+
+
+@app.post("/api/learning/session/{session_id}/stage-exam")
+async def learning_session_stage_exam_generate(
+    session_id: str,
+    req: StageExamGenerateRequest,
+) -> JSONResponse:
+    """Generate or rebuild the stage exam for this session."""
+    try:
+        exam = generate_stage_exam(
+            learning_orchestrator.memory,
+            session_id,
+            resource_root=learning_orchestrator.resource_root,
+            outline_evidence_map=_stage_exam_evidence_map(session_id),
+            force=req.force,
+            questions_per_section=req.questions_per_section,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse({
+        "ok": True,
+        "module": "learning",
+        "action": "stage_exam_generate",
+        "result": public_stage_exam(exam, include_answers=False),
+    })
+
+
+@app.post("/api/learning/session/{session_id}/stage-exam/submit")
+async def learning_session_stage_exam_submit(
+    session_id: str,
+    req: StageExamSubmitRequest,
+) -> JSONResponse:
+    """Submit and grade the session-level stage exam."""
+    try:
+        exam = submit_stage_exam(
+            learning_orchestrator.memory,
+            session_id,
+            [answer.model_dump() for answer in req.answers],
+            resource_root=learning_orchestrator.resource_root,
+            outline_evidence_map=_stage_exam_evidence_map(session_id),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse({
+        "ok": True,
+        "module": "learning",
+        "action": "stage_exam_submit",
+        "result": public_stage_exam(exam, include_answers=True),
     })
 
 

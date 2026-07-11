@@ -431,7 +431,7 @@
   height: 100%;
   padding: 18px 16px 16px var(--todo-content-left);
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto;
   gap: 0;
   overflow: hidden;
   background: var(--plan-paper);
@@ -655,6 +655,161 @@
   color: #ffffff;
 }
 
+.stage-exam-panel {
+  position: relative;
+  z-index: 1;
+  grid-row: 4;
+  border-top: 1px solid rgba(91, 61, 184, 0.12);
+  border-bottom: 1px solid rgba(91, 61, 184, 0.1);
+  padding: 10px 0 12px;
+  margin-bottom: 8px;
+  display: grid;
+  gap: 10px;
+}
+
+.stage-exam-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stage-exam-head h3 {
+  margin: 0;
+  color: var(--plan-ink);
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.stage-exam-head p,
+.stage-exam-result,
+.stage-exam-meta {
+  margin: 4px 0 0;
+  color: var(--plan-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.stage-exam-rebuild,
+.stage-exam-load,
+.stage-exam-submit {
+  height: 30px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.stage-exam-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.stage-exam-controls input {
+  min-width: 0;
+  width: 100%;
+  height: 32px;
+  border: 1px solid rgba(91, 61, 184, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--plan-text);
+  padding: 0 10px;
+  outline: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stage-exam-controls input:focus {
+  border-color: rgba(91, 61, 184, 0.44);
+  box-shadow: 0 0 0 3px rgba(91, 61, 184, 0.08);
+}
+
+.stage-exam-body {
+  max-height: 252px;
+  overflow: auto;
+  display: grid;
+  gap: 10px;
+  padding-right: 4px;
+}
+
+.stage-exam-body:empty {
+  display: none;
+}
+
+.stage-exam-question {
+  border: 1px solid rgba(91, 61, 184, 0.12);
+  border-radius: 8px;
+  background: rgba(248, 246, 255, 0.58);
+  padding: 10px;
+}
+
+.stage-exam-question.is-correct {
+  border-color: rgba(39, 138, 136, 0.28);
+  background: rgba(39, 138, 136, 0.07);
+}
+
+.stage-exam-question.is-wrong {
+  border-color: rgba(204, 82, 124, 0.26);
+  background: rgba(204, 82, 124, 0.06);
+}
+
+.stage-exam-question-title {
+  margin: 0;
+  color: var(--plan-purple-dark);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.stage-exam-options {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.stage-exam-option {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+  color: var(--plan-text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.stage-exam-option input {
+  width: 14px;
+  height: 14px;
+  margin: 2px 0 0;
+  accent-color: var(--plan-purple);
+}
+
+.stage-exam-review {
+  margin-top: 8px;
+  color: var(--plan-text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.stage-exam-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.stage-exam-submit {
+  border-color: var(--plan-purple);
+  background: var(--plan-purple);
+  color: #ffffff;
+}
+
 .quick-day.active {
   border-color: var(--plan-purple);
   background: var(--plan-purple);
@@ -664,7 +819,7 @@
 .plan-form {
   position: relative;
   z-index: 1;
-  grid-row: 6;
+  grid-row: 7;
   align-self: end;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 36px;
@@ -698,7 +853,7 @@
 .todo-list {
   position: relative;
   z-index: 1;
-  grid-row: 4;
+  grid-row: 5;
   min-height: 0;
   display: grid;
   align-content: start;
@@ -880,7 +1035,7 @@
 .plan-status {
   position: relative;
   z-index: 1;
-  grid-row: 5;
+  grid-row: 6;
   min-height: 18px;
   color: var(--plan-muted);
   font-size: 12px;

@@ -19,6 +19,7 @@ from backend.services.learning.handout_cache import (
 )
 from backend.services.learning.orchestrator import _resolve_qa_outline_node
 from backend.services.learning.orchestrator import LearningOrchestrator
+from backend.services.learning.memory import LearningMemory
 from backend.services.learning.pin_and_paper_planner import plan_pin_and_paper_slide
 from backend.services.learning.planner import repair_non_content_planner_fields
 from backend.services.learning.ppt_pipeline import (
@@ -29,7 +30,13 @@ from backend.services.learning.ppt_pipeline import (
     refresh_ppt_resources,
 )
 from backend.services.learning.resource_factory import generate_handout_section
+from backend.services.learning.stage_exam import (
+    generate_stage_exam,
+    public_stage_exam,
+    submit_stage_exam,
+)
 from backend.services.learning.tutor import build_tutor_step_rule
+from backend.services.learning.tutor_cache import save_tutor_cache_ready
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +68,190 @@ def _node_evidence_with_edges(count: int = 17) -> tuple[dict, list[str]]:
             "text_excerpt": "Evidence-backed source text for the lesson section.",
         }],
     }, edge_ids)
+
+
+class StageExamTests(unittest.TestCase):
+    def test_stage_exam_prefers_question_bank_by_outline_question_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            memory = LearningMemory(root / "learning.sqlite3")
+            try:
+                session = memory.create_session("u1", "牙周炎")
+                session_id = session["id"]
+                outline = {
+                    "title": "牙周炎",
+                    "nodes": [
+                        {
+                            "id": "node_1",
+                            "title": "慢性牙周炎",
+                            "difficulty": "basic",
+                            "kg_node_ids": ["kg://periodontitis/core_1"],
+                            "question_ids": ["question:q1"],
+                        }
+                    ],
+                }
+                memory.save_outline(session_id, outline, {"nodes": []}, {"source": "test"})
+                bank = [
+                    {
+                        "question_id": "question:q1",
+                        "source_question_id": "source-q1",
+                        "source_exam_id": "exam-1",
+                        "stem": "慢性牙周炎临床表现不包括( )",
+                        "answer": "E",
+                        "primary_node_id": "kg://periodontitis/core_1",
+                        "primary_knowledge_point": "慢性牙周炎的临床附着丧失表现",
+                        "verification_status": "linked",
+                        "match_status": "weak_match",
+                        "authority_level": 70,
+                    },
+                    {
+                        "question_id": "question:q2",
+                        "stem": "侵袭性牙周炎主要病因( )",
+                        "answer": "B",
+                        "primary_node_id": "kg://periodontitis/core_2",
+                        "primary_knowledge_point": "侵袭性牙周炎的多因素病因机制",
+                    },
+                    {
+                        "question_id": "question:q3",
+                        "stem": "牙周炎危险因素包括( )",
+                        "answer": "C",
+                        "primary_node_id": "kg://periodontitis/core_3",
+                        "primary_knowledge_point": "吸烟对牙周组织的影响",
+                    },
+                    {
+                        "question_id": "question:q4",
+                        "stem": "牙周炎全身促进因素包括( )",
+                        "answer": "D",
+                        "primary_node_id": "kg://periodontitis/core_4",
+                        "primary_knowledge_point": "糖尿病对牙周组织破坏程度的影响",
+                    },
+                ]
+
+                full_record = {
+                    "id": "source-q1",
+                    "stem": "Full bank stem",
+                    "options": {
+                        "A": "Option A",
+                        "B": "Option B",
+                        "C": "Option C",
+                        "D": "Option D",
+                        "E": "Option E",
+                    },
+                    "answer": "E",
+                    "explanation": "Full bank explanation",
+                    "primary_knowledge_point": "Full bank knowledge point",
+                    "subject": "subject",
+                    "chapter": "chapter",
+                }
+                bank = {
+                    "kag_rows": bank,
+                    "full_records": [full_record],
+                    "full_by_id": {"source-q1": full_record},
+                }
+
+                with patch("backend.services.learning.stage_exam._load_stage_exam_question_bank", return_value=bank):
+                    exam = generate_stage_exam(memory, session_id, resource_root=root, force=True)
+
+                self.assertEqual(exam["source"]["question_sources"]["question_bank.full_options"], 1)
+                self.assertEqual(exam["warnings"], [])
+                question = exam["questions"][0]
+                self.assertEqual(question["source"], "question_bank.full_options")
+                self.assertEqual(question["source_question_id"], "source-q1")
+                self.assertEqual(question["stem"], "Full bank stem")
+                self.assertEqual(question["options"], [
+                    "A. Option A",
+                    "B. Option B",
+                    "C. Option C",
+                    "D. Option D",
+                    "E. Option E",
+                ])
+                self.assertEqual(question["answer"], "E")
+                self.assertEqual(question["explanation"], "Full bank explanation")
+                submitted = submit_stage_exam(
+                    memory,
+                    session_id,
+                    [{"question_id": question["id"], "selected_option": "E"}],
+                    resource_root=root,
+                )
+                self.assertEqual(submitted["submission"]["overall_score"], 1.0)
+            finally:
+                memory._conn.close()
+
+    def test_generate_and_submit_stage_exam(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            memory = LearningMemory(root / "learning.sqlite3")
+            try:
+                session = memory.create_session("u1", "牙周炎")
+                session_id = session["id"]
+                outline = {
+                    "title": "牙周炎",
+                    "nodes": [
+                        {
+                            "id": "node_1",
+                            "title": "分类",
+                            "difficulty": "basic",
+                            "kg_node_ids": ["kg:class"],
+                        },
+                        {
+                            "id": "node_2",
+                            "title": "病因",
+                            "difficulty": "basic",
+                            "kg_node_ids": ["kg:cause"],
+                        },
+                    ],
+                }
+                memory.save_outline(session_id, outline, {"nodes": []}, {"source": "test"})
+                save_tutor_cache_ready(
+                    session_id,
+                    "node_1",
+                    {
+                        "outline_node_id": "node_1",
+                        "questions": [
+                            {
+                                "id": "q1",
+                                "type": "single_choice",
+                                "stem": "牙周炎分类学习的重点是什么？",
+                                "options": ["A. 只记名称", "B. 理解分类标准", "C. 跳过", "D. 只背答案"],
+                                "answer": "B",
+                                "explanation": "需要理解分类标准。",
+                                "kg_node_ids": ["kg:class"],
+                            }
+                        ],
+                    },
+                    source="test",
+                    resource_root=root,
+                )
+
+                with patch(
+                    "backend.services.learning.stage_exam._load_stage_exam_question_bank",
+                    return_value={"kag_rows": [], "full_records": [], "full_by_id": {}},
+                ):
+                    exam = generate_stage_exam(memory, session_id, resource_root=root)
+
+                self.assertEqual(exam["status"], "ready")
+                self.assertEqual(len(exam["questions"]), 2)
+                self.assertEqual(exam["source"]["question_sources"]["tutor_step.questions"], 1)
+                self.assertEqual(exam["source"]["question_sources"]["stage_exam.fallback"], 1)
+                self.assertNotIn("answer", public_stage_exam(exam)["questions"][0])
+
+                submitted = submit_stage_exam(
+                    memory,
+                    session_id,
+                    [
+                        {"question_id": exam["questions"][0]["id"], "selected_option": "B"},
+                        {"question_id": exam["questions"][1]["id"], "selected_option": "A"},
+                    ],
+                    resource_root=root,
+                )
+
+                self.assertEqual(submitted["status"], "submitted")
+                self.assertEqual(submitted["submission"]["overall_score"], 0.5)
+                self.assertIn("node_2", submitted["submission"]["weak_section_ids"])
+                self.assertIn("kg:cause", submitted["submission"]["weak_kg_node_ids"])
+                self.assertEqual(len(memory.list_answer_records(session_id)), 2)
+            finally:
+                memory._conn.close()
 
 
 class HandoutEvidenceTests(unittest.TestCase):

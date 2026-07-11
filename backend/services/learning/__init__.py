@@ -19,6 +19,7 @@ from .lecture_script import build_and_save_lecture_script, get_lecture_script
 from .tutor import build_tutor_feedback, build_tutor_step
 from .qa import answer_interruption_question, classify_interruption_question
 from .assessment import assess_answer, normalize_answer
+from .stage_exam import generate_stage_exam, public_stage_exam, submit_stage_exam
 from .orchestrator import LearningOrchestrator, decide_next_action
 from .llm_policy import (
     decide_next_action_with_llm,
@@ -72,6 +73,9 @@ __all__ = [
     "answer_interruption_question",
     "normalize_answer",
     "assess_answer",
+    "generate_stage_exam",
+    "public_stage_exam",
+    "submit_stage_exam",
     "LearningOrchestrator",
     "decide_next_action",
     "is_learning_policy_llm_configured",

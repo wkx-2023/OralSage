@@ -169,6 +169,20 @@ class LearningSubmitAnswerRequest(BaseModel):
     use_llm_policy: bool = False
 
 
+class StageExamGenerateRequest(BaseModel):
+    force: bool = False
+    questions_per_section: int = 1
+
+
+class StageExamAnswer(BaseModel):
+    question_id: str
+    selected_option: str
+
+
+class StageExamSubmitRequest(BaseModel):
+    answers: list[StageExamAnswer] = Field(default_factory=list)
+
+
 class LearningProfileSliceRequest(BaseModel):
     user_id: str
     role: str = "qa"

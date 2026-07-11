@@ -24,6 +24,13 @@
     recommendations: [],
     recommendationDate: '',
     recommendationLoading: false,
+    stageExamSessionId: new URLSearchParams(window.location.search).get('session_id')
+      || localStorage.getItem('oralsage.learning.stageExamSessionId')
+      || '',
+    stageExamTopic: localStorage.getItem('oralsage.learning.stageExamTopic') || '',
+    stageExam: null,
+    stageExamAnswers: {},
+    stageExamLoading: false,
     assessmentPrompted: false,
     toastTimer: 0,
   };
@@ -224,6 +231,7 @@
     renderAssessmentCard();
     refineAssessmentCardPresentation();
     renderRecommendations();
+    renderStageExam();
   }
 
   function renderSelectors() {
@@ -340,6 +348,225 @@
       return;
     }
     list.innerHTML = state.recommendations.map((item) => renderRecommendationCard(item, editable)).join('');
+  }
+
+  function optionLetter(option, index) {
+    const match = String(option || '').trim().match(/^([A-Ea-e])[\.\、\s]/);
+    if (match) return match[1].toUpperCase();
+    return ['A', 'B', 'C', 'D', 'E'][index] || String(index + 1);
+  }
+
+  function stageExamScoreText(score) {
+    const value = Number(score);
+    if (!Number.isFinite(value)) return '';
+    return `${Math.round(value * 100)}%`;
+  }
+
+  function renderStageExam() {
+    const input = byId('stage-exam-session');
+    const topicInput = byId('stage-exam-topic');
+    const loadButton = byId('stage-exam-load');
+    const startButton = byId('stage-exam-start');
+    const rebuildButton = byId('stage-exam-rebuild');
+    const summary = byId('stage-exam-summary');
+    const body = byId('stage-exam-body');
+    if (!input || !body) return;
+
+    if (document.activeElement !== input) input.value = state.stageExamSessionId || '';
+    if (topicInput && document.activeElement !== topicInput) topicInput.value = state.stageExamTopic || '';
+    if (loadButton) {
+      loadButton.disabled = state.stageExamLoading;
+      loadButton.textContent = state.stageExamLoading ? '生成中' : '生成';
+    }
+    if (startButton) {
+      startButton.disabled = state.stageExamLoading;
+      startButton.textContent = state.stageExamLoading ? '新建中' : '新建';
+    }
+    if (rebuildButton) rebuildButton.disabled = state.stageExamLoading || !state.stageExamSessionId;
+
+    const exam = state.stageExam;
+    if (!exam) {
+      if (summary) summary.textContent = '输入学习 session_id 后生成阶段卷';
+      body.innerHTML = '';
+      return;
+    }
+
+    const questionCount = Array.isArray(exam.questions) ? exam.questions.length : 0;
+    const submitted = exam.status === 'submitted' && exam.submission;
+    if (summary) {
+      summary.textContent = submitted
+        ? `已提交，得分 ${stageExamScoreText(exam.submission.overall_score)}`
+        : `共 ${questionCount} 题，覆盖 ${exam.summary?.section_count || 0} 个小节`;
+    }
+
+    if (state.stageExamLoading) {
+      body.innerHTML = '<p class="stage-exam-meta">正在处理阶段卷...</p>';
+      return;
+    }
+
+    if (submitted) {
+      body.innerHTML = renderStageExamSubmitted(exam);
+      return;
+    }
+
+    body.innerHTML = `
+      ${(exam.questions || []).map((question, index) => renderStageExamQuestion(question, index)).join('')}
+      <div class="stage-exam-footer">
+        <button id="stage-exam-submit" class="text-button stage-exam-submit" type="button">提交阶段卷</button>
+      </div>
+    `;
+  }
+
+  function renderStageExamQuestion(question, index) {
+    const qid = String(question.id || '');
+    const selected = state.stageExamAnswers[qid] || '';
+    const options = Array.isArray(question.options) ? question.options : [];
+    return `
+      <article class="stage-exam-question" data-question-id="${escapeHtml(qid)}">
+        <p class="stage-exam-question-title">${index + 1}. ${escapeHtml(question.stem || '阶段卷题目')}</p>
+        <div class="stage-exam-options">
+          ${options.map((option, optionIndex) => {
+            const letter = optionLetter(option, optionIndex);
+            return `
+              <label class="stage-exam-option">
+                <input type="radio" name="stage-exam-${escapeHtml(qid)}" value="${escapeHtml(letter)}"${selected === letter ? ' checked' : ''}>
+                <span>${escapeHtml(option)}</span>
+              </label>
+            `;
+          }).join('')}
+        </div>
+      </article>
+    `;
+  }
+
+  function renderStageExamSubmitted(exam) {
+    const submission = exam.submission || {};
+    const results = Array.isArray(submission.results) ? submission.results : [];
+    const weakSections = Array.isArray(submission.weak_section_ids) ? submission.weak_section_ids : [];
+    const weakKg = Array.isArray(submission.weak_kg_node_ids) ? submission.weak_kg_node_ids : [];
+    return `
+      <div class="stage-exam-result">
+        总分 ${stageExamScoreText(submission.overall_score)}，答对 ${submission.correct_count || 0}/${submission.question_count || results.length}
+        ${weakSections.length ? `；薄弱小节：${escapeHtml(weakSections.join('、'))}` : ''}
+        ${weakKg.length ? `；薄弱知识点：${escapeHtml(weakKg.slice(0, 5).join('、'))}` : ''}
+      </div>
+      ${results.map((question, index) => {
+        const assessment = question.assessment || {};
+        const correct = Boolean(assessment.is_correct);
+        const review = assessment.correct_answer_explanation
+          || question.explanation
+          || assessment.explanation
+          || '';
+        return `
+          <article class="stage-exam-question ${correct ? 'is-correct' : 'is-wrong'}">
+            <p class="stage-exam-question-title">${index + 1}. ${escapeHtml(question.stem || '')}</p>
+            <p class="stage-exam-meta">你的答案：${escapeHtml(question.selected_option || '')}；正确答案：${escapeHtml(question.answer || '')}</p>
+            ${review ? `<div class="stage-exam-review">${escapeHtml(review)}</div>` : ''}
+          </article>
+        `;
+      }).join('')}
+    `;
+  }
+
+  function currentStageExamSessionId() {
+    const inputValue = String(byId('stage-exam-session')?.value || '').trim();
+    return inputValue || state.stageExamSessionId || '';
+  }
+
+  async function loadStageExam({ force = false } = {}) {
+    const sessionId = currentStageExamSessionId();
+    if (!sessionId) {
+      setStatus('请先输入学习 session_id', 'error');
+      return;
+    }
+    state.stageExamSessionId = sessionId;
+    localStorage.setItem('oralsage.learning.stageExamSessionId', sessionId);
+    state.stageExamLoading = true;
+    renderStageExam();
+    try {
+      const body = force
+        ? await apiPost(`/api/learning/session/${encodeURIComponent(sessionId)}/stage-exam`, {
+          force: true,
+          questions_per_section: 1,
+        })
+        : await apiGet(`/api/learning/session/${encodeURIComponent(sessionId)}/stage-exam`);
+      state.stageExam = body.result || null;
+      state.stageExamAnswers = {};
+      if (state.stageExam?.submission?.results) {
+        state.stageExam.submission.results.forEach((item) => {
+          if (item.id && item.selected_option) state.stageExamAnswers[item.id] = item.selected_option;
+        });
+      }
+      setStatus('');
+      showPlanToast(force ? '阶段卷已重建' : '阶段卷已生成');
+    } catch (err) {
+      setStatus(err.message || '阶段卷生成失败', 'error');
+    } finally {
+      state.stageExamLoading = false;
+      renderStageExam();
+      if (window.lucide) window.lucide.createIcons();
+    }
+  }
+
+  async function startStageExamSession() {
+    const topic = String(byId('stage-exam-topic')?.value || '').trim();
+    if (!topic) {
+      setStatus('请先输入学习主题', 'error');
+      return;
+    }
+    state.stageExamTopic = topic;
+    localStorage.setItem('oralsage.learning.stageExamTopic', topic);
+    state.stageExamLoading = true;
+    renderStageExam();
+    try {
+      const body = await apiPost('/api/learning/session/start', {
+        user_id: state.userId,
+        topic,
+      });
+      const sessionId = body.result?.session?.id || '';
+      if (!sessionId) throw new Error('后端没有返回 session_id');
+      state.stageExamSessionId = sessionId;
+      localStorage.setItem('oralsage.learning.stageExamSessionId', sessionId);
+      setStatus('');
+      showPlanToast(`已新建学习 session：${sessionId}`);
+      state.stageExamLoading = false;
+      await loadStageExam();
+    } catch (err) {
+      setStatus(err.message || '新建学习 session 失败', 'error');
+      state.stageExamLoading = false;
+      renderStageExam();
+    }
+  }
+
+  async function submitStageExam() {
+    const exam = state.stageExam;
+    const sessionId = currentStageExamSessionId();
+    const questions = Array.isArray(exam?.questions) ? exam.questions : [];
+    if (!sessionId || !questions.length) {
+      setStatus('请先生成阶段卷', 'error');
+      return;
+    }
+    const answers = questions.map((question) => ({
+      question_id: question.id,
+      selected_option: state.stageExamAnswers[question.id] || '',
+    }));
+    if (answers.some((item) => !item.selected_option)) {
+      setStatus('请完成所有题目后再提交', 'error');
+      return;
+    }
+    state.stageExamLoading = true;
+    renderStageExam();
+    try {
+      const body = await apiPost(`/api/learning/session/${encodeURIComponent(sessionId)}/stage-exam/submit`, { answers });
+      state.stageExam = body.result || null;
+      setStatus('');
+      showPlanToast('阶段卷已提交');
+    } catch (err) {
+      setStatus(err.message || '阶段卷提交失败', 'error');
+    } finally {
+      state.stageExamLoading = false;
+      renderStageExam();
+    }
   }
 
   function renderAssessmentCard() {
@@ -744,6 +971,43 @@
       state.assessmentController?.open({ resetAnswers: true });
     });
 
+    byId('stage-exam-load')?.addEventListener('click', async () => {
+      await loadStageExam();
+    });
+
+    byId('stage-exam-rebuild')?.addEventListener('click', async () => {
+      await loadStageExam({ force: true });
+    });
+
+    byId('stage-exam-start')?.addEventListener('click', async () => {
+      await startStageExamSession();
+    });
+
+    byId('stage-exam-session')?.addEventListener('change', (event) => {
+      state.stageExamSessionId = String(event.target.value || '').trim();
+      localStorage.setItem('oralsage.learning.stageExamSessionId', state.stageExamSessionId);
+    });
+
+    byId('stage-exam-topic')?.addEventListener('change', (event) => {
+      state.stageExamTopic = String(event.target.value || '').trim();
+      localStorage.setItem('oralsage.learning.stageExamTopic', state.stageExamTopic);
+    });
+
+    byId('stage-exam-body')?.addEventListener('change', (event) => {
+      const input = event.target.closest('input[type="radio"]');
+      if (!input) return;
+      const item = input.closest('[data-question-id]');
+      const questionId = item?.getAttribute('data-question-id') || '';
+      if (!questionId) return;
+      state.stageExamAnswers[questionId] = input.value;
+    });
+
+    byId('stage-exam-body')?.addEventListener('click', async (event) => {
+      const button = event.target.closest('#stage-exam-submit');
+      if (!button) return;
+      await submitStageExam();
+    });
+
     byId('recommend-list')?.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-recommend-action]');
       if (!button) return;
@@ -828,6 +1092,7 @@
 
   initAssessmentController();
   bindEvents();
+  renderStageExam();
   loadProfile();
   loadMonth();
 })();
