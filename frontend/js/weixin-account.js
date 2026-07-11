@@ -148,6 +148,7 @@
     });
     log(state.authMode === 'register' ? '注册成功，已登录。' : '登录成功。', result);
     await refreshMe();
+    await window.oralUi?.refreshAuthStatus?.();
   }
 
   async function ensureLoggedIn() {
@@ -236,6 +237,7 @@
     log('已退出登录。', result);
     setText('current-user', '未登录');
     setText('bind-state', '未连接');
+    await window.oralUi?.refreshAuthStatus?.();
   }
 
   async function pushDaily() {

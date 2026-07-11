@@ -578,11 +578,34 @@ def _learning_route(
     return {"state": state, "decision": decision}
 
 
+def _current_web_user(request: Request) -> dict[str, Any] | None:
+    return weixin_auth_store.get_user_by_session(request.cookies.get(session_cookie_name()))
+
+
+def _effective_learning_user_id(
+    request: Request,
+    requested_user_id: str | None = None,
+) -> str:
+    user = _current_web_user(request)
+    if user:
+        return str(user["user_id"])
+    return str(requested_user_id or "demo").strip() or "demo"
+
+
+def _ensure_learning_session_access(request: Request, session_id: str) -> dict[str, Any]:
+    session = learning_orchestrator.memory.get_session(session_id)
+    user = _current_web_user(request)
+    if user and str(session.get("user_id") or "") != str(user["user_id"]):
+        raise HTTPException(status_code=403, detail={"message": "This learning session belongs to another account."})
+    return session
+
+
 @app.post("/api/learning/session/start")
-async def learning_session_start(req: LearningStartRequest) -> JSONResponse:
+async def learning_session_start(req: LearningStartRequest, request: Request) -> JSONResponse:
     """Start a new learning session — no policy routing needed for creation."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     result = learning_orchestrator.start_lesson(
-        user_id=req.user_id,
+        user_id=user_id,
         topic=req.topic,
         display_name=req.display_name,
         profile_input=req.profile_input,
@@ -598,8 +621,10 @@ async def learning_session_start(req: LearningStartRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/session/start/stream")
-async def learning_session_start_stream(req: LearningStartRequest) -> StreamingResponse:
+async def learning_session_start_stream(req: LearningStartRequest, request: Request) -> StreamingResponse:
     """Start a lesson and stream long-running progress events via SSE."""
+
+    user_id = _effective_learning_user_id(request, req.user_id)
 
     async def event_stream():
         action = "start_lesson_stream"
@@ -612,7 +637,7 @@ async def learning_session_start_stream(req: LearningStartRequest) -> StreamingR
                 "action": action,
                 "phase": "received",
                 "topic": req.topic,
-                "user_id": req.user_id,
+                "user_id": user_id,
                 "message": "已收到学习请求，开始检索知识库并规划课程。",
                 "elapsed_seconds": _elapsed(started_at),
             },
@@ -621,7 +646,7 @@ async def learning_session_start_stream(req: LearningStartRequest) -> StreamingR
         start_task = asyncio.create_task(
             asyncio.to_thread(
                 learning_orchestrator.start_lesson,
-                user_id=req.user_id,
+                user_id=user_id,
                 topic=req.topic,
                 display_name=req.display_name,
                 profile_input=req.profile_input,
@@ -764,9 +789,9 @@ async def learning_session_start_stream(req: LearningStartRequest) -> StreamingR
 
 
 @app.get("/api/learning/session/{session_id}/state")
-async def learning_session_state(session_id: str) -> JSONResponse:
+async def learning_session_state(session_id: str, request: Request) -> JSONResponse:
     """Return policy state + session summary for a learning session."""
-    session = learning_orchestrator.memory.get_session(session_id)
+    session = _ensure_learning_session_access(request, session_id)
     try:
         refresh_profile_state_from_l3(
             learning_orchestrator.memory,
@@ -789,8 +814,9 @@ async def learning_session_state(session_id: str) -> JSONResponse:
 
 
 @app.get("/api/learning/session/{session_id}/audio-manifest")
-async def learning_session_audio_manifest(session_id: str) -> JSONResponse:
+async def learning_session_audio_manifest(session_id: str, request: Request) -> JSONResponse:
     """Return the slide-level audio manifest for a learning session."""
+    _ensure_learning_session_access(request, session_id)
     manifest = get_audio_manifest(
         session_id,
         resource_root=learning_orchestrator.resource_root,
@@ -810,8 +836,10 @@ async def learning_session_audio_file(
     session_id: str,
     outline_node_id: str,
     filename: str,
+    request: Request,
 ) -> FileResponse:
     """Return one generated slide audio file."""
+    _ensure_learning_session_access(request, session_id)
     session_dir = Path(learning_orchestrator.resource_root) / session_id
     audio_root = (session_dir / "audio_files").resolve()
     candidate = (audio_root / outline_node_id / filename).resolve()
@@ -836,12 +864,13 @@ async def learning_assessment_definition() -> JSONResponse:
 
 
 @app.post("/api/learning/assessment/submit")
-async def learning_assessment_submit(req: LearnerAssessmentSubmitRequest) -> JSONResponse:
+async def learning_assessment_submit(req: LearnerAssessmentSubmitRequest, request: Request) -> JSONResponse:
     """Submit onboarding assessment answers and persist the initial profile."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         result = submit_learner_assessment(
             learning_orchestrator.memory,
-            user_id=req.user_id,
+            user_id=user_id,
             answers=[item.model_dump() for item in req.answers],
             target_exam=req.target_exam,
             skip_assessment=req.skip_assessment,
@@ -869,8 +898,9 @@ async def learning_assessment_submit(req: LearnerAssessmentSubmitRequest) -> JSO
 
 
 @app.get("/api/learning/profile/{user_id}")
-async def learning_profile(user_id: str) -> JSONResponse:
+async def learning_profile(user_id: str, request: Request) -> JSONResponse:
     """Return compact profile + L3 learner memory for a user."""
+    user_id = _effective_learning_user_id(request, user_id)
     profile = learning_orchestrator.memory.get_or_create_profile(user_id)
     try:
         refresh_profile_state_from_l3(learning_orchestrator.memory, user_id)
@@ -907,11 +937,12 @@ async def learning_profile(user_id: str) -> JSONResponse:
 
 
 @app.post("/api/learning/profile/slice")
-async def learning_profile_slice(req: LearningProfileSliceRequest) -> JSONResponse:
+async def learning_profile_slice(req: LearningProfileSliceRequest, request: Request) -> JSONResponse:
     """Return a role-specific learner-memory slice."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     result = build_profile_slice(
         learning_orchestrator.memory,
-        user_id=req.user_id,
+        user_id=user_id,
         role=req.role,
         context=req.context,
         limit=req.limit,
@@ -929,14 +960,16 @@ async def learning_profile_slice(req: LearningProfileSliceRequest) -> JSONRespon
 @app.post("/api/learning/memory/consolidate")
 async def learning_memory_consolidate(
     req: LearningMemoryConsolidateRequest,
+    request: Request,
 ) -> JSONResponse:
     """Manually run L2 and/or L3 learner-memory consolidation."""
     layer = req.layer.lower().strip()
+    user_id = _effective_learning_user_id(request, req.user_id)
     result: dict[str, Any] = {}
     if layer in {"all", "l2"}:
         result["l2"] = consolidate_l2(
             learning_orchestrator.memory,
-            user_id=req.user_id,
+            user_id=user_id,
             session_id=req.session_id,
             surface=req.surface,
             surfaces=req.surfaces,
@@ -945,7 +978,7 @@ async def learning_memory_consolidate(
     if layer in {"all", "l3"}:
         result["l3"] = consolidate_l3(
             learning_orchestrator.memory,
-            user_id=req.user_id,
+            user_id=user_id,
             session_id=req.session_id,
             slot=req.slot,
             limit=req.limit,
@@ -983,8 +1016,9 @@ def _learning_plan_error(action: str, exc: Exception, status_code: int) -> JSONR
 
 
 @app.get("/api/learning/plan/{user_id}/month")
-async def learning_plan_month(user_id: str, year: int, month: int) -> JSONResponse:
+async def learning_plan_month(user_id: str, year: int, month: int, request: Request) -> JSONResponse:
     """Return study-plan items grouped by calendar day for one month."""
+    user_id = _effective_learning_user_id(request, user_id)
     try:
         result = get_study_plan_month(
             learning_orchestrator.memory,
@@ -998,8 +1032,9 @@ async def learning_plan_month(user_id: str, year: int, month: int) -> JSONRespon
 
 
 @app.get("/api/learning/plan/{user_id}/day/{plan_date}")
-async def learning_plan_day(user_id: str, plan_date: str) -> JSONResponse:
+async def learning_plan_day(user_id: str, plan_date: str, request: Request) -> JSONResponse:
     """Return study-plan items for one day."""
+    user_id = _effective_learning_user_id(request, user_id)
     try:
         result = get_study_plan_day(
             learning_orchestrator.memory,
@@ -1012,12 +1047,13 @@ async def learning_plan_day(user_id: str, plan_date: str) -> JSONResponse:
 
 
 @app.post("/api/learning/plan/recommend")
-async def learning_plan_recommend(req: LearningPlanRecommendRequest) -> JSONResponse:
+async def learning_plan_recommend(req: LearningPlanRecommendRequest, request: Request) -> JSONResponse:
     """Return preview recommendations for one study-plan day."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         result = recommend_study_plan(
             learning_orchestrator.memory,
-            user_id=req.user_id,
+            user_id=user_id,
             plan_date=req.plan_date,
             max_items=req.max_items,
         )
@@ -1027,12 +1063,13 @@ async def learning_plan_recommend(req: LearningPlanRecommendRequest) -> JSONResp
 
 
 @app.post("/api/learning/plan/items")
-async def learning_plan_create_item(req: LearningPlanCreateRequest) -> JSONResponse:
+async def learning_plan_create_item(req: LearningPlanCreateRequest, request: Request) -> JSONResponse:
     """Create one study-plan to-do item."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         result = create_study_plan_item(
             learning_orchestrator.memory,
-            user_id=req.user_id,
+            user_id=user_id,
             plan_date=req.plan_date,
             title=req.title,
             notes=req.notes,
@@ -1049,14 +1086,16 @@ async def learning_plan_create_item(req: LearningPlanCreateRequest) -> JSONRespo
 async def learning_plan_update_item(
     item_id: str,
     req: LearningPlanUpdateRequest,
+    request: Request,
 ) -> JSONResponse:
     """Update one study-plan item."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         updates = req.model_dump(exclude={"user_id"}, exclude_unset=True)
         result = update_study_plan_item(
             learning_orchestrator.memory,
             item_id=item_id,
-            user_id=req.user_id,
+            user_id=user_id,
             updates=updates,
         )
     except KeyError as exc:
@@ -1070,13 +1109,15 @@ async def learning_plan_update_item(
 async def learning_plan_complete_item(
     item_id: str,
     req: LearningPlanCompleteRequest,
+    request: Request,
 ) -> JSONResponse:
     """Toggle completion. Completed items feed a deterministic learner-memory signal."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         result = complete_study_plan_item(
             learning_orchestrator.memory,
             item_id=item_id,
-            user_id=req.user_id,
+            user_id=user_id,
             completed=req.completed,
         )
     except KeyError as exc:
@@ -1088,13 +1129,15 @@ async def learning_plan_complete_item(
 async def learning_plan_defer_item(
     item_id: str,
     req: LearningPlanDeferRequest,
+    request: Request,
 ) -> JSONResponse:
     """Move a plan item to another day, defaulting to the next day."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         result = defer_study_plan_item(
             learning_orchestrator.memory,
             item_id=item_id,
-            user_id=req.user_id,
+            user_id=user_id,
             to_date=req.to_date,
         )
     except KeyError as exc:
@@ -1105,8 +1148,9 @@ async def learning_plan_defer_item(
 
 
 @app.delete("/api/learning/plan/items/{item_id}")
-async def learning_plan_delete_item(item_id: str, user_id: str = "demo") -> JSONResponse:
+async def learning_plan_delete_item(item_id: str, request: Request, user_id: str = "demo") -> JSONResponse:
     """Delete one study-plan item."""
+    user_id = _effective_learning_user_id(request, user_id)
     try:
         result = delete_study_plan_item(
             learning_orchestrator.memory,
@@ -1461,12 +1505,13 @@ async def weixin_push_daily_plan(request: Request, payload: dict[str, Any] | Non
 
 
 @app.post("/api/learning/route")
-async def learning_route(req: LearningRouteRequest) -> JSONResponse:
+async def learning_route(req: LearningRouteRequest, request: Request) -> JSONResponse:
     """Policy-only route — returns decision, does NOT execute.
 
     Set ``use_llm_policy=true`` to use the LLM policy agent (with automatic
     fallback to rule-based on error).
     """
+    _ensure_learning_session_access(request, req.session_id)
     result = _learning_route(req.session_id, req.user_input, req.use_llm_policy)
     return JSONResponse(
         {
@@ -1479,8 +1524,9 @@ async def learning_route(req: LearningRouteRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/execute")
-async def learning_execute(req: LearningExecuteRequest) -> JSONResponse:
+async def learning_execute(req: LearningExecuteRequest, request: Request) -> JSONResponse:
     """Execute a policy decision — does NOT re-route."""
+    _ensure_learning_session_access(request, req.session_id)
     result = learning_orchestrator.execute_policy_action(
         req.session_id, req.decision, req.user_input
     )
@@ -1495,12 +1541,13 @@ async def learning_execute(req: LearningExecuteRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/step")
-async def learning_step(req: LearningStepRequest) -> JSONResponse:
+async def learning_step(req: LearningStepRequest, request: Request) -> JSONResponse:
     """Convenience: route(None) → execute (Tutor step).
 
     Does NOT call next_step directly — always goes through policy.
     Set ``use_llm_policy=true`` to use the LLM policy agent.
     """
+    _ensure_learning_session_access(request, req.session_id)
     route_result = _learning_route(req.session_id, None, req.use_llm_policy)
     decision = route_result["decision"]
     execution = learning_orchestrator.execute_policy_action(
@@ -1521,12 +1568,13 @@ async def learning_step(req: LearningStepRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/interruption")
-async def learning_interruption(req: LearningInterruptionRequest) -> JSONResponse:
+async def learning_interruption(req: LearningInterruptionRequest, request: Request) -> JSONResponse:
     """Convenience: route(interruption) → execute (QA).
 
     Does NOT call handle_interruption directly — always goes through policy.
     Set ``use_llm_policy=true`` to use the LLM policy agent.
     """
+    _ensure_learning_session_access(request, req.session_id)
     user_input = {"type": "interruption_question", "text": req.question}
     route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
     decision = route_result["decision"]
@@ -1548,8 +1596,10 @@ async def learning_interruption(req: LearningInterruptionRequest) -> JSONRespons
 
 
 @app.post("/api/learning/interruption/stream")
-async def learning_interruption_stream(req: LearningInterruptionRequest) -> StreamingResponse:
+async def learning_interruption_stream(req: LearningInterruptionRequest, request: Request) -> StreamingResponse:
     """Stream QA progress events while preserving the route -> execute path."""
+
+    _ensure_learning_session_access(request, req.session_id)
 
     async def event_stream():
         action = "interruption_stream"
@@ -1662,8 +1712,9 @@ async def learning_interruption_stream(req: LearningInterruptionRequest) -> Stre
 
 
 @app.post("/api/learning/continue")
-async def learning_continue(req: LearningContinueRequest) -> JSONResponse:
+async def learning_continue(req: LearningContinueRequest, request: Request) -> JSONResponse:
     """Convenience: route(continue) -> execute (advance + next Tutor step)."""
+    _ensure_learning_session_access(request, req.session_id)
     user_input = {"type": "continue"}
     route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
     decision = route_result["decision"]
@@ -1685,8 +1736,10 @@ async def learning_continue(req: LearningContinueRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/continue/stream")
-async def learning_continue_stream(req: LearningContinueRequest) -> StreamingResponse:
+async def learning_continue_stream(req: LearningContinueRequest, request: Request) -> StreamingResponse:
     """Stream continue progress events while preserving the route -> execute path."""
+
+    _ensure_learning_session_access(request, req.session_id)
 
     async def event_stream():
         action = "continue_stream"
@@ -1799,12 +1852,13 @@ async def learning_continue_stream(req: LearningContinueRequest) -> StreamingRes
 
 
 @app.post("/api/learning/answer")
-async def learning_answer(req: LearningSubmitAnswerRequest) -> JSONResponse:
+async def learning_answer(req: LearningSubmitAnswerRequest, request: Request) -> JSONResponse:
     """Convenience: route(answer_submission) → execute (Assessment).
 
     Does NOT call submit_answer directly — always goes through policy.
     Set ``use_llm_policy=true`` to use the LLM policy agent.
     """
+    _ensure_learning_session_access(request, req.session_id)
     user_input = {
         "type": "answer_submission",
         "question": req.question,
@@ -1830,8 +1884,10 @@ async def learning_answer(req: LearningSubmitAnswerRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/answer/stream")
-async def learning_answer_stream(req: LearningSubmitAnswerRequest) -> StreamingResponse:
+async def learning_answer_stream(req: LearningSubmitAnswerRequest, request: Request) -> StreamingResponse:
     """Stream assessment progress events while preserving route -> execute."""
+
+    _ensure_learning_session_access(request, req.session_id)
 
     async def event_stream():
         action = "answer_stream"
