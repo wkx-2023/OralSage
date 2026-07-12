@@ -135,6 +135,8 @@ CREATE TABLE IF NOT EXISTS study_plan_items (
     status              TEXT NOT NULL DEFAULT 'open',
     linked_course_id    TEXT,
     linked_course_title TEXT,
+    task_type           TEXT NOT NULL DEFAULT 'topic_learning',
+    learning_target     TEXT,
     kg_node_ids_json    TEXT NOT NULL,
     sort_order          INTEGER NOT NULL DEFAULT 0,
     deferred_count      INTEGER NOT NULL DEFAULT 0,
@@ -300,6 +302,14 @@ class LearningMemory:
             )
         except sqlite3.OperationalError:
             pass  # column already exists
+        for statement in (
+            "ALTER TABLE study_plan_items ADD COLUMN task_type TEXT NOT NULL DEFAULT 'topic_learning'",
+            "ALTER TABLE study_plan_items ADD COLUMN learning_target TEXT",
+        ):
+            try:
+                self._conn.execute(statement)
+            except sqlite3.OperationalError:
+                pass  # column already exists
         self._conn.commit()
 
     def _row_to_dict(self, row: sqlite3.Row | None) -> dict | None:
@@ -548,6 +558,8 @@ class LearningMemory:
         notes: str | None = None,
         linked_course_id: str | None = None,
         linked_course_title: str | None = None,
+        task_type: str = "topic_learning",
+        learning_target: str | None = None,
         kg_node_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Create a study-plan to-do item."""
@@ -561,9 +573,9 @@ class LearningMemory:
         self._conn.execute(
             """INSERT INTO study_plan_items
                (id, user_id, plan_date, title, notes, status,
-                linked_course_id, linked_course_title, kg_node_ids_json,
-                sort_order, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)""",
+                linked_course_id, linked_course_title, task_type, learning_target,
+                kg_node_ids_json, sort_order, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 item_id,
                 user_id,
@@ -572,6 +584,8 @@ class LearningMemory:
                 str(notes or "").strip()[:800] or None,
                 str(linked_course_id or "").strip() or None,
                 str(linked_course_title or "").strip()[:180] or None,
+                str(task_type or "topic_learning").strip()[:64] or "topic_learning",
+                str(learning_target or "").strip()[:180] or None,
                 json.dumps(_json_list(kg_node_ids or []), ensure_ascii=False),
                 self._next_study_plan_sort_order(user_id, day),
                 now,
@@ -604,6 +618,10 @@ class LearningMemory:
             allowed["linked_course_id"] = str(updates.get("linked_course_id") or "").strip() or None
         if "linked_course_title" in updates:
             allowed["linked_course_title"] = str(updates.get("linked_course_title") or "").strip()[:180] or None
+        if "task_type" in updates:
+            allowed["task_type"] = str(updates.get("task_type") or "topic_learning").strip()[:64] or "topic_learning"
+        if "learning_target" in updates:
+            allowed["learning_target"] = str(updates.get("learning_target") or "").strip()[:180] or None
         if "kg_node_ids" in updates:
             allowed["kg_node_ids_json"] = json.dumps(
                 _json_list(updates.get("kg_node_ids") or []),

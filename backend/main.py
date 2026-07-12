@@ -73,7 +73,9 @@ from .services.stats.dashboard import run_stats_filter, stats_options
 from .services.stats import run_stats_query
 from .services.learning.orchestrator import LearningOrchestrator, decide_next_action
 from .services.router.master_router import MasterRouter
+from .services.router.jobs import RouterJobManager
 from .services.learning.audio import get_audio_manifest
+from .services.learning.ppt_pipeline import ensure_pin_and_paper_previews
 from .services.learning.llm_policy import decide_next_action_with_llm
 from .services.learning.learner_assessment import (
     get_learner_assessment_definition,
@@ -107,6 +109,7 @@ from .services.weixin_plan_bot import build_daily_plan_text, handle_weixin_plan_
 
 learning_orchestrator = LearningOrchestrator()
 master_router = MasterRouter(learning_orchestrator)
+router_job_manager = RouterJobManager(master_router, learning_orchestrator)
 weixin_auth_store = WeixinAuthStore()
 
 app = FastAPI(title="OralPath API Interfaces", version="0.1.0")
@@ -272,6 +275,8 @@ def capabilities() -> dict[str, Any]:
             "/api/learning/session/{session_id}/state",
             "/api/learning/session/{session_id}/audio-manifest",
             "/api/learning/session/{session_id}/audio/{outline_node_id}/{filename}",
+            "/api/learning/session/{session_id}/ppt-preview",
+            "/api/learning/session/{session_id}/ppt-preview/{plan_hash}/{filename}",
             "/api/learning/assessment",
             "/api/learning/assessment/submit",
             "/api/learning/profile/{user_id}",
@@ -297,6 +302,9 @@ def capabilities() -> dict[str, Any]:
             "/api/learning/session/{session_id}/stage-exam",
             "/api/learning/session/{session_id}/stage-exam/submit",
             "/api/router/chat",
+            "/api/router/jobs",
+            "/api/router/jobs/{job_id}",
+            "/api/router/jobs/{job_id}/stream",
             "/api/agents/{agent_name}/invoke",
             "/api/agents/{agent_name}/stream",
             "/api/legacy/chat",
@@ -851,6 +859,63 @@ async def learning_session_ppt_plan(session_id: str) -> JSONResponse:
     return JSONResponse({"ok": True, "module": "learning", "action": "ppt_plan", "result": plan})
 
 
+@app.get("/api/learning/session/{session_id}/ppt-preview")
+async def learning_session_ppt_preview(session_id: str) -> JSONResponse:
+    """Return real Pin & Paper pages rendered by the same pipeline as PPTX."""
+    manifest = await asyncio.to_thread(
+        ensure_pin_and_paper_previews,
+        session_id=session_id,
+        resource_root=learning_orchestrator.resource_root,
+    )
+    public_slides = []
+    for slide in manifest.get("slides", []):
+        plan_hash = str(slide.get("plan_hash") or manifest.get("plan_hash") or "")
+        filename = str(slide.get("filename") or "")
+        public_slides.append({
+            key: value
+            for key, value in slide.items()
+            if key != "relative_path"
+        } | {
+            "image_url": (
+                f"/api/learning/session/{session_id}/ppt-preview/"
+                f"{plan_hash}/{filename}"
+            ),
+        })
+    result = {
+        **manifest,
+        "slides": public_slides,
+    }
+    return JSONResponse({
+        "ok": manifest.get("status") == "ready",
+        "module": "learning",
+        "action": "ppt_preview",
+        "result": result,
+    })
+
+
+@app.get(
+    "/api/learning/session/{session_id}/ppt-preview/{plan_hash}/{filename}"
+)
+async def learning_session_ppt_preview_image(
+    session_id: str,
+    plan_hash: str,
+    filename: str,
+) -> FileResponse:
+    """Serve one immutable real-rendered PPT page."""
+    session_dir = _learning_session_resource_dir(session_id)
+    preview_root = (session_dir / "slides" / "rendered_ppt").resolve()
+    candidate = (preview_root / plan_hash / filename).resolve()
+    if preview_root not in candidate.parents:
+        raise HTTPException(status_code=404, detail="PPT preview page not found")
+    if candidate.suffix.lower() != ".png" or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="PPT preview page not found")
+    return FileResponse(
+        candidate,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
 @app.get("/api/learning/session/{session_id}/ppt-status")
 @app.get("/api/learning/session/{session_id}/pptx-status")
 async def learning_session_ppt_status(session_id: str) -> JSONResponse:
@@ -1227,6 +1292,8 @@ async def learning_plan_create_item(req: LearningPlanCreateRequest) -> JSONRespo
             notes=req.notes,
             linked_course_id=req.linked_course_id,
             linked_course_title=req.linked_course_title,
+            task_type=req.task_type,
+            learning_target=req.learning_target,
             kg_node_ids=req.kg_node_ids,
         )
     except ValueError as exc:
@@ -2119,6 +2186,63 @@ async def router_chat(req: RouterChatRequest) -> JSONResponse:
         context=req.context,
     )
     return JSONResponse(result)
+
+
+@app.post("/api/router/jobs", status_code=202)
+async def create_router_job(req: RouterChatRequest) -> JSONResponse:
+    """Start a replayable master-router job that survives page navigation."""
+    result = router_job_manager.create(
+        message=req.message,
+        user_id=req.context.get("user_id", "demo"),
+        history=req.history,
+        context=req.context,
+    )
+    return JSONResponse(result, status_code=202)
+
+
+@app.get("/api/router/jobs/{job_id}")
+async def get_router_job(job_id: str, after: int = Query(default=0, ge=0)) -> JSONResponse:
+    try:
+        result = router_job_manager.snapshot(job_id, after=after)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Router job not found") from exc
+    return JSONResponse(result)
+
+
+@app.get("/api/router/jobs/{job_id}/stream")
+async def stream_router_job(
+    job_id: str,
+    after: int = Query(default=0, ge=0),
+) -> StreamingResponse:
+    """Replay job events and continue streaming until the job is terminal."""
+    try:
+        router_job_manager.snapshot(job_id, after=after)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Router job not found") from exc
+
+    async def event_stream():
+        cursor = after
+        idle_ticks = 0
+        while True:
+            snapshot = router_job_manager.snapshot(job_id, after=cursor)
+            for event in snapshot["events"]:
+                cursor = max(cursor, int(event["id"]))
+                payload = json.dumps(event, ensure_ascii=False, default=str)
+                yield f"id: {event['id']}\nevent: router_job\ndata: {payload}\n\n"
+                idle_ticks = 0
+            if snapshot["done"] and cursor >= snapshot["last_event_id"]:
+                return
+            await asyncio.sleep(0.5)
+            idle_ticks += 1
+            if idle_ticks >= 20:
+                yield ": keep-alive\n\n"
+                idle_ticks = 0
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=_stream_headers(),
+    )
 
 
 @app.post("/api/agents/{agent_name}/invoke", response_model=GenericAgentResponse)

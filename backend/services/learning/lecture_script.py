@@ -138,6 +138,100 @@ def build_lecture_script(
     }
 
 
+def _split_teaching_text(text: Any, max_chars: int = 850) -> list[str]:
+    value = str(text or "").strip()
+    if not value:
+        return []
+    paragraphs = [
+        item.strip()
+        for item in re.split(r"\n\s*\n+", value)
+        if item.strip()
+    ]
+    if not paragraphs:
+        paragraphs = [value]
+
+    chunks: list[str] = []
+    for paragraph in paragraphs:
+        cleaned = _clean_text(paragraph)
+        if not cleaned:
+            continue
+        if len(cleaned) <= max_chars:
+            chunks.append(cleaned)
+            continue
+
+        sentences = [
+            item.strip()
+            for item in re.findall(r".+?(?:[。！？!?；;]|$)", cleaned)
+            if item.strip()
+        ]
+        current = ""
+        for sentence in sentences or [cleaned]:
+            if not current:
+                current = sentence
+                continue
+            if len(current) + len(sentence) <= max_chars:
+                current += sentence
+            else:
+                chunks.append(current)
+                current = sentence
+        if current:
+            chunks.append(current)
+    return chunks
+
+
+def build_tutor_lecture_script(
+    *,
+    session_id: str,
+    outline_node_id: str,
+    tutor_step: dict[str, Any],
+    title: str = "",
+) -> dict[str, Any]:
+    teaching_text = str(tutor_step.get("teaching_text") or "").strip()
+    section_title = str(title or tutor_step.get("_handout_section_title") or "").strip()
+    chunks = _split_teaching_text(teaching_text)
+    slides: list[dict[str, Any]] = []
+    for index, chunk in enumerate(chunks, start=1):
+        slides.append({
+            "slide_id": f"slide_{index:03d}",
+            "index": index,
+            "kind": "tutor_teaching_text",
+            "title": f"{section_title or 'Tutor'} {index}",
+            "narration": chunk,
+            "text": chunk,
+            "text_chars": len(chunk),
+            "text_hash": _short_hash(chunk),
+            "script_hash": _short_hash(chunk),
+            "source_path": "tutor_step.teaching_text",
+            "evidence_refs": [],
+        })
+
+    source_payload = json.dumps(
+        {
+            "outline_node_id": outline_node_id,
+            "teaching_text": teaching_text,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    source_hash = _short_hash(source_payload)
+    return {
+        "schema_version": "learning.lecture_script.v1",
+        "session_id": session_id,
+        "outline_node_id": outline_node_id,
+        "title": section_title,
+        "status": "ready" if slides else "failed",
+        "source": "tutor_step.teaching_text",
+        # Kept for the existing audio manifest cache comparison.
+        "source_handout_hash": source_hash,
+        "source_tutor_hash": source_hash,
+        "slide_count": len(slides),
+        "slides": slides,
+        "updated_at": _now(),
+        "error": None if slides else "tutor_step_has_no_teaching_text",
+    }
+
+
 def save_lecture_script(
     script: dict[str, Any],
     resource_root: str | Path | None = None,
@@ -184,6 +278,33 @@ def build_and_save_lecture_script(
     if (
         existing.get("status") == "ready"
         and existing.get("source_handout_hash") == script.get("source_handout_hash")
+    ):
+        root = Path(resource_root) if resource_root else Path("data/learning/sessions")
+        output_path = root / session_id / "lecture_scripts" / f"{outline_node_id}.json"
+        return {**existing, "script_path": str(output_path)}
+    output_path = save_lecture_script(script, resource_root)
+    return {**script, "script_path": str(output_path)}
+
+
+def build_and_save_tutor_lecture_script(
+    *,
+    session_id: str,
+    outline_node_id: str,
+    tutor_step: dict[str, Any],
+    title: str = "",
+    resource_root: str | Path | None = None,
+) -> dict[str, Any]:
+    script = build_tutor_lecture_script(
+        session_id=session_id,
+        outline_node_id=outline_node_id,
+        tutor_step=tutor_step,
+        title=title,
+    )
+    existing = get_lecture_script(session_id, outline_node_id, resource_root)
+    if (
+        existing.get("status") == "ready"
+        and existing.get("source") == "tutor_step.teaching_text"
+        and existing.get("source_tutor_hash") == script.get("source_tutor_hash")
     ):
         root = Path(resource_root) if resource_root else Path("data/learning/sessions")
         output_path = root / session_id / "lecture_scripts" / f"{outline_node_id}.json"

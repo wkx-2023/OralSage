@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -56,6 +56,7 @@ def chat_completion(
     base_url_names: tuple[str, ...] = ("DECISION_LLM_BASE_URL", "QWEN_BASE_URL", "DASHSCOPE_BASE_URL"),
     model_names: tuple[str, ...] = ("DECISION_LLM_MODEL", "QWEN_MODEL", "DASHSCOPE_MODEL"),
     response_format: dict[str, Any] | None = None,
+    stream_callback: Callable[[str], None] | None = None,
 ) -> str:
     api_key = _env(*api_key_names)
     if not api_key:
@@ -71,6 +72,8 @@ def chat_completion(
     }
     if response_format is not None:
         payload["response_format"] = response_format
+    if stream_callback is not None:
+        payload["stream"] = True
 
     request = Request(
         f"{base_url.rstrip('/')}/chat/completions",
@@ -84,11 +87,57 @@ def chat_completion(
     )
     try:
         with urlopen(request, timeout=_timeout_seconds()) as response:
+            if stream_callback is not None and _is_event_stream(response):
+                return _read_streaming_content(response, stream_callback)
             data = json.loads(response.read().decode("utf-8", errors="replace"))
     except (HTTPError, URLError, TimeoutError) as exc:
         raise LLMRequestError(str(exc)) from exc
 
     try:
-        return data["choices"][0]["message"]["content"].strip()
+        content = data["choices"][0]["message"]["content"].strip()
+        if stream_callback is not None and content:
+            stream_callback(content)
+        return content
     except (KeyError, IndexError, TypeError) as exc:
         raise LLMRequestError(f"Unexpected LLM response shape: {data}") from exc
+
+
+def _is_event_stream(response: Any) -> bool:
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return False
+    content_type = str(headers.get("Content-Type", "")).lower()
+    return "text/event-stream" in content_type
+
+
+def _read_streaming_content(
+    response: Any,
+    stream_callback: Callable[[str], None],
+) -> str:
+    chunks: list[str] = []
+    for raw_line in response:
+        line = raw_line.decode("utf-8", errors="replace").strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            event = json.loads(payload)
+            delta = event["choices"][0].get("delta", {}).get("content", "")
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+            raise LLMRequestError(f"Unexpected streaming LLM response: {payload[:300]}") from exc
+        if isinstance(delta, list):
+            delta = "".join(
+                str(item.get("text") or "")
+                for item in delta
+                if isinstance(item, dict)
+            )
+        if not isinstance(delta, str) or not delta:
+            continue
+        chunks.append(delta)
+        stream_callback(delta)
+    content = "".join(chunks).strip()
+    if not content:
+        raise LLMRequestError("Streaming LLM response contained no text content")
+    return content

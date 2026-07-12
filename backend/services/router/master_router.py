@@ -31,6 +31,7 @@ from backend.services.llm_client import (
     is_llm_configured,
 )
 from backend.services.learning.study_plan import recommend_study_plan
+from backend.services.learning.llm_policy import decide_next_action_with_llm
 from backend.services.literature.agent import run_literature_search
 
 logger = logging.getLogger(__name__)
@@ -65,8 +66,15 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "- literature: 用户想检索论文文献、查找最新研究、翻译文章、了解科研进展\n"
     "- clarification: 用户意图模糊不清，或无法判断其具体需求\n"
     "\n"
+    "同时判断用户是否明确要求开始或完成自己已有的学习计划项。只有用户明确提到"
+    "自己的学习计划、计划任务或要完成已有计划时，plan_item_requested 才能为 true。"
+    "普通的主题学习请求不能因为系统中可能存在未完成计划而设为 true；请求制定、推荐"
+    "或安排学习计划属于 study_plan，plan_item_requested 应为 false。\n"
+    "\n"
     "请严格只返回一个 JSON 对象，格式如下，不要附带任何其他文本：\n"
-    '{"intent": "<learning|study_plan|literature|clarification>", "reason": "<简短中文说明>"}'
+    '{"intent": "<learning|study_plan|literature|clarification>", '
+    '"plan_item_requested": <true|false>, "topic": "<学习主题或空字符串>", '
+    '"reason": "<简短中文说明>"}'
 )
 
 PLAN_ITEM_MATCHER_SYSTEM_PROMPT = (
@@ -114,13 +122,37 @@ def _validate_route(parsed: dict[str, Any]) -> dict[str, Any] | None:
     intent = str(parsed.get("intent", "")).strip().lower()
     if intent not in VALID_INTENTS:
         return None
+    plan_item_requested = parsed.get("plan_item_requested", False)
+    if not isinstance(plan_item_requested, bool):
+        return None
+    if plan_item_requested and intent != "learning":
+        return None
     reason = str(parsed.get("reason", "")).strip()
-    return {
+    route = {
         "intent": intent,
         "target": INTENT_TO_TARGET[intent],
+        "plan_item_requested": plan_item_requested,
         "reason": reason or "无法提供具体理由。",
         "source": "llm_router",
     }
+    topic = str(parsed.get("topic") or "").strip()
+    if intent == "learning" and topic:
+        route["topic"] = topic
+    return route
+
+
+def _normalize_learning_topic(value: Any) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    prefixes = ("我想要学习", "我想学习", "我想要了解", "我想了解", "请学习", "学习")
+    changed = True
+    while text and changed:
+        changed = False
+        for prefix in prefixes:
+            if text.startswith(prefix) and len(text) > len(prefix):
+                text = text[len(prefix):].lstrip(" ：:，,。")
+                changed = True
+                break
+    return text
 
 
 def _build_candidate_whitelist(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -186,6 +218,7 @@ class MasterRouter:
         user_id: str = "demo",
         history: list[dict[str, Any]] | None = None,
         context: dict[str, Any] | None = None,
+        stream_callback: Callable[[str], None] | None = None,
     ) -> dict[str, Any]:
         """Classify *message* and dispatch to the appropriate downstream service.
 
@@ -199,9 +232,28 @@ class MasterRouter:
         if plan_item_id:
             return await self._handle_plan_item(user_id, str(plan_item_id))
 
+        recommendation_id = str(ctx.get("recommendation_id") or "").strip()
+        if recommendation_id:
+            return await self._handle_recommendation(
+                user_id,
+                recommendation_id,
+                str(ctx.get("plan_date") or "").strip(),
+            )
+
         session_id = str(ctx.get("session_id") or "").strip()
         if session_id and self._is_continue_message(message):
-            return await self._handle_session_continue(user_id, session_id)
+            return await self._handle_session_continue(
+                user_id,
+                session_id,
+                stream_callback=stream_callback,
+            )
+        if session_id:
+            return await self._handle_session_input(
+                user_id,
+                session_id,
+                message,
+                stream_callback=stream_callback,
+            )
 
         # --- LLM classification ----------------------------------------------
         route = await self._classify(message, history, ctx)
@@ -233,8 +285,9 @@ class MasterRouter:
         if self._classifier is not None:
             try:
                 result = self._classifier(message, history, context)
-                if isinstance(result, dict) and result.get("intent") in VALID_INTENTS:
-                    return result
+                validated = _validate_route(result)
+                if validated is not None:
+                    return validated
             except Exception:
                 logger.exception("Injected classifier failed")
             return self._clarification_route("分类器返回无效结果。")
@@ -278,12 +331,6 @@ class MasterRouter:
         self, user_id: str, plan_item_id: str
     ) -> dict[str, Any]:
         """Deterministic plan-item lookup — NO LLM involved."""
-        route_base = {
-            "intent": "learning",
-            "target": INTENT_TO_TARGET["learning"],
-            "source": "explicit_plan_item",
-        }
-
         # 1. Read the real plan item (raises KeyError if not found / wrong user)
         try:
             item = self.learning_orchestrator.memory.get_study_plan_item(
@@ -293,7 +340,9 @@ class MasterRouter:
             return {
                 "ok": False,
                 "route": {
-                    **route_base,
+                    "intent": "learning",
+                    "target": INTENT_TO_TARGET["learning"],
+                    "source": "explicit_plan_item",
                     "reason": f"未找到计划任务 {plan_item_id}，或该任务不属于当前用户。",
                 },
                 "final_result": None,
@@ -306,7 +355,9 @@ class MasterRouter:
             return {
                 "ok": False,
                 "route": {
-                    **route_base,
+                    "intent": "learning",
+                    "target": INTENT_TO_TARGET["learning"],
+                    "source": "explicit_plan_item",
                     "reason": f"计划任务「{item.get('title', plan_item_id)}」状态为 {item.get('status')}，无法开始学习。",
                 },
                 "final_result": None,
@@ -314,37 +365,127 @@ class MasterRouter:
                 "error": f"Plan item is not open: status={item.get('status')}",
             }
 
-        # 3. Resolve topic
-        topic = (
-            str(item.get("linked_course_title") or "").strip()
-            or str(item.get("title") or "").strip()
+        return await self._execute_learning_task(
+            user_id,
+            item,
+            source="explicit_plan_item",
         )
+
+    async def _handle_recommendation(
+        self,
+        user_id: str,
+        recommendation_id: str,
+        plan_date: str,
+    ) -> dict[str, Any]:
+        """Resolve a recommendation server-side before executing it."""
+        try:
+            target_date = date.fromisoformat(plan_date).isoformat() if plan_date else date.today().isoformat()
+        except ValueError:
+            target_date = date.today().isoformat()
+        route = {
+            "intent": "learning",
+            "target": INTENT_TO_TARGET["learning"],
+            "source": "explicit_recommendation",
+        }
+        try:
+            result = await asyncio.to_thread(
+                self._study_plan_service,
+                self.learning_orchestrator.memory,
+                user_id=user_id,
+                plan_date=target_date,
+            )
+        except Exception as exc:
+            logger.exception("study_plan_service failed while resolving recommendation")
+            return {
+                "ok": False,
+                "route": {**route, "reason": "无法重新读取这条学习推荐。"},
+                "final_result": None,
+                "next_action": None,
+                "error": f"学习推荐解析失败：{exc}",
+            }
+
+        recommendation = next(
+            (
+                item for item in result.get("recommendations", [])
+                if str(item.get("recommendation_id") or "") == recommendation_id
+            ),
+            None,
+        )
+        if recommendation is None:
+            return {
+                "ok": False,
+                "route": {**route, "reason": "这条推荐已过期，请重新生成学习计划。"},
+                "final_result": None,
+                "next_action": "show_recommendations",
+                "error": "Study recommendation not found or expired.",
+            }
+        return await self._execute_learning_task(
+            user_id,
+            recommendation,
+            source="explicit_recommendation",
+        )
+
+    async def _execute_learning_task(
+        self,
+        user_id: str,
+        item: dict[str, Any],
+        *,
+        source: str,
+    ) -> dict[str, Any]:
+        task_type = str(item.get("task_type") or item.get("category") or "topic_learning").strip()
+        title = str(item.get("title") or "").strip()
+        learning_target = _normalize_learning_topic(item.get("learning_target"))
+        linked_course_title = _normalize_learning_topic(item.get("linked_course_title"))
+        linked_course_id = str(item.get("linked_course_id") or "").strip()
+
+        if task_type == "continue_lesson" and linked_course_id:
+            response = await self._handle_session_continue(user_id, linked_course_id)
+            response["route"] = {
+                **(response.get("route") or {}),
+                "reason": f"根据计划任务「{title or linked_course_title}」继续原课程。",
+                "source": source,
+            }
+            return response
+
+        focused_types = {"review_weakness", "review_mastery", "review_summary", "practice"}
+        if task_type in focused_types and learning_target:
+            topic = learning_target
+            if linked_course_title and linked_course_title not in learning_target:
+                topic = f"{linked_course_title}：{learning_target}"
+        else:
+            topic = learning_target or linked_course_title or _normalize_learning_topic(title)
+
+        route = {
+            "intent": "learning",
+            "target": INTENT_TO_TARGET["learning"],
+            "source": source,
+            "reason": f"根据计划任务「{title or topic}」启动针对性学习。",
+            "task_type": task_type,
+        }
         if not topic:
             return {
                 "ok": False,
-                "route": {
-                    **route_base,
-                    "reason": f"计划任务「{item.get('title', plan_item_id)}」没有可解析的学习主题。",
-                },
+                "route": {**route, "reason": f"计划任务「{title}」没有可解析的学习主题。"},
                 "final_result": None,
                 "next_action": None,
                 "error": "Plan item has no resolvable topic.",
             }
-
-        # 4. Start lesson
-        route_base["reason"] = f"根据计划任务「{topic}」启动学习。"
-        return await self._start_learning(user_id, topic, route_base)
+        return await self._start_learning(user_id, topic, route)
 
     async def _handle_learning(
         self, user_id: str, message: str, route: dict[str, Any]
     ) -> dict[str, Any]:
-        """Candidate matching against open study-plan items.
+        """Start free study or match an explicitly requested study-plan item.
 
-        0 candidates / list-open failure → free study
-        1 candidate                          → deterministic ``_handle_plan_item``
-        2+ candidates                        → LLM-constrained matching, fallback ``select_plan``
+        Ordinary learning requests never inspect unfinished plan items. Candidate
+        lookup is entered only when the intent classifier explicitly sets
+        ``plan_item_requested=true``.
         """
-        # 1. List open candidates from existing data layer
+        if route.get("plan_item_requested") is not True:
+            topic = _normalize_learning_topic(route.get("topic") or message)
+            return await self._start_learning(user_id, topic, route)
+
+        # 1. The LLM identified an explicit request to use an existing plan.
         try:
             open_items = self.learning_orchestrator.memory.list_open_study_plan_items(
                 user_id
@@ -560,6 +701,7 @@ class MasterRouter:
         self,
         user_id: str,
         session_id: str,
+        stream_callback: Callable[[str], None] | None = None,
     ) -> dict[str, Any]:
         route = {
             "intent": "learning",
@@ -568,9 +710,15 @@ class MasterRouter:
             "source": "session_context",
         }
         try:
+            continue_kwargs = (
+                {"stream_callback": stream_callback}
+                if stream_callback is not None
+                else {}
+            )
             result = await asyncio.to_thread(
                 self.learning_orchestrator.continue_to_next_section,
                 session_id,
+                **continue_kwargs,
             )
         except Exception as exc:
             logger.exception("continue_to_next_section failed for session=%s", session_id)
@@ -599,6 +747,113 @@ class MasterRouter:
                 if result.get("lesson_completed") and result.get("stage_exam")
                 else "continue_session"
             ),
+        }
+
+    async def _handle_session_input(
+        self,
+        user_id: str,
+        session_id: str,
+        message: str,
+        stream_callback: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
+        """Let the learning policy LLM route natural language inside a session."""
+        try:
+            session = self.learning_orchestrator.memory.get_session(session_id)
+        except KeyError:
+            return {
+                "ok": False,
+                "route": {
+                    "intent": "learning",
+                    "target": "learning_orchestrator",
+                    "source": "learning_session_policy",
+                    "reason": "学习 session 不存在。",
+                },
+                "final_result": None,
+                "next_action": None,
+                "error": f"Learning session not found: {session_id}",
+            }
+        if str(session.get("user_id") or "") != user_id:
+            return {
+                "ok": False,
+                "route": {
+                    "intent": "learning",
+                    "target": "learning_orchestrator",
+                    "source": "learning_session_policy",
+                    "reason": "当前用户无权访问该学习 session。",
+                },
+                "final_result": None,
+                "next_action": None,
+                "error": "Learning session access denied.",
+            }
+
+        state = self.learning_orchestrator.get_policy_state(session_id)
+        raw_input = {"type": "raw_text", "raw_text": message}
+        decision = await asyncio.to_thread(
+            decide_next_action_with_llm,
+            state,
+            raw_input,
+            fallback_policy=self.learning_orchestrator.policy_fn,
+        )
+        action = str(decision.get("action") or "")
+        route = {
+            "intent": "learning",
+            "target": decision.get("target_agent", "learning_orchestrator"),
+            "source": "learning_session_policy",
+            "reason": decision.get("reason", "学习策略已完成调度。"),
+            "policy_action": action,
+        }
+
+        if action == "unknown_input":
+            return {
+                "ok": True,
+                "route": route,
+                "final_result": {
+                    "message": "请说明你希望继续下一节、针对本节提问，还是进行本节自测。",
+                    "session_id": session_id,
+                },
+                "next_action": "clarify_learning_action",
+            }
+
+        if action == "assess_answer":
+            return {
+                "ok": True,
+                "route": route,
+                "final_result": {
+                    "message": "请在对应的自测题中提交答案，以便关联题目并完成评估。",
+                    "session_id": session_id,
+                },
+                "next_action": "select_quiz_answer",
+            }
+
+        execution_input: dict[str, Any] | None = raw_input
+        if action == "answer_interruption":
+            execution_input = {"type": "interruption_question", "text": message}
+        elif action == "continue_to_next_section":
+            execution_input = {"type": "continue"}
+        elif action == "teach_current_node":
+            execution_input = None
+
+        execution_kwargs = (
+            {"stream_callback": stream_callback}
+            if stream_callback is not None
+            else {}
+        )
+        execution = await asyncio.to_thread(
+            self.learning_orchestrator.execute_policy_action,
+            session_id,
+            decision,
+            execution_input,
+            **execution_kwargs,
+        )
+        return {
+            "ok": bool(execution.get("executed")) or bool(execution.get("terminal")),
+            "route": route,
+            "final_result": execution.get("result") or {
+                "message": execution.get("error") or "学习动作未执行。",
+                "session_id": session_id,
+            },
+            "next_action": action,
+            "error": execution.get("error"),
         }
 
     @staticmethod

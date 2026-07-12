@@ -4,6 +4,44 @@ Build date: 2026-07-01
 
 This package contains the KAG-ready oral medicine knowledge base and retrieval indexes.
 
+## 启动项目
+
+项目使用 FastAPI 提供 API，并由同一个服务托管 `frontend/` 下的静态前端页面。
+
+在 PowerShell 中进入项目根目录并安装依赖：
+
+```powershell
+cd D:\OralSage
+python -m pip install -r backend\requirements.txt
+```
+
+首次启动时，从示例文件创建本地环境配置，然后按需填写模型及第三方服务配置：
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+启动服务：
+
+```powershell
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+开发时如需自动重载代码，可使用：
+
+```powershell
+python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+服务启动后可访问：
+
+- 项目首页：`http://127.0.0.1:8000/`
+- 总控对话：`http://127.0.0.1:8000/pages/master-chat.html`
+- API 文档：`http://127.0.0.1:8000/docs`
+- 健康检查：`http://127.0.0.1:8000/api/system/health`
+
+停止服务时，在运行服务的终端中按 `Ctrl+C`。
+
 ## Contents
 
 ```text

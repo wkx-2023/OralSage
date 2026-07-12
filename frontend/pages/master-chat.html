@@ -9,13 +9,16 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/base.css?v=20260706-plan-nav">
-  <link rel="stylesheet" href="/css/master-chat.css?v=20260706-plan-nav">
+  <link rel="stylesheet" href="/css/master-chat.css?v=20260712-tutor-audio">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 <body class="chat-product-page">
   <div class="app-shell chat-product-shell">
     <aside class="rail chat-history-panel">
       <div class="history-head">
-        <button type="button" id="new-session" class="history-new">+ &#26032;&#24314;&#23545;&#35805;</button>
+        <button type="button" id="new-session" class="history-new">
+          <i data-lucide="plus"></i><span>新建对话</span>
+        </button>
       </div>
       <div id="history-list" class="history-list"></div>
     </aside>
@@ -26,19 +29,16 @@
           <h1 id="page-title" class="page-title"></h1>
           <p id="page-subtitle" class="page-subtitle"></p>
         </div>
-        
       </header>
 
       <section class="chat-stage">
         <div id="chat-welcome" class="chat-welcome">
-          <div class="welcome-mark">&#9671;</div>
-          <div class="welcome-title">新的学习型智能问答正在重建</div>
-          <div class="welcome-copy">旧总控 agent 已从前端调用链中摘除。这里会成为后续学习总控与学习 agent 的对话入口；现阶段请从总控工作台的工具箱打开独立工具。</div>
+          <div class="welcome-mark"><i data-lucide="sparkles"></i></div>
+          <div class="welcome-title">从一个口腔医学问题开始</div>
           <div class="welcome-chips">
-            <button type="button" class="chip" data-prompt="如何学习阻生齿相关知识？">学习路径</button>
-            <button type="button" class="chip" data-prompt="帮我建立牙髓炎复习计划">复习计划</button>
-            <button type="button" class="chip" data-prompt="根据知识图谱讲解根尖周炎">图谱讲解</button>
-            <button type="button" class="chip" data-prompt="推荐今天的口腔医学学习任务">今日任务</button>
+            <button type="button" class="chip" data-prompt="系统讲解牙周炎，并生成讲稿和PPT">牙周炎课程</button>
+            <button type="button" class="chip" data-prompt="推荐今天的口腔医学学习任务">今日计划</button>
+            <button type="button" class="chip" data-prompt="检索近两年口腔扁平苔藓的研究进展">前沿文献</button>
           </div>
         </div>
 
@@ -54,8 +54,12 @@
             <div class="composer-footer">
               <div class="composer-hint"></div>
               <div class="composer-actions">
-                <button id="agent-clear" class="btn ghost" type="button">&#28165;&#31354;&#24403;&#21069;</button>
-                <button id="agent-send" class="btn strong" type="button">&#21457;&#36865;</button>
+                <button id="agent-clear" class="icon-command" type="button" title="清空当前对话" aria-label="清空当前对话">
+                  <i data-lucide="trash-2"></i>
+                </button>
+                <button id="agent-send" class="send-command" type="button">
+                  <span>发送</span><i data-lucide="arrow-up"></i>
+                </button>
               </div>
             </div>
           </div>
@@ -65,7 +69,7 @@
   </div>
 
   <script src="/js/common.js?v=20260702-learning-shell"></script>
-  <script src="/js/master-chat.js?v=20260702-learning-shell"></script>
+  <script src="/js/master-chat.js?v=20260712-tutor-audio"></script>
 </body>
 </html>
 

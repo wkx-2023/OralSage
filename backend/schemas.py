@@ -221,6 +221,8 @@ class LearningPlanCreateRequest(BaseModel):
     notes: str | None = None
     linked_course_id: str | None = None
     linked_course_title: str | None = None
+    task_type: str = "topic_learning"
+    learning_target: str | None = None
     kg_node_ids: list[str] = Field(default_factory=list)
 
 
@@ -231,6 +233,8 @@ class LearningPlanUpdateRequest(BaseModel):
     notes: str | None = None
     linked_course_id: str | None = None
     linked_course_title: str | None = None
+    task_type: str | None = None
+    learning_target: str | None = None
     kg_node_ids: list[str] | None = None
 
 

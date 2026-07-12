@@ -549,6 +549,8 @@
       notes: item.notes || item.reason || null,
       linked_course_id: item.linked_course_id || null,
       linked_course_title: item.linked_course_title || null,
+      task_type: item.task_type || item.category || 'topic_learning',
+      learning_target: item.learning_target || null,
       kg_node_ids: Array.isArray(item.kg_node_ids) ? item.kg_node_ids : [],
     };
   }

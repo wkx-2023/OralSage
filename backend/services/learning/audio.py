@@ -700,6 +700,7 @@ def ensure_handout_audio(
         "slides": pending_slides,
         "lecture_script_path": lecture_script.get("script_path", ""),
         "source_handout_hash": lecture_script.get("source_handout_hash", ""),
+        "source_tutor_hash": lecture_script.get("source_tutor_hash", ""),
     }
     with _AUDIO_MANIFEST_LOCK:
         latest_manifest = _load_or_init_manifest(
@@ -811,6 +812,7 @@ def ensure_handout_audio(
         "slides": slide_records,
         "lecture_script_path": lecture_script.get("script_path", ""),
         "source_handout_hash": lecture_script.get("source_handout_hash", ""),
+        "source_tutor_hash": lecture_script.get("source_tutor_hash", ""),
     }
     # Audio synthesis runs concurrently for prefetched sections. Reload and
     # merge under one lock so a late writer cannot erase another section.

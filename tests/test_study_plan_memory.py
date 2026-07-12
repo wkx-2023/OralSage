@@ -4,10 +4,89 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
 from backend.services.learning.memory import LearningMemory
+from backend.services.learning.study_plan import _recommend_weakness_reviews
+
+
+class StudyPlanTaskSemanticsTests(unittest.TestCase):
+    def test_weakness_recommendation_separates_course_and_target(self) -> None:
+        recommendations = _recommend_weakness_reviews(
+            profile={},
+            learner_memory={
+                "weaknesses": {
+                    "items": [
+                        {
+                            "label": "宿主-微生物互作机制理解缺失",
+                            "severity": 0.9,
+                            "kg_node_ids": ["kg-host-microbe"],
+                        }
+                    ]
+                }
+            },
+            active_session={"topic": "我想学习口腔溃疡"},
+        )
+
+        self.assertEqual(len(recommendations), 1)
+        item = recommendations[0]
+        self.assertEqual(item["task_type"], "review_weakness")
+        self.assertEqual(item["learning_target"], "宿主-微生物互作机制理解缺失")
+        self.assertEqual(item["linked_course_title"], "口腔溃疡")
+
+    def test_existing_database_is_migrated_with_task_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "learning.sqlite3"
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                """CREATE TABLE study_plan_items (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    plan_date TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    notes TEXT,
+                    status TEXT NOT NULL DEFAULT 'open',
+                    linked_course_id TEXT,
+                    linked_course_title TEXT,
+                    kg_node_ids_json TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    deferred_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT
+                )"""
+            )
+            conn.commit()
+            conn.close()
+
+            memory = LearningMemory(db_path)
+            try:
+                columns = {
+                    row["name"]
+                    for row in memory._conn.execute("PRAGMA table_info(study_plan_items)").fetchall()
+                }
+                self.assertIn("task_type", columns)
+                self.assertIn("learning_target", columns)
+            finally:
+                memory._conn.close()
+
+    def test_task_fields_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = LearningMemory(Path(tmp) / "learning.sqlite3")
+            try:
+                item = memory.create_study_plan_item(
+                    user_id="u1",
+                    plan_date=date.today().isoformat(),
+                    title="复习薄弱点：牙周组织炎症",
+                    task_type="review_weakness",
+                    learning_target="牙周组织炎症",
+                )
+                self.assertEqual(item["task_type"], "review_weakness")
+                self.assertEqual(item["learning_target"], "牙周组织炎症")
+            finally:
+                memory._conn.close()
 
 
 class ListOpenStudyPlanItemsTests(unittest.TestCase):

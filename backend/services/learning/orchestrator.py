@@ -29,7 +29,7 @@ from .handout_cache import (
     save_handout_cache_pending,
     save_handout_cache_ready,
 )
-from .lecture_script import build_and_save_lecture_script
+from .lecture_script import build_and_save_lecture_script, build_and_save_tutor_lecture_script
 from .tutor_cache import (
     get_tutor_cache,
     save_tutor_cache_failed,
@@ -504,6 +504,46 @@ class LearningOrchestrator:
             force=force,
         )
 
+    def _ensure_tutor_step_audio(
+        self,
+        *,
+        session_id: str,
+        outline_node_id: str,
+        tutor_step: dict[str, Any],
+        handout_section: dict[str, Any] | None,
+        source: str,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Persist a script from Tutor teaching_text and enqueue audio."""
+        try:
+            lecture_script = build_and_save_tutor_lecture_script(
+                session_id=session_id,
+                outline_node_id=outline_node_id,
+                tutor_step=tutor_step,
+                title=str((handout_section or {}).get("title") or ""),
+                resource_root=self.resource_root,
+            )
+        except Exception as exc:  # noqa: BLE001 - audio must not block tutor
+            return {
+                "outline_node_id": outline_node_id,
+                "status": "failed",
+                "error": f"tutor_lecture_script_generation_raised: {exc}",
+            }
+        if lecture_script.get("status") != "ready":
+            return {
+                "outline_node_id": outline_node_id,
+                "status": lecture_script.get("status", "failed"),
+                "error": lecture_script.get("error"),
+            }
+        return self._schedule_audio_generation(
+            session_id=session_id,
+            outline_node_id=outline_node_id,
+            handout_section=handout_section or {"title": ""},
+            source=source,
+            lecture_script=lecture_script,
+            force=force,
+        )
+
     def _schedule_audio_generation(
         self,
         *,
@@ -602,14 +642,12 @@ class LearningOrchestrator:
         source: str,
         force_audio: bool = False,
     ) -> dict[str, Any]:
-        """Persist the script, then independently schedule Audio and PPT."""
-        audio = self._ensure_handout_section_audio(
-            session_id=session_id,
-            outline_node_id=outline_node_id,
-            handout_section=handout_section,
-            source=source,
-            force=force_audio,
-        )
+        """Schedule resources available before Tutor; audio waits for Tutor."""
+        audio = {
+            "started": False,
+            "status": "waiting_for_tutor_step",
+            "outline_node_id": outline_node_id,
+        }
         ppt = self._schedule_ppt_refresh(session_id, outline)
         return {"audio": audio, "ppt": ppt}
 
@@ -861,6 +899,7 @@ class LearningOrchestrator:
             self._start_handout_prefetch_background(session_id, outline)
         elif first_ready:
             self._refresh_slides_resource(session_id, outline)
+        audio_retry: list[dict[str, Any]] = []
         for node in nodes:
             node_id = str(node.get("id") or "")
             cached = get_handout_cache(
@@ -870,19 +909,34 @@ class LearningOrchestrator:
             )
             if self._is_ready_handout_cache(cached):
                 handout_section = cached.get("handout_section") or {}
-                if handout_section:
-                    self._ensure_handout_section_audio(
-                        session_id=session_id,
-                        outline_node_id=node_id,
-                        handout_section=handout_section,
-                        source="resources_retry",
-                        force=True,
+                tutor_cache = get_tutor_cache(
+                    session_id,
+                    node_id,
+                    resource_root=self.resource_root,
+                )
+                if handout_section and self._is_ready_tutor_cache(tutor_cache):
+                    audio_retry.append(
+                        self._ensure_tutor_step_audio(
+                            session_id=session_id,
+                            outline_node_id=node_id,
+                            tutor_step=tutor_cache.get("tutor_step") or {},
+                            handout_section=handout_section,
+                            source="resources_retry",
+                            force=True,
+                        )
                     )
+                elif handout_section:
+                    audio_retry.append({
+                        "outline_node_id": node_id,
+                        "started": False,
+                        "status": "waiting_for_tutor_step",
+                    })
         ppt_refresh = self._schedule_ppt_refresh(session_id, outline)
         return {
             "started": True,
             "first_section_ready": first_ready,
             "background_prefetch_started": len(nodes) > 1,
+            "audio_retry": audio_retry,
             "ppt_refresh": ppt_refresh,
             "resource_status": get_ppt_resource_status(
                 session_id=session_id,
@@ -1224,6 +1278,13 @@ class LearningOrchestrator:
                 handout_source="background_prefetch",
                 resource_root=self.resource_root,
             )
+            self._ensure_tutor_step_audio(
+                session_id=session_id,
+                outline_node_id=node_id,
+                tutor_step=step,
+                handout_section=handout_section,
+                source="background_prefetch",
+            )
         else:
             save_tutor_cache_failed(
                 session_id, node_id,
@@ -1332,9 +1393,10 @@ class LearningOrchestrator:
             _ho_section = _ho_cache.get("handout_section")
             if _ho_section and current_node_id:
                 self._last_handout_sections[current_node_id] = _ho_section
-                self._ensure_handout_section_audio(
+                step["section_audio_schedule"] = self._ensure_tutor_step_audio(
                     session_id=session_id,
                     outline_node_id=current_node_id,
+                    tutor_step=step,
                     handout_section=_ho_section,
                     source="tutor_cache_hit",
                 )
@@ -1427,7 +1489,11 @@ class LearningOrchestrator:
     # Next step
     # ------------------------------------------------------------------
 
-    def next_step(self, session_id: str) -> dict[str, Any]:
+    def next_step(
+        self,
+        session_id: str,
+        stream_callback: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
         """Return the Tutor step for the current outline node.
 
         Attempts the **LLM handout-section-driven path** first: generates a
@@ -1541,9 +1607,10 @@ class LearningOrchestrator:
                         _ho_section = _ho_cache.get("handout_section")
                         if _ho_section and current_node_id:
                             self._last_handout_sections[current_node_id] = _ho_section
-                            self._ensure_handout_section_audio(
+                            step["section_audio_schedule"] = self._ensure_tutor_step_audio(
                                 session_id=session_id,
                                 outline_node_id=current_node_id,
+                                tutor_step=step,
                                 handout_section=_ho_section,
                                 source="tutor_cache_hit",
                             )
@@ -1666,12 +1733,7 @@ class LearningOrchestrator:
                     # Cache hit — use cached handout section directly
                     hs = cache_record.get("handout_section") or {}
                     if hs and current_node_id:
-                        self._ensure_handout_section_audio(
-                            session_id=session_id,
-                            outline_node_id=current_node_id,
-                            handout_section=hs,
-                            source="next_step_handout_cache_hit",
-                        )
+                        self._last_handout_sections[current_node_id] = hs
                     handout_cache_hit = True
                     handout_generation_source = (
                         cache_record.get("trace", {}).get("source", "")
@@ -1852,6 +1914,7 @@ class LearningOrchestrator:
                                 "current_index": current_index + 1,
                                 "total": len(outline_nodes),
                             },
+                            stream_callback=stream_callback,
                         )
                     except Exception as exc:
                         step = {
@@ -1924,6 +1987,13 @@ class LearningOrchestrator:
                         step["tutor_cache_hit"] = tutor_cache_hit
                         step["tutor_cache_miss_sync_generation"] = tutor_cache_miss_sync_generation
                         step["tutor_generation_source"] = tutor_generation_source
+                        step["section_audio_schedule"] = self._ensure_tutor_step_audio(
+                            session_id=session_id,
+                            outline_node_id=current_node_id or "",
+                            tutor_step=step,
+                            handout_section=hs,
+                            source=tutor_generation_source or "tutor_step_generated",
+                        )
                         step["section_audio"] = self._read_section_audio(
                             session_id,
                             current_node_id,
@@ -2674,6 +2744,7 @@ class LearningOrchestrator:
         session_id: str,
         decision: dict[str, Any],
         user_input: dict[str, Any] | None = None,
+        stream_callback: Callable[[str], None] | None = None,
     ) -> dict[str, Any]:
         """Execute a policy decision by dispatching to the correct leaf executor.
 
@@ -2705,7 +2776,11 @@ class LearningOrchestrator:
 
         # 1. teach_current_node — Tutor
         if action == "teach_current_node":
-            step = self.next_step(session_id)
+            step = (
+                self.next_step(session_id, stream_callback=stream_callback)
+                if stream_callback is not None
+                else self.next_step(session_id)
+            )
             return {
                 "executed": True,
                 "decision": decision,
@@ -2765,7 +2840,10 @@ class LearningOrchestrator:
 
         # 4. continue_to_next_section — user explicitly clicks continue
         if action == "continue_to_next_section":
-            continue_result = self.continue_to_next_section(session_id)
+            continue_result = self.continue_to_next_section(
+                session_id,
+                stream_callback=stream_callback,
+            )
             return {
                 "executed": True,
                 "decision": decision,
@@ -2802,7 +2880,11 @@ class LearningOrchestrator:
     # Continue to next section
     # ------------------------------------------------------------------
 
-    def continue_to_next_section(self, session_id: str) -> dict[str, Any]:
+    def continue_to_next_section(
+        self,
+        session_id: str,
+        stream_callback: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
         """Advance to the next outline node, then generate its Tutor step.
 
         This is the backend counterpart of the user's "continue / next page"
@@ -2861,7 +2943,11 @@ class LearningOrchestrator:
             }
 
         self.memory.set_current_outline_node(session_id, next_id)
-        tutor_step = self.next_step(session_id)
+        tutor_step = (
+            self.next_step(session_id, stream_callback=stream_callback)
+            if stream_callback is not None
+            else self.next_step(session_id)
+        )
         generation_ready = tutor_step.get("content_status") == "llm_generated"
         if not generation_ready:
             self.memory.set_current_outline_node(session_id, before)

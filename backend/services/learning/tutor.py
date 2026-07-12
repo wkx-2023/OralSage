@@ -21,7 +21,7 @@ import json
 import re as _re
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 # ============================================================================
@@ -76,6 +76,69 @@ _TUTOR_MODEL_NAMES = (
 )
 
 
+class _TeachingTextStreamParser:
+    """Extract an in-progress teaching_text JSON string from LLM deltas."""
+
+    def __init__(self, callback: Callable[[str], None]) -> None:
+        self._callback = callback
+        self._buffer = ""
+        self._emitted = ""
+
+    def feed(self, delta: str) -> None:
+        if not delta:
+            return
+        self._buffer += delta
+        match = _re.search(r'"teaching_text"\s*:\s*"', self._buffer)
+        if match is None:
+            return
+        decoded, _complete = _decode_partial_json_string(self._buffer[match.end():])
+        if not decoded.startswith(self._emitted):
+            return
+        addition = decoded[len(self._emitted):]
+        if addition:
+            self._emitted = decoded
+            self._callback(addition)
+
+
+def _decode_partial_json_string(value: str) -> tuple[str, bool]:
+    output: list[str] = []
+    escapes = {
+        '"': '"',
+        "\\": "\\",
+        "/": "/",
+        "b": "\b",
+        "f": "\f",
+        "n": "\n",
+        "r": "\r",
+        "t": "\t",
+    }
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char == '"':
+            return "".join(output), True
+        if char != "\\":
+            output.append(char)
+            index += 1
+            continue
+        if index + 1 >= len(value):
+            break
+        escape = value[index + 1]
+        if escape in escapes:
+            output.append(escapes[escape])
+            index += 2
+            continue
+        if escape == "u":
+            codepoint = value[index + 2:index + 6]
+            if len(codepoint) < 4 or not _re.fullmatch(r"[0-9a-fA-F]{4}", codepoint):
+                break
+            output.append(chr(int(codepoint, 16)))
+            index += 6
+            continue
+        break
+    return "".join(output), False
+
+
 # ============================================================================
 # Tutor step — LLM-powered
 # ============================================================================
@@ -90,6 +153,7 @@ def build_tutor_step_llm(
     next_node_title: str | None = None,
     user_mastery_summary: dict[str, Any] | None = None,
     section_position: dict[str, Any] | None = None,
+    stream_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Generate a tutor step using LLM, driven by a handout section.
 
@@ -191,6 +255,7 @@ def build_tutor_step_llm(
 
     # --- Call LLM ---
     try:
+        parser = _TeachingTextStreamParser(stream_callback) if stream_callback else None
         raw = chat_completion(
             [
                 {"role": "system", "content": system_prompt},
@@ -202,6 +267,7 @@ def build_tutor_step_llm(
             base_url_names=_TUTOR_BASE_URL_NAMES,
             model_names=_TUTOR_MODEL_NAMES,
             response_format={"type": "json_object"},
+            stream_callback=parser.feed if parser else None,
         )
     except Exception as exc:
         return _failed_tutor_step(node_id, f"llm_call_failed: {str(exc)[:200]}")
@@ -398,6 +464,7 @@ def build_tutor_step(
     next_node_title: str | None = None,
     user_mastery_summary: dict[str, Any] | None = None,
     section_position: dict[str, Any] | None = None,
+    stream_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Produce one round of teaching for the current outline node.
 
@@ -425,6 +492,7 @@ def build_tutor_step(
                 next_node_title=next_node_title,
                 user_mastery_summary=user_mastery_summary,
                 section_position=section_position,
+                stream_callback=stream_callback,
             )
             if result.get("content_status") != "failed":
                 return result

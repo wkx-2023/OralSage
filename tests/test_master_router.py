@@ -98,6 +98,26 @@ class TestValidateRoute:
         result = _validate_route({"intent": "learning"})
         assert result is not None
         assert result["reason"] == "无法提供具体理由。"
+        assert result["plan_item_requested"] is False
+
+    def test_explicit_plan_item_request_is_preserved(self):
+        result = _validate_route(
+            {
+                "intent": "learning",
+                "plan_item_requested": True,
+                "reason": "用户明确要求完成已有计划",
+            }
+        )
+        assert result is not None
+        assert result["plan_item_requested"] is True
+
+    def test_plan_item_request_must_be_boolean_and_learning_intent(self):
+        assert _validate_route(
+            {"intent": "learning", "plan_item_requested": "true"}
+        ) is None
+        assert _validate_route(
+            {"intent": "study_plan", "plan_item_requested": True}
+        ) is None
 
 
 class TestBuildClassifierMessages:
@@ -173,13 +193,19 @@ class TestCandidateWhitelist:
 # ---------------------------------------------------------------------------
 
 
-def _make_classifier(intent: str, reason: str = "test reason"):
+def _make_classifier(
+    intent: str,
+    reason: str = "test reason",
+    *,
+    plan_item_requested: bool = False,
+):
     """Factory for an injectable classifier that always returns *intent*."""
 
     def _classify(message, history, context):
         return {
             "intent": intent,
             "target": INTENT_TO_TARGET.get(intent, "none"),
+            "plan_item_requested": plan_item_requested,
             "reason": reason,
             "source": "llm_router",
         }
@@ -214,6 +240,7 @@ class TestLearningIntent:
         call_kwargs = mock_orchestrator.start_lesson.call_args.kwargs
         assert call_kwargs["user_id"] == "demo"
         assert "口腔溃疡" in call_kwargs["topic"]
+        mock_orchestrator.memory.list_open_study_plan_items.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_learning_topic_beta(self, mock_orchestrator):
@@ -297,7 +324,11 @@ class TestLearningIntent:
         }
         router = MasterRouter(
             mock_orchestrator,
-            classifier=_make_classifier("learning", "用户想学习已有计划任务"),
+            classifier=_make_classifier(
+                "learning",
+                "用户想学习已有计划任务",
+                plan_item_requested=True,
+            ),
         )
         result = await router.route("学 Test Topic Alpha", "demo")
 
@@ -333,7 +364,11 @@ class TestLearningIntent:
 
         router = MasterRouter(
             mock_orchestrator,
-            classifier=_make_classifier("learning", "用户想学习"),
+            classifier=_make_classifier(
+                "learning",
+                "用户想完成已有学习计划",
+                plan_item_requested=True,
+            ),
             plan_matcher=_no_match,
         )
         result = await router.route("我想学点东西", "demo")
@@ -383,7 +418,11 @@ class TestLearningIntent:
 
         router = MasterRouter(
             mock_orchestrator,
-            classifier=_make_classifier("learning", "用户想学习"),
+            classifier=_make_classifier(
+                "learning",
+                "用户想完成已有学习计划",
+                plan_item_requested=True,
+            ),
             plan_matcher=_match,
         )
         result = await router.route("学 Test Topic Alpha", "demo")
@@ -411,7 +450,11 @@ class TestLearningIntent:
 
         router = MasterRouter(
             mock_orchestrator,
-            classifier=_make_classifier("learning", "用户想学习"),
+            classifier=_make_classifier(
+                "learning",
+                "用户想完成已有学习计划",
+                plan_item_requested=True,
+            ),
             plan_matcher=_hallucinate,
         )
         result = await router.route("学点东西", "demo")
@@ -441,7 +484,11 @@ class TestLearningIntent:
 
         router = MasterRouter(
             mock_orchestrator,
-            classifier=_make_classifier("learning", "用户想学习"),
+            classifier=_make_classifier(
+                "learning",
+                "用户想完成已有学习计划",
+                plan_item_requested=True,
+            ),
             plan_matcher=_crash,
         )
         result = await router.route("学点东西", "demo")
@@ -464,7 +511,11 @@ class TestLearningIntent:
         }
         router = MasterRouter(
             mock_orchestrator,
-            classifier=_make_classifier("learning", "用户想学习"),
+            classifier=_make_classifier(
+                "learning",
+                "用户想完成已有学习计划",
+                plan_item_requested=True,
+            ),
         )
         result = await router.route("我想学牙周病", "demo")
 
@@ -766,6 +817,121 @@ class TestExplicitPlanItem:
 # ---------------------------------------------------------------------------
 # Intent constants
 # ---------------------------------------------------------------------------
+
+
+class TestStructuredLearningTasks:
+    def test_free_learning_normalizes_conversational_topic(self, mock_orchestrator):
+        mock_orchestrator.start_lesson.return_value = {
+            "session": {"id": "sess-normalized"},
+            "outline": {"nodes": []},
+        }
+        router = MasterRouter(
+            mock_orchestrator,
+            classifier=_make_classifier("learning", "用户想学习"),
+        )
+
+        result = asyncio.run(router.route("我想学习我想学习口腔溃疡", "demo"))
+
+        assert result["ok"] is True
+        assert mock_orchestrator.start_lesson.call_args.kwargs["topic"] == "口腔溃疡"
+
+    def test_weakness_plan_item_uses_focused_learning_target(self, mock_orchestrator):
+        mock_orchestrator.memory.get_study_plan_item.return_value = {
+            "id": "pi-weakness",
+            "user_id": "demo",
+            "title": "复习薄弱点：宿主-微生物互作机制理解缺失",
+            "status": "open",
+            "task_type": "review_weakness",
+            "learning_target": "宿主-微生物互作机制理解缺失",
+            "linked_course_title": "我想学习口腔溃疡",
+        }
+        mock_orchestrator.start_lesson.return_value = {
+            "session": {"id": "sess-focused"},
+            "outline": {"nodes": []},
+        }
+        router = MasterRouter(mock_orchestrator)
+
+        result = asyncio.run(
+            router.route(
+                "",
+                "demo",
+                context={"plan_item_id": "pi-weakness"},
+            )
+        )
+
+        assert result["ok"] is True
+        assert result["route"]["task_type"] == "review_weakness"
+        assert mock_orchestrator.start_lesson.call_args.kwargs["topic"] == (
+            "口腔溃疡：宿主-微生物互作机制理解缺失"
+        )
+
+    def test_continue_task_resumes_linked_session(self, mock_orchestrator):
+        mock_orchestrator.memory.get_study_plan_item.return_value = {
+            "id": "pi-continue",
+            "user_id": "demo",
+            "title": "继续学习：口腔溃疡",
+            "status": "open",
+            "task_type": "continue_lesson",
+            "learning_target": "下一节",
+            "linked_course_id": "sess-existing",
+            "linked_course_title": "口腔溃疡",
+        }
+        mock_orchestrator.continue_to_next_section.return_value = {
+            "session": {"id": "sess-existing"},
+            "lesson_completed": False,
+        }
+        router = MasterRouter(mock_orchestrator)
+
+        result = asyncio.run(
+            router.route(
+                "",
+                "demo",
+                context={"plan_item_id": "pi-continue"},
+            )
+        )
+
+        assert result["ok"] is True
+        mock_orchestrator.continue_to_next_section.assert_called_once()
+        mock_orchestrator.start_lesson.assert_not_called()
+        assert result["route"]["source"] == "explicit_plan_item"
+
+    def test_recommendation_id_is_resolved_server_side(self, mock_orchestrator):
+        def _recommend(_memory, *, user_id, plan_date, max_items=4):
+            return {
+                "plan_date": plan_date,
+                "recommendations": [
+                    {
+                        "recommendation_id": "weakness:host-microbe",
+                        "title": "复习薄弱点：宿主-微生物互作机制理解缺失",
+                        "task_type": "review_weakness",
+                        "learning_target": "宿主-微生物互作机制理解缺失",
+                        "linked_course_title": "口腔溃疡",
+                    }
+                ],
+            }
+
+        mock_orchestrator.start_lesson.return_value = {
+            "session": {"id": "sess-recommendation"},
+            "outline": {"nodes": []},
+        }
+        router = MasterRouter(mock_orchestrator, study_plan_service=_recommend)
+
+        result = asyncio.run(
+            router.route(
+                "",
+                "demo",
+                context={
+                    "recommendation_id": "weakness:host-microbe",
+                    "plan_date": date.today().isoformat(),
+                },
+            )
+        )
+
+        assert result["ok"] is True
+        assert result["route"]["source"] == "explicit_recommendation"
+        assert mock_orchestrator.start_lesson.call_args.kwargs["topic"] == (
+            "口腔溃疡：宿主-微生物互作机制理解缺失"
+        )
 
 
 class TestIntentConstants:

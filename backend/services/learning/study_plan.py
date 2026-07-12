@@ -110,6 +110,8 @@ def create_study_plan_item(
     notes: str | None = None,
     linked_course_id: str | None = None,
     linked_course_title: str | None = None,
+    task_type: str = "topic_learning",
+    learning_target: str | None = None,
     kg_node_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a plan item and record a lightweight plan event."""
@@ -120,6 +122,8 @@ def create_study_plan_item(
         notes=notes,
         linked_course_id=linked_course_id,
         linked_course_title=linked_course_title,
+        task_type=task_type,
+        learning_target=learning_target,
         kg_node_ids=kg_node_ids,
     )
     event_id = memory.record_event(
@@ -334,6 +338,8 @@ def _event_payload_from_item(item: dict[str, Any]) -> dict[str, Any]:
         "title": item.get("title"),
         "linked_course_id": item.get("linked_course_id"),
         "linked_course_title": item.get("linked_course_title"),
+        "task_type": item.get("task_type"),
+        "learning_target": item.get("learning_target"),
         "kg_node_ids": item.get("kg_node_ids", []),
         "deferred_count": item.get("deferred_count", 0),
     }
@@ -409,6 +415,21 @@ def _clean_text(value: Any, *, limit: int = 240) -> str:
     return text[:limit].rstrip() if len(text) > limit else text
 
 
+def _normalize_course_topic(value: Any) -> str:
+    """Remove conversational wrappers before persisting or reusing a topic."""
+    text = _clean_text(value, limit=180)
+    prefixes = ("我想要学习", "我想学习", "我想要了解", "我想了解", "请学习", "学习")
+    changed = True
+    while text and changed:
+        changed = False
+        for prefix in prefixes:
+            if text.startswith(prefix) and len(text) > len(prefix):
+                text = text[len(prefix):].lstrip(" ：:，,。")
+                changed = True
+                break
+    return text
+
+
 def _profile_daily_budget(profile: dict[str, Any]) -> int:
     raw = profile.get("daily_available_minutes", 45)
     try:
@@ -455,6 +476,8 @@ def _recommendation(
     estimated_minutes: int,
     linked_course_id: str | None = None,
     linked_course_title: str | None = None,
+    task_type: str | None = None,
+    learning_target: str | None = None,
     kg_node_ids: list[str] | None = None,
     notes: str | None = None,
 ) -> dict[str, Any]:
@@ -466,6 +489,8 @@ def _recommendation(
         "recommendation_id": recommendation_id,
         "title": clean_title,
         "category": category,
+        "task_type": _clean_text(task_type or category, limit=64),
+        "learning_target": _clean_text(learning_target, limit=180) or None,
         "reason": clean_reason,
         "priority": round(float(priority), 3),
         "estimated_minutes": max(5, min(int(estimated_minutes), 90)),
@@ -527,7 +552,7 @@ def _recommend_continue_lesson(active_session: dict[str, Any] | None) -> dict[st
     node = _find_outline_node(outline, current_node_id)
     if not current_node_id or not node:
         return None
-    topic = str(active_session.get("topic") or "当前课程").strip()
+    topic = _normalize_course_topic(active_session.get("topic")) or "当前课程"
     node_title = str(node.get("title") or current_node_id).strip()
     return _recommendation(
         recommendation_id=f"continue:{active_session['id']}:{current_node_id}",
@@ -538,6 +563,7 @@ def _recommend_continue_lesson(active_session: dict[str, Any] | None) -> dict[st
         estimated_minutes=int(node.get("estimated_minutes") or 18),
         linked_course_id=active_session.get("id"),
         linked_course_title=topic,
+        learning_target=node_title,
         kg_node_ids=node.get("kg_node_ids") or [],
     )
 
@@ -549,7 +575,7 @@ def _recommend_weakness_reviews(
     active_session: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
-    topic = active_session.get("topic") if active_session else None
+    topic = _normalize_course_topic(active_session.get("topic")) if active_session else None
 
     weakness_items = sorted(
         _slot_items(learner_memory, "weaknesses"),
@@ -571,6 +597,7 @@ def _recommend_weakness_reviews(
                 priority=0.92,
                 estimated_minutes=15,
                 linked_course_title=topic,
+                learning_target=label,
                 kg_node_ids=item.get("kg_node_ids") or [],
             )
         )
@@ -589,6 +616,7 @@ def _recommend_weakness_reviews(
                 priority=0.84,
                 estimated_minutes=15,
                 linked_course_title=topic,
+                learning_target=label,
             )
         )
     return results
@@ -628,7 +656,8 @@ def _recommend_low_mastery_reviews(
                     priority=0.78 - mastery_score * 0.15,
                     estimated_minutes=12,
                     linked_course_id=session.get("id"),
-                    linked_course_title=session.get("topic"),
+                    linked_course_title=_normalize_course_topic(session.get("topic")),
+                    learning_target=label,
                     kg_node_ids=[row.get("kg_node_id")] if row.get("kg_node_id") else [],
                 )
             )
@@ -667,6 +696,8 @@ def _recommend_catch_up_items(
                 estimated_minutes=12,
                 linked_course_id=item.get("linked_course_id"),
                 linked_course_title=item.get("linked_course_title"),
+                task_type=item.get("task_type") or "topic_learning",
+                learning_target=item.get("learning_target") or item.get("linked_course_title") or item.get("title"),
                 kg_node_ids=item.get("kg_node_ids") or [],
                 notes=item.get("notes") or "",
             )
@@ -690,7 +721,7 @@ def _recommend_practice_block(
         if wrong_count <= 0:
             continue
         total_wrong += wrong_count
-        focus_topic = str(session.get("topic") or "").strip()
+        focus_topic = _normalize_course_topic(session.get("topic"))
         break
     if total_wrong <= 0 and assessment_preference != "frequent":
         return None
@@ -704,6 +735,7 @@ def _recommend_practice_block(
         priority=0.7,
         estimated_minutes=15,
         linked_course_title=focus_topic or None,
+        learning_target=f"{focus_topic}错题回顾" if focus_topic else "当前主题错题回顾",
     )
 
 
@@ -713,7 +745,7 @@ def _fallback_recommendations(
     active_session: dict[str, Any] | None,
     daily_minutes: int,
 ) -> list[dict[str, Any]]:
-    topic = active_session.get("topic") if active_session else None
+    topic = _normalize_course_topic(active_session.get("topic")) if active_session else None
     goal = str(profile.get("goal") or "course_learning")
     planning_support_need = str(profile.get("planning_support_need") or "normal")
     return [
@@ -725,6 +757,7 @@ def _fallback_recommendations(
             priority=0.48,
             estimated_minutes=min(12, max(8, daily_minutes // 3)),
             linked_course_title=topic,
+            learning_target=f"{topic or '本周'}的关键知识点",
         ),
         _recommendation(
             recommendation_id="fallback:practice",
@@ -734,5 +767,6 @@ def _fallback_recommendations(
             priority=0.44,
             estimated_minutes=min(10, max(6, daily_minutes // 5)),
             linked_course_title=topic,
+            learning_target=f"{topic}自测回顾" if topic else "基础知识自测回顾",
         ),
     ]

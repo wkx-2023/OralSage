@@ -26,6 +26,7 @@ from backend.services.learning.handout_cache import (
     save_handout_cache_pending,
     save_handout_cache_ready,
 )
+from backend.services.learning.lecture_script import build_tutor_lecture_script
 from backend.services.learning.orchestrator import _resolve_qa_outline_node
 from backend.services.learning.orchestrator import LearningOrchestrator
 from backend.services.learning.memory import LearningMemory
@@ -324,6 +325,32 @@ class HandoutEvidenceTests(unittest.TestCase):
         self.assertEqual(ledger["cited_kg_edge_ids"], edge_ids)
 
 
+class LectureScriptTests(unittest.TestCase):
+    def test_tutor_lecture_script_uses_teaching_text_as_source(self) -> None:
+        script = build_tutor_lecture_script(
+            session_id="session",
+            outline_node_id="node_1",
+            title="Section",
+            tutor_step={
+                "teaching_text": "Tutor paragraph one.\n\nTutor paragraph two.",
+            },
+        )
+
+        self.assertEqual(script["status"], "ready")
+        self.assertEqual(script["source"], "tutor_step.teaching_text")
+        self.assertEqual(script["source_tutor_hash"], script["source_handout_hash"])
+        self.assertEqual(
+            [slide["text"] for slide in script["slides"]],
+            ["Tutor paragraph one.", "Tutor paragraph two."],
+        )
+        self.assertTrue(
+            all(
+                slide["source_path"] == "tutor_step.teaching_text"
+                for slide in script["slides"]
+            )
+        )
+
+
 class OrchestrationStateTests(unittest.TestCase):
     def test_evidence_context_can_be_reactivated_after_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -461,42 +488,20 @@ class OrchestrationStateTests(unittest.TestCase):
             self.assertEqual(result["resource_json"]["slides"][0]["title"], "Definition")
             self.assertEqual(orchestrator._slides_resource_status(session_id)["status"], "ready")
 
-    def test_script_fans_out_audio_and_ppt_without_waiting_for_tts(self) -> None:
+    def test_handout_fan_out_waits_for_tutor_text_before_audio(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             orchestrator = LearningOrchestrator(memory=object(), resource_root=Path(temp))
-            tts_started = threading.Event()
-            release_tts = threading.Event()
             events: list[str] = []
-            script = {
-                "status": "ready",
-                "source_handout_hash": "hash-one",
-                "slides": [{"slide_id": "slide_001", "text": "Narration"}],
-            }
-
-            def blocked_audio(**_kwargs):
-                events.append("audio_started")
-                tts_started.set()
-                release_tts.wait(5)
-                events.append("audio_finished")
-                return {"status": "ready"}
 
             with (
                 patch(
                     "backend.services.learning.orchestrator.build_and_save_lecture_script",
-                    side_effect=lambda **_kwargs: events.append("script_saved") or script,
-                ),
-                patch(
-                    "backend.services.learning.orchestrator.ensure_handout_audio",
-                    side_effect=blocked_audio,
-                ),
+                ) as build_script,
+                patch("backend.services.learning.orchestrator.ensure_handout_audio") as synthesize,
                 patch.object(
                     orchestrator,
                     "_schedule_ppt_refresh",
                     side_effect=lambda *_args: events.append("ppt_scheduled") or {"started": True},
-                ),
-                patch(
-                    "backend.services.learning.orchestrator.get_section_audio",
-                    return_value=None,
                 ),
             ):
                 started_at = time.perf_counter()
@@ -508,16 +513,12 @@ class OrchestrationStateTests(unittest.TestCase):
                     source="test",
                 )
                 elapsed = time.perf_counter() - started_at
-                self.assertTrue(tts_started.wait(1))
                 self.assertLess(elapsed, 0.5)
-                self.assertEqual(events[0], "script_saved")
                 self.assertIn("ppt_scheduled", events)
-                self.assertNotIn("audio_finished", events)
-                self.assertTrue(result["audio"]["started"])
-                thread = orchestrator._audio_generation_threads[("session", "node_1")]
-                release_tts.set()
-                thread.join(2)
-                self.assertFalse(thread.is_alive())
+                self.assertFalse(result["audio"]["started"])
+                self.assertEqual(result["audio"]["status"], "waiting_for_tutor_step")
+                build_script.assert_not_called()
+                synthesize.assert_not_called()
 
     def test_failed_audio_is_not_retried_on_cache_hit(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

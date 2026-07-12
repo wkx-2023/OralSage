@@ -101,7 +101,12 @@ def _expected_node_ids(outline: dict[str, Any]) -> list[str]:
     ]
 
 
-def _build_cover_plan(deck_title: str) -> dict[str, Any]:
+def _build_cover_plan(
+    deck_title: str,
+    *,
+    subtitle_line1: str = "从关键概念到临床决策",
+    subtitle_line2: str = "循证、结构化、可迁移",
+) -> dict[str, Any]:
     title = str(deck_title or "OralSage 学习课程").strip()
     return {
         "source_slide_id": "cover",
@@ -111,8 +116,8 @@ def _build_cover_plan(deck_title: str) -> dict[str, Any]:
         "slots": {
             "eyebrow": "ORALSAGE / 循证学习",
             "title": title,
-            "subtitle_line1": "结构化讲义",
-            "subtitle_line2": "Pin & Paper 课程课件",
+            "subtitle_line1": subtitle_line1,
+            "subtitle_line2": subtitle_line2,
             "presenter": "OralSage",
             "presenter_role": "智能口腔医学学习助手",
             "date_label": datetime.now().strftime("%Y.%m.%d"),
@@ -120,6 +125,182 @@ def _build_cover_plan(deck_title: str) -> dict[str, Any]:
         },
         "content_warnings": [],
     }
+
+
+def _fallback_cover_title(deck_title: str, outline: dict[str, Any]) -> str:
+    value = str(deck_title or outline.get("title") or "").strip()
+    previous = None
+    while value and value != previous:
+        previous = value
+        value = re.sub(
+            r"^(?:请(?:帮我)?|我想|我要|希望)?(?:系统地?|全面地?)?(?:学习|了解|掌握|讲解)",
+            "",
+            value,
+        ).strip(" ：:，,。")
+    value = re.sub(
+        r"(?:的)?(?:系统学习路径|系统学习|学习路径|课程讲义|学习课程)$",
+        "",
+        value,
+    ).strip(" ：:，,。")
+    if not value:
+        value = str(outline.get("title") or "口腔医学专题").strip()
+    return f"{value}：核心机制与临床决策"
+
+
+def _parse_cover_copy(raw: str) -> dict[str, str]:
+    value = str(raw or "").strip()
+    value = re.sub(r"^```(?:json)?\s*", "", value, flags=re.I)
+    value = re.sub(r"\s*```$", "", value)
+    parsed = json.loads(value)
+    if not isinstance(parsed, dict):
+        raise ValueError("cover copy must be a JSON object")
+    return {
+        "title": str(parsed.get("title") or "").strip(),
+        "subtitle_line1": str(parsed.get("subtitle_line1") or "").strip(),
+        "subtitle_line2": str(parsed.get("subtitle_line2") or "").strip(),
+    }
+
+
+def _valid_cover_title(title: str, source_title: str) -> bool:
+    compact = "".join(str(title or "").split())
+    source = "".join(str(source_title or "").split())
+    return bool(
+        6 <= len(compact) <= 32
+        and compact != source
+        and "学习路径" not in compact
+        and not any(marker in compact for marker in ("我想", "我要", "请帮我"))
+    )
+
+
+def _build_cover_copy(
+    *,
+    deck_title: str,
+    outline: dict[str, Any],
+    cache_path: Path,
+    llm_client: Callable[[str], str] | None,
+) -> tuple[dict[str, str], list[str], int]:
+    source = {
+        "deck_title": deck_title,
+        "outline_title": outline.get("title"),
+        "section_titles": [
+            str(node.get("title") or "")
+            for node in outline.get("nodes", [])
+            if isinstance(node, dict)
+        ],
+    }
+    source_hash = _source_hash(source)
+    cached = _read_json(cache_path, {"status": "missing"})
+    cached_copy = cached.get("copy")
+    if (
+        cached.get("status") == "ready"
+        and cached.get("source_hash") == source_hash
+        and isinstance(cached_copy, dict)
+        and _valid_cover_title(str(cached_copy.get("title") or ""), deck_title)
+    ):
+        return {
+            "title": str(cached_copy.get("title") or ""),
+            "subtitle_line1": str(cached_copy.get("subtitle_line1") or "从关键概念到临床决策"),
+            "subtitle_line2": str(cached_copy.get("subtitle_line2") or "循证、结构化、可迁移"),
+        }, [], 0
+
+    fallback = {
+        "title": _fallback_cover_title(deck_title, outline),
+        "subtitle_line1": "从关键概念到临床决策",
+        "subtitle_line2": "循证、结构化、可迁移",
+    }
+    warnings: list[str] = []
+    calls = 0
+    client = llm_client or create_real_llm_client()
+    copy = fallback
+    mode = "fallback"
+    if client is not None:
+        prompt = (
+            "为口腔医学课程 PPT 重写封面文案。不要复述用户请求，不要出现‘我想学习’、"
+            "‘我要学习’或‘系统学习路径’。标题应体现医学主题与课程主线，10-22 个中文字符；"
+            "两行副标题各 8-16 个中文字符，具体、克制，不使用营销措辞。严格返回 JSON："
+            '{"title":"...","subtitle_line1":"...","subtitle_line2":"..."}。\n\n'
+            f"课程上下文：{json.dumps(source, ensure_ascii=False)}"
+        )
+        try:
+            candidate = _parse_cover_copy(client(prompt))
+            calls = 1
+            if _valid_cover_title(candidate["title"], deck_title):
+                copy = {
+                    "title": candidate["title"],
+                    "subtitle_line1": candidate["subtitle_line1"] or fallback["subtitle_line1"],
+                    "subtitle_line2": candidate["subtitle_line2"] or fallback["subtitle_line2"],
+                }
+                mode = "llm_rewritten"
+            else:
+                warnings.append("cover_title_rewrite_invalid")
+        except Exception as exc:
+            warnings.append(f"cover_title_rewrite_failed: {exc}")
+    else:
+        warnings.append("cover_title_llm_not_configured")
+
+    _write_json_atomic(cache_path, {
+        "schema_version": "learning.pin_and_paper_cover_copy.v1",
+        "status": "ready",
+        "source_hash": source_hash,
+        "source": source,
+        "copy": copy,
+        "mode": mode,
+        "warnings": warnings,
+        "updated_at": _now(),
+    })
+    return copy, warnings, calls
+
+
+def _upgrade_legacy_cover_plan(
+    *,
+    session_dir: Path,
+    plan_path: Path,
+    plan: dict[str, Any],
+) -> dict[str, Any]:
+    if plan.get("cover_title"):
+        return plan
+    deck_path = session_dir / "slides" / "slides.v1.json"
+    if not deck_path.exists():
+        return plan
+    deck = _read_json(deck_path, {"status": "missing", "slides": []})
+    deck_title = str(deck.get("deck_title") or plan.get("deck_title") or "")
+    outline = {
+        "title": deck_title,
+        "nodes": [
+            {
+                "id": slide.get("outline_node_id"),
+                "title": slide.get("title"),
+            }
+            for slide in (deck.get("slides") or [])
+            if isinstance(slide, dict) and slide.get("outline_node_id")
+        ],
+    }
+    cover_copy, warnings, calls = _build_cover_copy(
+        deck_title=deck_title,
+        outline=outline,
+        cache_path=session_dir / "slides" / "pin_and_paper" / "cover.json",
+        llm_client=None,
+    )
+    slides = list(plan.get("slides") or [])
+    cover = _build_cover_plan(
+        cover_copy["title"],
+        subtitle_line1=cover_copy["subtitle_line1"],
+        subtitle_line2=cover_copy["subtitle_line2"],
+    )
+    if slides and isinstance(slides[0], dict) and slides[0].get("page_type") == "cover":
+        slides[0] = cover
+    else:
+        slides.insert(0, cover)
+    upgraded = {
+        **plan,
+        "cover_title": cover_copy["title"],
+        "slides": slides,
+        "warnings": list(dict.fromkeys([*(plan.get("warnings") or []), *warnings])),
+        "_llm_calls": int(plan.get("_llm_calls", 0) or 0) + calls,
+        "updated_at": _now(),
+    }
+    _write_json_atomic(plan_path, upgraded)
+    return upgraded
 
 
 def _valid_slide_plan(plan: Any, valid_page_types: set[str]) -> bool:
@@ -159,6 +340,13 @@ def build_and_save_pin_and_paper_plan(
         if item.get("type") and item.get("type") != "cover"
     }
 
+    cover_copy, cover_warnings, cover_llm_calls = _build_cover_copy(
+        deck_title=str(deck.get("deck_title") or ""),
+        outline=outline,
+        cache_path=plan_dir / "cover.json",
+        llm_client=llm_client,
+    )
+
     stale_slides: list[dict[str, Any]] = []
     source_hashes: dict[str, str] = {}
     for node_id, slide in slides_by_id.items():
@@ -172,8 +360,8 @@ def build_and_save_pin_and_paper_plan(
         ):
             stale_slides.append(slide)
 
-    planner_warnings: list[str] = []
-    llm_calls = 0
+    planner_warnings: list[str] = list(cover_warnings)
+    llm_calls = cover_llm_calls
     if stale_slides:
         client = llm_client or create_real_llm_client()
         if client is None:
@@ -215,7 +403,7 @@ def build_and_save_pin_and_paper_plan(
             except Exception as exc:
                 planned = {"slides": [], "warnings": [f"planner_raised: {exc}"], "_llm_calls": 0}
             planner_warnings.extend(str(item) for item in planned.get("warnings", []))
-            llm_calls = int(planned.get("_llm_calls", 0) or 0)
+            llm_calls += int(planned.get("_llm_calls", 0) or 0)
             planned_by_id = {
                 str(item.get("source_outline_node_id")): item
                 for item in planned.get("slides", [])
@@ -279,6 +467,7 @@ def build_and_save_pin_and_paper_plan(
         "schema_version": "pin_and_paper_slide_plan.v1",
         "template_slug": "pin-and-paper",
         "deck_title": deck.get("deck_title", ""),
+        "cover_title": cover_copy["title"],
         "session_id": session_id,
         "status": status,
         "expected_node_ids": expected_ids,
@@ -286,7 +475,14 @@ def build_and_save_pin_and_paper_plan(
         "missing_node_ids": missing_ids,
         "failed_node_ids": failed_ids,
         "content_slide_count": len(content_plans),
-        "slides": [_build_cover_plan(str(deck.get("deck_title") or "")), *content_plans],
+        "slides": [
+            _build_cover_plan(
+                cover_copy["title"],
+                subtitle_line1=cover_copy["subtitle_line1"],
+                subtitle_line2=cover_copy["subtitle_line2"],
+            ),
+            *content_plans,
+        ],
         "warnings": list(dict.fromkeys([*deck.get("warnings", []), *planner_warnings])),
         "_llm_calls": llm_calls,
         "updated_at": _now(),
@@ -454,6 +650,141 @@ def _render_plan_to_pngs(
         thread.join(timeout=5)
 
 
+def _persist_rendered_previews(
+    *,
+    session_dir: Path,
+    plan: dict[str, Any],
+    images: list[Path],
+) -> dict[str, Any]:
+    """Persist the exact renderer output used by the PPTX exporter."""
+    plan_hash = _source_hash(plan)
+    preview_root = session_dir / "slides" / "rendered_ppt"
+    version_dir = preview_root / plan_hash
+    version_dir.mkdir(parents=True, exist_ok=True)
+
+    slide_rows: list[dict[str, Any]] = []
+    plan_slides = plan.get("slides", []) if isinstance(plan.get("slides"), list) else []
+    for index, (image, slide_plan) in enumerate(zip(images, plan_slides), start=1):
+        source_plan = slide_plan if isinstance(slide_plan, dict) else {}
+        filename = f"slide_{index:03d}.png"
+        destination = version_dir / filename
+        shutil.copy2(image, destination)
+        slots = source_plan.get("slots", {})
+        title = str(
+            slots.get("headline")
+            or slots.get("title")
+            or source_plan.get("page_type")
+            or f"第 {index} 页"
+        ).strip()
+        slide_rows.append({
+            "index": index,
+            "page_type": str(source_plan.get("page_type") or ""),
+            "source_slide_id": str(source_plan.get("source_slide_id") or ""),
+            "source_outline_node_id": str(
+                source_plan.get("source_outline_node_id") or ""
+            ),
+            "title": title,
+            "plan_hash": plan_hash,
+            "filename": filename,
+            "relative_path": f"{plan_hash}/{filename}",
+            "width": 1920,
+            "height": 1080,
+        })
+
+    manifest = {
+        "schema_version": "learning.ppt_preview.v1",
+        "session_id": str(plan.get("session_id") or session_dir.name),
+        "template_slug": str(plan.get("template_slug") or "pin-and-paper"),
+        "deck_title": str(plan.get("deck_title") or ""),
+        "plan_hash": plan_hash,
+        "status": "ready" if slide_rows else "failed",
+        "slide_count": len(slide_rows),
+        "slides": slide_rows,
+        "updated_at": _now(),
+    }
+    _write_json_atomic(preview_root / "manifest.json", manifest)
+    return manifest
+
+
+def ensure_pin_and_paper_previews(
+    *,
+    session_id: str,
+    resource_root: str | Path | None = None,
+    browser_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Return cached real PPT pages, rendering the canonical plan if needed."""
+    session_dir = _root(resource_root) / session_id
+    plan_path = session_dir / "slides" / "pin_and_paper_plan.v1.json"
+    plan = _read_json(plan_path, {"status": "missing", "slides": []})
+    plan = _upgrade_legacy_cover_plan(
+        session_dir=session_dir,
+        plan_path=plan_path,
+        plan=plan,
+    )
+    slides = plan.get("slides", []) if isinstance(plan.get("slides"), list) else []
+    if not plan_path.exists() or not slides:
+        return {
+            "schema_version": "learning.ppt_preview.v1",
+            "session_id": session_id,
+            "status": "pending",
+            "slide_count": 0,
+            "slides": [],
+            "error": "pin_and_paper_plan_not_ready",
+        }
+
+    plan_hash = _source_hash(plan)
+    preview_root = session_dir / "slides" / "rendered_ppt"
+    manifest_path = preview_root / "manifest.json"
+
+    def current_manifest() -> dict[str, Any] | None:
+        manifest = _read_json(manifest_path, {"status": "missing"})
+        rows = manifest.get("slides", [])
+        if (
+            manifest.get("status") != "ready"
+            or manifest.get("plan_hash") != plan_hash
+            or len(rows) != len(slides)
+        ):
+            return None
+        for row in rows:
+            candidate = preview_root / str(row.get("relative_path") or "")
+            if not candidate.is_file():
+                return None
+        return manifest
+
+    cached = current_manifest()
+    if cached is not None:
+        return cached
+
+    with _session_lock(session_id):
+        cached = current_manifest()
+        if cached is not None:
+            return cached
+        render_dir = Path(tempfile.mkdtemp(prefix="ppt-preview-", dir=str(session_dir)))
+        try:
+            images = _render_plan_to_pngs(
+                plan_path=plan_path,
+                output_dir=render_dir,
+                slide_count=len(slides),
+                browser_path=browser_path,
+            )
+            return _persist_rendered_previews(
+                session_dir=session_dir,
+                plan=plan,
+                images=images,
+            )
+        except Exception as exc:
+            return {
+                "schema_version": "learning.ppt_preview.v1",
+                "session_id": session_id,
+                "status": "failed",
+                "slide_count": 0,
+                "slides": [],
+                "error": f"pin_and_paper_preview_raised: {exc}",
+            }
+        finally:
+            shutil.rmtree(render_dir, ignore_errors=True)
+
+
 def _speaker_notes(
     session_id: str,
     outline_node_id: str,
@@ -574,6 +905,11 @@ def export_pin_and_paper_pptx(
             slide_count=len(plan.get("slides", [])),
             browser_path=browser_path,
         )
+        preview_manifest = _persist_rendered_previews(
+            session_dir=session_dir,
+            plan=plan,
+            images=images,
+        )
         export_slides: list[dict[str, Any]] = []
         expected_notes = 0
         for image_path, slide_plan in zip(images, plan.get("slides", [])):
@@ -617,6 +953,10 @@ def export_pin_and_paper_pptx(
             "pptx_path": str(output_path) if ok else "",
             "error": None if ok else (export_error or validation.get("error")),
             "validation": validation,
+            "preview_manifest_path": str(
+                session_dir / "slides" / "rendered_ppt" / "manifest.json"
+            ),
+            "preview_slide_count": preview_manifest.get("slide_count", 0),
             "updated_at": _now(),
         }
     except Exception as exc:
