@@ -72,6 +72,7 @@ from .services.record_workflow import correct_asr, extract_fields, generate_reco
 from .services.stats.dashboard import run_stats_filter, stats_options
 from .services.stats import run_stats_query
 from .services.learning.orchestrator import LearningOrchestrator, decide_next_action
+from .services.router.master_router import MasterRouter
 from .services.learning.audio import get_audio_manifest
 from .services.learning.llm_policy import decide_next_action_with_llm
 from .services.learning.learner_assessment import (
@@ -105,6 +106,7 @@ from .services.weixin_plan_bot import build_daily_plan_text, handle_weixin_plan_
 
 
 learning_orchestrator = LearningOrchestrator()
+master_router = MasterRouter(learning_orchestrator)
 weixin_auth_store = WeixinAuthStore()
 
 app = FastAPI(title="OralPath API Interfaces", version="0.1.0")
@@ -2107,14 +2109,24 @@ async def learning_answer_stream(req: LearningSubmitAnswerRequest) -> StreamingR
 
 @app.post("/api/router/chat")
 async def router_chat(req: RouterChatRequest) -> JSONResponse:
-    result = _learning_router_stub(req.model_dump())
+    result = await master_router.route(
+        message=req.message,
+        user_id=req.context.get("user_id", "demo"),
+        history=req.history,
+        context=req.context,
+    )
     return JSONResponse(result)
 
 
 @app.post("/api/agents/{agent_name}/invoke", response_model=GenericAgentResponse)
 async def invoke_agent(agent_name: str, req: GenericAgentRequest, response: Response) -> GenericAgentResponse:
     if agent_name in {"oral_master_router_agent", "master_router", "oral_master"}:
-        result = _learning_router_stub(req.model_dump())
+        result = await master_router.route(
+            message=req.message or req.query or req.question or req.task or req.text or "",
+            user_id=req.context.get("user_id", "demo"),
+            history=[],
+            context=req.context,
+        )
         return GenericAgentResponse(agent=agent_name, ok=result.get("ok", True), result=result)
     if agent_name in {"oral_pathology_assistant", "pathology_qa", "oral_pathology"}:
         question = req.question or req.query or req.task or req.message or req.text or ""

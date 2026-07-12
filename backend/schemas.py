@@ -36,7 +36,7 @@ class RouterChatRequest(BaseModel):
     message: str = ""
     image_base64: str | None = None
     history: list[dict[str, Any]] = Field(default_factory=list)
-    context: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=lambda: {"user_id": "demo"})
 
 
 class TermsRequest(BaseModel):

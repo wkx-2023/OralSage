@@ -492,6 +492,32 @@ class LearningMemory:
         day = _normalize_plan_date(plan_date)
         return self.list_study_plan_items(user_id, day, day)
 
+    def list_open_study_plan_items(
+        self,
+        user_id: str,
+        *,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return all open study-plan items for *user_id*, oldest first.
+
+        Items are sorted by ``(plan_date ASC, sort_order ASC, created_at ASC)``
+        so the result is stable across calls.  Pass *limit* to cap the result
+        (e.g. for candidate selection in the router).
+        """
+        self.ensure_user(user_id)
+        query = """SELECT * FROM study_plan_items
+                   WHERE user_id = ? AND status = 'open'
+                   ORDER BY plan_date ASC, sort_order ASC, created_at ASC"""
+        params: list[Any] = [user_id]
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(max(1, int(limit)))
+        rows = self._conn.execute(query, params).fetchall()
+        return [
+            item for item in (self._study_plan_row_to_dict(row) for row in rows)
+            if item is not None
+        ]
+
     def get_study_plan_item(
         self,
         item_id: str,
