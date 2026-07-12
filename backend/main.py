@@ -29,7 +29,6 @@ from .schemas import (
     KnowledgeGraphNeighborhoodRequest,
     KnowledgeViewRequest,
     LearningContinueRequest,
-    LearningFinalExamSubmitRequest,
     LearnerAssessmentSubmitRequest,
     LearningExecuteRequest,
     LearningMemoryConsolidateRequest,
@@ -44,6 +43,8 @@ from .schemas import (
     LearningStartRequest,
     LearningStepRequest,
     LearningSubmitAnswerRequest,
+    StageExamGenerateRequest,
+    StageExamSubmitRequest,
     LiteratureRequest,
     LiteratureTranslateRequest,
     PathologyRequest,
@@ -71,6 +72,7 @@ from .services.record_workflow import correct_asr, extract_fields, generate_reco
 from .services.stats.dashboard import run_stats_filter, stats_options
 from .services.stats import run_stats_query
 from .services.learning.orchestrator import LearningOrchestrator, decide_next_action
+from .services.router.master_router import MasterRouter
 from .services.learning.audio import get_audio_manifest
 from .services.learning.llm_policy import decide_next_action_with_llm
 from .services.learning.learner_assessment import (
@@ -93,12 +95,18 @@ from .services.learning.study_plan import (
     recommend_study_plan,
     update_study_plan_item,
 )
+from .services.learning.stage_exam import (
+    generate_stage_exam,
+    public_stage_exam,
+    submit_stage_exam,
+)
 from .services.clawbridge_client import ClawBridgeClient, ClawBridgeError
 from .services.weixin_auth import WeixinAuthStore, session_cookie_name
 from .services.weixin_plan_bot import build_daily_plan_text, handle_weixin_plan_message
 
 
 learning_orchestrator = LearningOrchestrator()
+master_router = MasterRouter(learning_orchestrator)
 weixin_auth_store = WeixinAuthStore()
 
 app = FastAPI(title="OralPath API Interfaces", version="0.1.0")
@@ -221,7 +229,7 @@ def capabilities() -> dict[str, Any]:
             "learning_agent_mvp",
             "learning_study_plan",
             "learning_learner_assessment",
-            "learning_final_exam",
+            "learning_stage_exam",
         ],
         "modules": [
             "pathology_qa",
@@ -286,9 +294,8 @@ def capabilities() -> dict[str, Any]:
             "/api/learning/continue/stream",
             "/api/learning/answer",
             "/api/learning/answer/stream",
-            "/api/learning/session/{session_id}/final-exam",
-            "/api/learning/session/{session_id}/final-exam/rebuild",
-            "/api/learning/session/{session_id}/final-exam/submit",
+            "/api/learning/session/{session_id}/stage-exam",
+            "/api/learning/session/{session_id}/stage-exam/submit",
             "/api/router/chat",
             "/api/agents/{agent_name}/invoke",
             "/api/agents/{agent_name}/stream",
@@ -810,71 +817,6 @@ async def learning_session_audio_manifest(session_id: str) -> JSONResponse:
     )
 
 
-@app.get("/api/learning/session/{session_id}/final-exam")
-async def learning_session_final_exam(session_id: str) -> JSONResponse:
-    """Return the student-facing final exam generated at lesson completion."""
-    result = learning_orchestrator.get_final_exam(session_id)
-    if result.get("status") == "missing":
-        session = learning_orchestrator.memory.get_session(session_id)
-        if session.get("current_outline_node_id") is not None:
-            raise HTTPException(status_code=409, detail="Lesson is not complete")
-        result = learning_orchestrator.ensure_final_exam(session_id)
-    return JSONResponse({
-        "ok": result.get("status") in {"ready", "partial"},
-        "module": "learning",
-        "action": "final_exam",
-        "result": result,
-    })
-
-
-@app.post("/api/learning/session/{session_id}/final-exam/rebuild")
-async def learning_session_rebuild_final_exam(session_id: str) -> JSONResponse:
-    """Rebuild the final exam from current mastery and weakness signals."""
-    session = learning_orchestrator.memory.get_session(session_id)
-    if session.get("current_outline_node_id") is not None:
-        raise HTTPException(status_code=409, detail="Lesson is not complete")
-    result = learning_orchestrator.ensure_final_exam(session_id, force=True)
-    return JSONResponse({
-        "ok": result.get("status") in {"ready", "partial"},
-        "module": "learning",
-        "action": "rebuild_final_exam",
-        "result": result,
-    })
-
-
-@app.post("/api/learning/session/{session_id}/final-exam/submit")
-async def learning_session_submit_final_exam(
-    session_id: str,
-    req: LearningFinalExamSubmitRequest,
-) -> JSONResponse:
-    """Grade a completed final exam and persist the learning result."""
-    result = learning_orchestrator.submit_final_exam(
-        session_id,
-        [item.model_dump() for item in req.answers],
-    )
-    status = result.get("status")
-    status_code = 200
-    if status == "exam_not_found":
-        status_code = 404
-    elif status == "exam_not_ready":
-        status_code = 409
-    elif status == "invalid_submission":
-        status_code = 422
-    elif status == "exam_already_submitted":
-        status_code = 409
-    elif status == "memory_persistence_failed":
-        status_code = 500
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "ok": status == "graded",
-            "module": "learning",
-            "action": "submit_final_exam",
-            "result": result,
-        },
-    )
-
-
 def _learning_session_resource_dir(session_id: str) -> Path:
     resource_root = Path(learning_orchestrator.resource_root).resolve()
     session_dir = (resource_root / session_id).resolve()
@@ -964,6 +906,91 @@ async def learning_session_retry_resources(session_id: str) -> JSONResponse:
         "module": "learning",
         "action": "retry_resources",
         "result": result,
+    })
+
+
+def _stage_exam_evidence_map(session_id: str) -> dict[str, Any]:
+    learning_orchestrator._activate_evidence_context(session_id)
+    if learning_orchestrator._active_evidence_session_id != session_id:
+        return {}
+    return learning_orchestrator._last_outline_evidence_map or {}
+
+
+@app.get("/api/learning/session/{session_id}/stage-exam")
+async def learning_session_stage_exam(session_id: str) -> JSONResponse:
+    """Return an existing stage exam, or generate one for this session."""
+    try:
+        exam = generate_stage_exam(
+            learning_orchestrator.memory,
+            session_id,
+            resource_root=learning_orchestrator.resource_root,
+            outline_evidence_map=_stage_exam_evidence_map(session_id),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse({
+        "ok": True,
+        "module": "learning",
+        "action": "stage_exam",
+        "result": public_stage_exam(
+            exam,
+            include_answers=exam.get("status") == "submitted",
+        ),
+    })
+
+
+@app.post("/api/learning/session/{session_id}/stage-exam")
+async def learning_session_stage_exam_generate(
+    session_id: str,
+    req: StageExamGenerateRequest,
+) -> JSONResponse:
+    """Generate or rebuild the stage exam for this session."""
+    try:
+        exam = generate_stage_exam(
+            learning_orchestrator.memory,
+            session_id,
+            resource_root=learning_orchestrator.resource_root,
+            outline_evidence_map=_stage_exam_evidence_map(session_id),
+            force=req.force,
+            questions_per_section=req.questions_per_section,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse({
+        "ok": True,
+        "module": "learning",
+        "action": "stage_exam_generate",
+        "result": public_stage_exam(exam, include_answers=False),
+    })
+
+
+@app.post("/api/learning/session/{session_id}/stage-exam/submit")
+async def learning_session_stage_exam_submit(
+    session_id: str,
+    req: StageExamSubmitRequest,
+) -> JSONResponse:
+    """Submit and grade the session-level stage exam."""
+    try:
+        exam = submit_stage_exam(
+            learning_orchestrator.memory,
+            session_id,
+            [answer.model_dump() for answer in req.answers],
+            resource_root=learning_orchestrator.resource_root,
+            outline_evidence_map=_stage_exam_evidence_map(session_id),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse({
+        "ok": True,
+        "module": "learning",
+        "action": "stage_exam_submit",
+        "result": public_stage_exam(exam, include_answers=True),
     })
 
 
@@ -2085,14 +2112,24 @@ async def learning_answer_stream(req: LearningSubmitAnswerRequest) -> StreamingR
 
 @app.post("/api/router/chat")
 async def router_chat(req: RouterChatRequest) -> JSONResponse:
-    result = _learning_router_stub(req.model_dump())
+    result = await master_router.route(
+        message=req.message,
+        user_id=req.context.get("user_id", "demo"),
+        history=req.history,
+        context=req.context,
+    )
     return JSONResponse(result)
 
 
 @app.post("/api/agents/{agent_name}/invoke", response_model=GenericAgentResponse)
 async def invoke_agent(agent_name: str, req: GenericAgentRequest, response: Response) -> GenericAgentResponse:
     if agent_name in {"oral_master_router_agent", "master_router", "oral_master"}:
-        result = _learning_router_stub(req.model_dump())
+        result = await master_router.route(
+            message=req.message or req.query or req.question or req.task or req.text or "",
+            user_id=req.context.get("user_id", "demo"),
+            history=[],
+            context=req.context,
+        )
         return GenericAgentResponse(agent=agent_name, ok=result.get("ok", True), result=result)
     if agent_name in {"oral_pathology_assistant", "pathology_qa", "oral_pathology"}:
         question = req.question or req.query or req.task or req.message or req.text or ""

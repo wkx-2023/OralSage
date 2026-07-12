@@ -29,11 +29,6 @@ from .handout_cache import (
     save_handout_cache_pending,
     save_handout_cache_ready,
 )
-from .final_exam import (
-    build_and_save_final_exam,
-    get_final_exam as read_final_exam,
-    submit_final_exam as grade_and_save_final_exam_submission,
-)
 from .lecture_script import build_and_save_lecture_script
 from .tutor_cache import (
     get_tutor_cache,
@@ -55,6 +50,7 @@ from .resource_factory import (
     generate_slides_resource_from_session_cache,
 )
 from .resource_factory import generate_handout_section as _generate_handout_section
+from .stage_exam import generate_stage_exam, load_stage_exam, public_stage_exam
 from .tutor import build_tutor_step as _build_tutor_step
 from .tutor import build_tutor_signals
 from .user_model import merge_profile, update_profile_from_assessment, update_profile_from_qa
@@ -794,307 +790,32 @@ class LearningOrchestrator:
             ),
         }
 
-    def get_final_exam(self, session_id: str) -> dict[str, Any]:
-        """Read the student-facing final exam without exposing its answer key."""
-        return read_final_exam(session_id, resource_root=self.resource_root)
-
-    def ensure_final_exam(
+    def ensure_stage_exam_for_interaction(
         self,
         session_id: str,
         *,
         force: bool = False,
     ) -> dict[str, Any]:
-        """Build the personalized final exam after the lesson is complete."""
+        """Generate the lesson-completion stage exam for chat surfaces."""
         try:
-            outline_record = _require_outline(self.memory, session_id)
-            session = self.memory.get_session(session_id)
-            result = build_and_save_final_exam(
-                session_id=session_id,
-                user_id=str(session.get("user_id") or ""),
-                topic=str(session.get("topic") or ""),
-                outline=outline_record["outline"],
-                session_summary=self.memory.session_summary(session_id),
+            self._activate_evidence_context(session_id)
+            exam = generate_stage_exam(
+                self.memory,
+                session_id,
                 resource_root=self.resource_root,
+                outline_evidence_map=self._last_outline_evidence_map or {},
                 force=force,
             )
         except Exception as exc:
             return {
-                "schema_version": "learning.final_exam.v1",
+                "schema_version": "learning.stage_exam.v1",
                 "session_id": session_id,
                 "status": "failed",
-                "question_count": 0,
-                "error": f"final_exam_generation_raised: {exc}",
+                "questions": [],
+                "summary": {"question_count": 0, "section_count": 0},
+                "error": f"stage_exam_generation_raised: {exc}",
             }
-
-        if not result.get("cache_hit"):
-            try:
-                self.memory.record_event(
-                    session_id=session_id,
-                    user_id=str(session.get("user_id") or ""),
-                    event_type="final_exam_generated",
-                    outline_node_id=None,
-                    payload={
-                        "surface": "quiz",
-                        "exam_id": result.get("exam_id"),
-                        "status": result.get("status"),
-                        "question_count": result.get("question_count", 0),
-                        "target_question_count": result.get(
-                            "target_question_count", 0
-                        ),
-                        "weak_kg_node_ids": result.get("coverage", {}).get(
-                            "weak_kg_node_ids", []
-                        ),
-                        "resource_path": result.get("resource_path", ""),
-                        "error": result.get("error"),
-                    },
-                )
-            except Exception:
-                pass
-        return result
-
-    def submit_final_exam(
-        self,
-        session_id: str,
-        answers: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        """Grade a final-exam submission and persist its learning signals."""
-        try:
-            session = self.memory.get_session(session_id)
-        except Exception:
-            return {
-                "schema_version": "learning.final_exam_submission.v1",
-                "session_id": session_id,
-                "status": "exam_not_found",
-                "error": "session_not_found",
-            }
-        user_id = str(session.get("user_id") or "")
-
-        def _persist(submission: dict[str, Any]) -> dict[str, Any]:
-            return self._persist_final_exam_submission_memory(
-                session_id=session_id,
-                user_id=user_id,
-                submission=submission,
-            )
-
-        return grade_and_save_final_exam_submission(
-            session_id=session_id,
-            answers=answers,
-            resource_root=self.resource_root,
-            on_first_submit=_persist,
-        )
-
-    def _persist_final_exam_submission_memory(
-        self,
-        *,
-        session_id: str,
-        user_id: str,
-        submission: dict[str, Any],
-    ) -> dict[str, Any]:
-        question_results = [
-            result
-            for result in submission.get("question_results", []) or []
-            if isinstance(result, dict)
-        ]
-        exam_id = str(submission.get("exam_id") or "")
-        exam_revision = submission.get("exam_revision", 1)
-        answer_records_count = 0
-        mastery_updates: list[dict[str, Any]] = []
-        per_question_event_ids: list[str] = []
-
-        for result in question_results:
-            question_id = str(result.get("question_id") or "")
-            selected_option = str(result.get("selected_option") or "")
-            is_correct = bool(result.get("is_correct"))
-            is_unanswered = bool(result.get("is_unanswered"))
-            answer_status = (
-                "correct"
-                if is_correct
-                else "unanswered"
-                if is_unanswered
-                else "wrong"
-            )
-            mastery_delta = 0.12 if is_correct else -0.04 if is_unanswered else -0.08
-            kg_node_ids = self._final_exam_result_kg_node_ids(result)
-            outline_node_id = self._first_string(result.get("outline_node_ids"))
-            concept_name = (
-                self._first_string(result.get("knowledge_points"))
-                or str(result.get("stem") or question_id)[:80]
-                or "final_exam_question"
-            )
-            grading = {
-                "is_correct": is_correct,
-                "score": float(result.get("score", 0.0)),
-                "mastery_delta": mastery_delta,
-                "answer_status": answer_status,
-                "exam_id": exam_id,
-                "exam_revision": exam_revision,
-                "selected_option": selected_option,
-                "correct_answer": result.get("correct_answer", ""),
-                "explanation": result.get("explanation", ""),
-                "related_kg_node_ids": kg_node_ids,
-                "source": "final_exam",
-            }
-            self.memory.record_answer(
-                session_id=session_id,
-                user_id=user_id,
-                question_id=question_id,
-                outline_node_id=outline_node_id,
-                user_answer=selected_option,
-                grading=grading,
-            )
-            answer_records_count += 1
-
-            evidence = {
-                "source": "final_exam",
-                "exam_id": exam_id,
-                "exam_revision": exam_revision,
-                "question_id": question_id,
-                "outline_node_id": outline_node_id,
-                "user_answer": selected_option,
-                "correct_answer": result.get("correct_answer", ""),
-                "answer_status": answer_status,
-                "is_correct": is_correct,
-                "score": result.get("score", 0.0),
-                "mastery_delta": mastery_delta,
-            }
-            for kg_id in kg_node_ids:
-                mastery_updates.append(self.memory.upsert_mastery(
-                    user_id=user_id,
-                    session_id=session_id,
-                    concept_name=concept_name,
-                    mastery_delta=mastery_delta,
-                    kg_node_id=kg_id,
-                    evidence=evidence,
-                    confidence_delta=0.06,
-                ))
-
-            per_question_event_ids.append(self.memory.record_event(
-                session_id=session_id,
-                user_id=user_id,
-                event_type="final_exam_answer_submitted",
-                outline_node_id=outline_node_id,
-                payload={
-                    "surface": "quiz_final_exam",
-                    "exam_id": exam_id,
-                    "exam_revision": exam_revision,
-                    "question_id": question_id,
-                    "question_stem": result.get("stem", ""),
-                    "kg_node_ids": kg_node_ids,
-                    "user_answer": selected_option,
-                    "is_correct": is_correct,
-                    "is_unanswered": is_unanswered,
-                    "score": result.get("score", 0.0),
-                    "mastery_delta": mastery_delta,
-                    "related_kg_node_ids": [] if is_correct else kg_node_ids,
-                    "misconception_summary": (
-                        ""
-                        if is_correct
-                        else self._final_exam_misconception_text(result)
-                    ),
-                    "content_status": "graded",
-                },
-            ))
-
-        summary_event_id = self.memory.record_event(
-            session_id=session_id,
-            user_id=user_id,
-            event_type="final_exam_submitted",
-            outline_node_id=None,
-            payload={
-                "surface": "quiz_final_exam",
-                "exam_id": exam_id,
-                "exam_revision": exam_revision,
-                "score": submission.get("score", 0.0),
-                "question_count": submission.get("question_count", 0),
-                "correct_count": submission.get("correct_count", 0),
-                "wrong_count": submission.get("wrong_count", 0),
-                "unanswered_count": submission.get("unanswered_count", 0),
-                "source_event_ids": per_question_event_ids,
-            },
-        )
-
-        weakness_signals = []
-        for result in question_results:
-            if result.get("is_correct"):
-                continue
-            kg_node_ids = self._final_exam_result_kg_node_ids(result)
-            weakness_signals.append({
-                "slot": "weaknesses",
-                "aspect": "misconception",
-                "action": "reinforce",
-                "label": str(result.get("question_id") or "")[:80],
-                "content": self._final_exam_misconception_text(result),
-                "kg_node_ids": kg_node_ids,
-                "confidence": 0.75,
-                "severity_delta": 0.06 if result.get("is_unanswered") else 0.10,
-                "evidence_event_ids": [summary_event_id],
-                "reason": "final exam incorrect or unanswered question",
-            })
-
-        learner_memory_update = reduce_memory_signals(
-            self.memory,
-            user_id=user_id,
-            session_id=session_id,
-            event_id=summary_event_id,
-            surface="quiz_final_exam",
-            extraction={
-                "should_update": bool(weakness_signals),
-                "signals": weakness_signals,
-                "trace": {
-                    "mode": "deterministic_final_exam_submission",
-                    "uses_llm": False,
-                },
-            },
-            append_summary=True,
-        )
-        return {
-            "answer_records_count": answer_records_count,
-            "mastery_update_count": len(mastery_updates),
-            "event_ids": per_question_event_ids + [summary_event_id],
-            "learner_memory_applied_count": learner_memory_update.get(
-                "applied_count", 0
-            ),
-            "compact_profile_confidence": (
-                learner_memory_update.get("compact_profile") or {}
-            ).get("confidence"),
-        }
-
-    @staticmethod
-    def _first_string(value: Any) -> str:
-        if isinstance(value, list):
-            for item in value:
-                text = str(item or "").strip()
-                if text:
-                    return text
-            return ""
-        return str(value or "").strip()
-
-    @staticmethod
-    def _final_exam_result_kg_node_ids(result: dict[str, Any]) -> list[str]:
-        seen: set[str] = set()
-        output: list[str] = []
-        for key in ("kg_node_ids", "course_kg_node_ids"):
-            value = result.get(key, [])
-            values = value if isinstance(value, list) else [value]
-            for item in values:
-                text = str(item or "").strip()
-                if text and text not in seen:
-                    seen.add(text)
-                    output.append(text)
-        return output
-
-    @staticmethod
-    def _final_exam_misconception_text(result: dict[str, Any]) -> str:
-        status = "unanswered" if result.get("is_unanswered") else "incorrect"
-        stem = str(result.get("stem") or result.get("question_id") or "").strip()
-        explanation = str(result.get("explanation") or "").strip()
-        correct = str(result.get("correct_answer") or "").strip()
-        parts = [f"Final exam {status}: {stem[:120]}"]
-        if correct:
-            parts.append(f"Correct answer: {correct}")
-        if explanation:
-            parts.append(f"Explanation: {explanation[:160]}")
-        return "; ".join(parts)
+        return public_stage_exam(exam, include_answers=False)
 
     def rebuild_ppt_resources(self, session_id: str) -> dict[str, Any]:
         """Refresh formal slides and enqueue Pin & Paper/PPTX generation."""
@@ -2860,7 +2581,11 @@ class LearningOrchestrator:
             },
         )
 
-        final_exam = self.ensure_final_exam(session_id) if lesson_completed else None
+        stage_exam = (
+            self.ensure_stage_exam_for_interaction(session_id)
+            if lesson_completed
+            else None
+        )
 
         return {
             "assessment": assessment,
@@ -2871,7 +2596,7 @@ class LearningOrchestrator:
             "mastery_updates": mastery_updates,
             "learner_memory_update": learner_memory_update,
             "progress_memory_update": progress_memory_update,
-            "final_exam": final_exam,
+            "stage_exam": stage_exam,
         }
 
     # ------------------------------------------------------------------
@@ -2899,7 +2624,7 @@ class LearningOrchestrator:
             outline=outline_rec["outline"] if outline_rec else {},
             resource_root=self.resource_root,
         )
-        final_exam = self.get_final_exam(session_id)
+        stage_exam = load_stage_exam(session_id, resource_root=self.resource_root) or {}
 
         return {
             "session_id": session["id"],
@@ -2913,11 +2638,17 @@ class LearningOrchestrator:
             "answer_count": len(summary.get("answers", [])),
             "mastery_count": len(summary.get("mastery", [])),
             "resource_status": resource_status,
-            "final_exam_status": {
-                "status": final_exam.get("status", "missing"),
-                "question_count": final_exam.get("question_count", 0),
-                "resource_path": final_exam.get("resource_path", ""),
-                "error": final_exam.get("error"),
+            "stage_exam_status": {
+                "status": stage_exam.get("status", "missing"),
+                "question_count": (
+                    stage_exam.get("summary", {}).get("question_count", 0)
+                    if isinstance(stage_exam.get("summary"), dict)
+                    else len(stage_exam.get("questions", []) or [])
+                ),
+                "resource_path": str(
+                    Path(self.resource_root) / session_id / "stage_exam.json"
+                ),
+                "error": stage_exam.get("error"),
             },
         }
 
@@ -3118,7 +2849,7 @@ class LearningOrchestrator:
                     "lesson_completed": True,
                 },
             )
-            final_exam = self.ensure_final_exam(session_id)
+            stage_exam = self.ensure_stage_exam_for_interaction(session_id)
             return {
                 "current_outline_node_id_before": before,
                 "current_outline_node_id_after": None,
@@ -3126,7 +2857,7 @@ class LearningOrchestrator:
                 "lesson_completed": True,
                 "tutor_step": None,
                 "progress_memory_update": progress_memory_update,
-                "final_exam": final_exam,
+                "stage_exam": stage_exam,
             }
 
         self.memory.set_current_outline_node(session_id, next_id)

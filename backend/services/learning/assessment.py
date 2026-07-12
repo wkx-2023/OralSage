@@ -63,11 +63,11 @@ _ASSESSMENT_MODEL_NAMES = (
 # Patterns that extract the intended choice letter from common Chinese formats.
 _NORMALIZE_PATTERNS = [
     # "选B" / "答案是B" / "选 B" / "答案：B" / "选择B"
-    re.compile(r"(?:选|答案|选择)\s*(?:是|：|为)?\s*([A-Da-d])"),
+    re.compile(r"(?:选|答案|选择)\s*(?:是|：|为)?\s*([A-Ea-e])"),
     # Bare letter at start: "A. xxx" / "A、xxx" / "A xxx"
-    re.compile(r"^\s*([A-Da-d])\s*[.、\s]"),
+    re.compile(r"^\s*([A-Ea-e])\s*[.、\s]"),
     # Bare letter anywhere
-    re.compile(r"([A-Da-d])"),
+    re.compile(r"([A-Ea-e])"),
 ]
 
 
@@ -83,7 +83,7 @@ def normalize_answer(answer: str) -> str:
     Returns
     -------
     str
-        Uppercase single letter ``"A"`` … ``"D"``, or the original
+        Uppercase single letter ``"A"`` … ``"E"``, or the original
         stripped uppercase text if no pattern matches.
     """
     text = answer.strip()
@@ -123,7 +123,7 @@ def assess_answer(
     question:
         A question dict with at least ``id``, ``type``, ``answer``, ``stem``,
         ``options``.  For single_choice questions ``answer`` should be a
-        single letter (A/B/C/D).
+        single letter (A/B/C/D/E).
     user_answer:
         Raw user input.
     outline_node_id:
@@ -150,7 +150,7 @@ def assess_answer(
     node_id = outline_node_id or question.get("outline_node_id", "")
 
     normalized = normalize_answer(user_answer)
-    valid_choices = {"A", "B", "C", "D"}
+    valid_choices = {"A", "B", "C", "D", "E"}
 
     # ------------------------------------------------------------------
     # single_choice — Python deterministic scoring

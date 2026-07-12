@@ -615,6 +615,70 @@
   color: #9b4260;
 }
 
+.stage-exam-chat-result {
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.stage-exam-chat-result h2 {
+  margin: 0;
+  color: #423895;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.stage-exam-chat-meta {
+  margin: 0;
+  color: #716b9c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stage-exam-chat-list {
+  display: grid;
+  gap: 10px;
+}
+
+.stage-exam-chat-question {
+  border: 1px solid rgba(96, 82, 181, 0.14);
+  border-radius: 8px;
+  background: #f8f6ff;
+  padding: 10px;
+}
+
+.stage-exam-chat-title {
+  margin: 0;
+  color: #423895;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.stage-exam-chat-options {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.stage-exam-chat-option {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+  color: #45405f;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.stage-exam-chat-option input {
+  width: 14px;
+  height: 14px;
+  margin: 2px 0 0;
+  accent-color: #6258ad;
+}
+
 .source-list {
   display: grid;
 }

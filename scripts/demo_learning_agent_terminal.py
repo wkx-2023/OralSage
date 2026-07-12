@@ -234,21 +234,18 @@ def _print_assessment(result: dict[str, Any]) -> None:
             print(f"recommendation.reason: {recommendation.get('reason')}")
 
     if result.get("lesson_completed"):
-        print("\n课程知识点已讲完，已根据知识点和薄弱项生成综合试卷。")
-        _print_final_exam(result.get("final_exam"))
+        print("\n课程知识点已讲完，已生成阶段卷。")
+        _print_stage_exam(result.get("stage_exam"))
 
 
-def _print_final_exam(exam: dict[str, Any] | None) -> None:
-    _print_bar("Final Exam")
+def _print_stage_exam(exam: dict[str, Any] | None) -> None:
+    _print_bar("Stage Exam")
     if not exam:
         print("未返回试卷资源。")
         return
     print(f"status: {exam.get('status')}")
-    print(
-        f"questions: {exam.get('question_count', 0)}/"
-        f"{exam.get('target_question_count', 0)}"
-    )
-    print(f"resource_path: {exam.get('resource_path', '')}")
+    summary = exam.get("summary") or {}
+    print(f"questions: {summary.get('question_count', len(exam.get('questions') or []))}")
     if exam.get("error"):
         print(f"error: {exam.get('error')}")
     questions = exam.get("questions") or []
@@ -295,9 +292,9 @@ def _print_state(orchestrator: LearningOrchestrator, session_id: str) -> None:
     print(f"events: {state.get('event_count')}")
     print(f"answers: {state.get('answer_count')}")
     print(f"mastery: {state.get('mastery_count')}")
-    exam_status = state.get("final_exam_status", {})
+    exam_status = state.get("stage_exam_status", {})
     print(
-        "final_exam: "
+        "stage_exam: "
         f"{exam_status.get('status', 'missing')} "
         f"({exam_status.get('question_count', 0)} questions)"
     )
@@ -495,7 +492,7 @@ def main() -> None:
                 print(f"handout_generation_error: {result.get('handout_generation_error')}")
             if result.get("lesson_completed"):
                 print("课程已到末尾。")
-                _print_final_exam(result.get("final_exam"))
+                _print_stage_exam(result.get("stage_exam"))
                 current_step = None
                 current_questions = []
             else:

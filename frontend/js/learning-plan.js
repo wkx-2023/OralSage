@@ -96,6 +96,10 @@
     return Array.isArray(item?.kg_node_ids) ? item.kg_node_ids.join(', ') : '';
   }
 
+  function buildStartLearningUrl(itemId) {
+    return `/pages/master-chat.html?plan_item_id=${encodeURIComponent(itemId)}`;
+  }
+
   function hasActiveRecommendations() {
     return state.recommendationDate === state.selectedDate && state.recommendations.length > 0;
   }
@@ -494,6 +498,9 @@
         ${completed ? '<i data-lucide="check"></i>' : ''}
       </span>
     `;
+    const startLearningLink = !completed
+      ? `<a class="todo-tool start-learning-link" href="${buildStartLearningUrl(item.id)}" title="开始学习" aria-label="开始学习"><i data-lucide="play-circle"></i></a>`
+      : '';
     const tools = editable ? `
       <div class="todo-tools">
         <button class="todo-tool" type="button" data-action="edit" data-id="${escapeHtml(item.id)}" title="修改计划" aria-label="修改计划">
@@ -512,6 +519,7 @@
             <div class="todo-title">${escapeHtml(item.title)}</div>
             ${linkMeta ? `<div class="todo-meta">${escapeHtml(linkMeta)}</div>` : ''}
           </div>
+          ${startLearningLink}
           ${tools}
         </div>
         ${isEditing ? renderItemEditor(item) : ''}

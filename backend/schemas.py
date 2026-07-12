@@ -36,7 +36,7 @@ class RouterChatRequest(BaseModel):
     message: str = ""
     image_base64: str | None = None
     history: list[dict[str, Any]] = Field(default_factory=list)
-    context: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=lambda: {"user_id": "demo"})
 
 
 class TermsRequest(BaseModel):
@@ -169,13 +169,18 @@ class LearningSubmitAnswerRequest(BaseModel):
     use_llm_policy: bool = False
 
 
-class LearningFinalExamAnswer(BaseModel):
+class StageExamGenerateRequest(BaseModel):
+    force: bool = False
+    questions_per_section: int = 1
+
+
+class StageExamAnswer(BaseModel):
     question_id: str
-    selected_option: str = ""
+    selected_option: str
 
 
-class LearningFinalExamSubmitRequest(BaseModel):
-    answers: list[LearningFinalExamAnswer] = Field(default_factory=list)
+class StageExamSubmitRequest(BaseModel):
+    answers: list[StageExamAnswer] = Field(default_factory=list)
 
 
 class LearningProfileSliceRequest(BaseModel):

@@ -6,6 +6,8 @@
     messages: [],
     sessions: loadSessions(),
     activeSessionId: createId(),
+    backendSessionId: null,
+    userId: 'demo',
   };
 
   function createId() {
@@ -293,7 +295,7 @@
     return `
       <section class="literature-chat-result">
         <h2>文献检索结果</h2>
-        <p class="literature-chat-brief">已按“${escapeHtml(query)}”检索近 ${escapeHtml(String(months))} 个月文献，当前获得 ${escapeHtml(String(articles.length))} 篇。</p>
+        <p class="literature-chat-brief">已按"${escapeHtml(query)}"检索近 ${escapeHtml(String(months))} 个月文献，当前获得 ${escapeHtml(String(articles.length))} 篇。</p>
         <div class="literature-chat-search-meta">
           <span>关键词：${escapeHtml(keywords)}</span>
           <span>数据来源：${escapeHtml(sources)}</span>
@@ -303,6 +305,55 @@
         <p class="literature-chat-disclaimer">内容仅用于口腔医学学习与科研参考，不构成临床诊疗建议。</p>
       </section>
     `;
+  }
+
+  function renderStageExamHtml(exam) {
+    if (!exam || !Array.isArray(exam.questions) || exam.questions.length === 0) return '';
+    const summary = exam.summary || {};
+    const questionCount = summary.question_count || exam.questions.length;
+    const sectionCount = summary.section_count || 0;
+    const questions = exam.questions.map((question, index) => {
+      const options = Array.isArray(question.options) ? question.options : [];
+      const optionHtml = options.map((option) => (
+        '<label class="stage-exam-chat-option">' +
+          '<input type="radio" disabled>' +
+          '<span>' + escapeHtml(option) + '</span>' +
+        '</label>'
+      )).join('');
+      return (
+        '<article class="stage-exam-chat-question">' +
+          '<p class="stage-exam-chat-title">' + (index + 1) + '. ' + escapeHtml(question.stem || '阶段卷题目') + '</p>' +
+          '<div class="stage-exam-chat-options">' + optionHtml + '</div>' +
+        '</article>'
+      );
+    }).join('');
+
+    return (
+      '<section class="stage-exam-chat-result">' +
+        '<h2>阶段卷</h2>' +
+        '<p class="stage-exam-chat-meta">共 ' + escapeHtml(String(questionCount)) +
+          ' 题' + (sectionCount ? '，覆盖 ' + escapeHtml(String(sectionCount)) + ' 个小节' : '') + '</p>' +
+        '<div class="stage-exam-chat-list">' + questions + '</div>' +
+      '</section>'
+    );
+  }
+
+  function renderSelectPlanCandidates(candidates) {
+    if (!Array.isArray(candidates) || candidates.length === 0) return '';
+
+    const items = candidates.map(function (c) {
+      const title = escapeHtml(c.title || '未命名任务');
+      const courseHtml = c.linked_course_title
+        ? ' <span class="plan-candidate-course">' + escapeHtml(c.linked_course_title) + '</span>'
+        : '';
+      return (
+        '<button type="button" class="plan-candidate-btn" data-plan-item-id="' + escapeHtml(c.plan_item_id || '') + '">' +
+        '<span class="plan-candidate-title">' + title + '</span>' + courseHtml +
+        '</button>'
+      );
+    }).join('');
+
+    return '<div class="plan-candidates"><div class="plan-candidates-list">' + items + '</div></div>';
   }
 
   function renderMessage(message) {
@@ -387,6 +438,7 @@
 
   function resetSession() {
     state.activeSessionId = createId();
+    state.backendSessionId = null;
     state.messages = [];
     const log = byId('agent-chat-log');
     if (log) log.innerHTML = '';
@@ -412,19 +464,88 @@
     }));
   }
 
-  function learningPlaceholderAnswer(raw) {
-    const escaped = escapeHtml(raw);
-    return `
-      <section class="learning-placeholder">
-        <h2>学习总控待接入</h2>
-        <p>你刚才输入的是：“${escaped}”。当前旧总控 agent 已停用，这里暂时不会再把问题路由到原来的医疗分诊链路。</p>
-        <p>下一步会在这里接入新的学习型智能体，用于学习路径规划、知识点讲解、复习任务和工具调用。</p>
-        <div class="learning-placeholder-actions">
-          <a href="/" class="btn strong">返回总控工作台</a>
-          <a href="/#toolbox" class="btn ghost">打开工具箱</a>
-        </div>
-      </section>
-    `;
+  function parseUrlParams(search) {
+    const params = new URLSearchParams(search || window.location.search);
+    const planItemId = params.get('plan_item_id') || '';
+    const userId = params.get('user_id') || 'demo';
+    return { planItemId, userId };
+  }
+
+  function cleanUrlParams() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('plan_item_id');
+    url.searchParams.delete('user_id');
+    window.history.replaceState({}, '', url.toString());
+  }
+
+  async function callRouter(payload) {
+    const response = await fetch('/api/router/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let detail = '';
+      try { detail = await response.text(); } catch (_e) { /* ignore */ }
+      throw new Error(`HTTP ${response.status}${detail ? ': ' + detail : ''}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.ok) {
+      const errorMsg = data.error || data.message || '请求处理失败。';
+      appendMessage({
+        role: 'assistant',
+        content: errorMsg,
+        time: nowTime(),
+      });
+      return;
+    }
+
+    // Save real session.id from backend (replaces frontend-generated ID)
+    if (data.final_result?.session?.id) {
+      state.backendSessionId = data.final_result.session.id;
+    }
+
+    // Build route info line
+    const route = data.route || {};
+    const routeParts = [];
+    if (route.reason) routeParts.push(route.reason);
+    if (data.next_action) routeParts.push(data.next_action);
+
+    // Render content generically — no keyword / intent / topic special-casing
+    const final = data.final_result;
+    let bodyHtml = '';
+    let contentText = resultAnswer(data);
+
+    if (final && final.module === 'frontier_literature') {
+      const litHtml = literatureResultHtml(data);
+      bodyHtml = litHtml || formatMarkdown(contentText);
+    } else {
+      bodyHtml = formatMarkdown(contentText);
+    }
+
+    if (final && final.stage_exam) {
+      bodyHtml += renderStageExamHtml(final.stage_exam);
+    }
+
+    // Render candidate selection when next_action is select_plan
+    if (data.next_action === 'select_plan' && final && Array.isArray(final.candidates) && final.candidates.length > 0) {
+      bodyHtml += renderSelectPlanCandidates(final.candidates);
+    }
+
+    const routeHtml = routeParts.length
+      ? '<div class="route-meta">' + routeParts.map(function (p) { return escapeHtml(p); }).join(' · ') + '</div>'
+      : '';
+
+    appendMessage({
+      role: 'assistant',
+      content: contentText,
+      html: bodyHtml,
+      routeHtml: routeHtml,
+      time: nowTime(),
+    });
   }
 
   async function sendMessage(text = null) {
@@ -437,22 +558,46 @@
     setBusy(true);
 
     try {
-      appendMessage({
-        role: 'assistant',
-        content: '',
-        html: learningPlaceholderAnswer(raw),
-        time: nowTime(),
+      const context = { user_id: 'demo' };
+      if (state.backendSessionId) {
+        context.session_id = state.backendSessionId;
+      }
+
+      await callRouter({
+        message: raw,
+        history: historyPayload(),
+        context,
       });
     } catch (error) {
-      const log = byId('agent-chat-log');
-      if (log?.lastElementChild) log.removeChild(log.lastElementChild);
       appendMessage({
         role: 'assistant',
-        content: `请求失败：\n\n${error.message || error}`,
+        content: '请求失败：\n\n' + (error.message || error),
         time: nowTime(),
       });
     } finally {
       setBusy(false);
+      input?.focus();
+    }
+  }
+
+  async function autoSubmitPlanItem(planItemId, userId) {
+    setBusy(true);
+    try {
+      await callRouter({
+        message: '',
+        history: [],
+        context: { user_id: userId, plan_item_id: planItemId },
+      });
+    } catch (error) {
+      appendMessage({
+        role: 'assistant',
+        content: '请求失败：\n\n' + (error.message || error),
+        time: nowTime(),
+      });
+    } finally {
+      setBusy(false);
+      cleanUrlParams();
+      const input = byId('agent-message');
       input?.focus();
     }
   }
@@ -475,6 +620,14 @@
     document.querySelectorAll('.chip').forEach((chip) => {
       chip.addEventListener('click', () => sendMessage(chip.dataset.prompt || chip.textContent || ''));
     });
+    byId('agent-chat-log')?.addEventListener('click', (event) => {
+      const btn = event.target.closest('.plan-candidate-btn');
+      if (!btn) return;
+      const planItemId = btn.dataset.planItemId;
+      if (planItemId) {
+        autoSubmitPlanItem(planItemId, state.userId);
+      }
+    });
   }
 
   if (document.readyState === 'loading') {
@@ -482,10 +635,20 @@
       bindEvents();
       setEmptyState();
       renderSessions();
+      const { planItemId, userId } = parseUrlParams();
+      state.userId = userId;
+      if (planItemId) {
+        autoSubmitPlanItem(planItemId, userId);
+      }
     });
   } else {
     bindEvents();
     setEmptyState();
     renderSessions();
+    const { planItemId, userId } = parseUrlParams();
+    state.userId = userId;
+    if (planItemId) {
+      autoSubmitPlanItem(planItemId, userId);
+    }
   }
 })();
