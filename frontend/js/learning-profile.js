@@ -111,6 +111,12 @@
     stale: '待刷新',
   };
 
+  const PLANNING_SUPPORT_LABELS = {
+    low: '自主安排',
+    normal: '适度计划引导',
+    high: '需要明确计划',
+  };
+
   const PERSONALIZATION_POLICY_LABELS = {
     light: '轻量个性化',
     moderate: '适度个性化',
@@ -148,6 +154,16 @@
       en: 'Steady-Paced Learner',
       advice: '你更适合循序渐进的学习节奏。建议把任务拆小，按天完成，再定期回顾已学内容。',
     },
+    concept_then_case_learner: {
+      zh: '概念后接病例型学习者',
+      en: 'Concept-to-Case Learner',
+      advice: '你更适合先理解概念框架，再通过病例或案例验证理解。',
+    },
+    concise_focus_learner: {
+      zh: '要点聚焦型学习者',
+      en: 'Concise Focus Learner',
+      advice: '你更适合先获得简洁清晰的要点，再按需要补充细节。',
+    },
   };
 
   const state = {
@@ -163,7 +179,6 @@
     timelineFilter: 'all',
     timelineSignature: '',
     timelineLayoutRaf: 0,
-    timelinePauseTimer: 0,
     knownEventIds: new Set(),
     newEventIds: new Set(),
     firstLoad: true,
@@ -196,6 +211,39 @@
     const value = String(text || '').replace(/\s+/g, ' ').trim();
     if (value.length <= limit) return value;
     return `${value.slice(0, Math.max(0, limit - 3))}...`;
+  }
+
+  function sanitizeUserFacingText(value, fallback = '', limit = 0) {
+    const replacements = {
+      retrieval_enhanced: '强化检索练习',
+      continue: '继续学习',
+      llm_generated: '内容已生成',
+    };
+    let text = String(value || '').replace(/\s+/g, ' ').trim();
+    Object.entries(replacements).forEach(([token, label]) => {
+      text = text.replace(new RegExp(`\\b${token}\\b`, 'gi'), label);
+    });
+    text = text
+      .replace(/kg:\/\/[^\s，。；、]+/gi, '')
+      .replace(/\b(?:evt|sum|node|core|support|concept)_[a-z0-9_-]+\b/gi, '')
+      .replace(/写入槽位\s*[:：][^。；]*/g, '')
+      .replace(/\d+\s*条证据/g, '')
+      .replace(/\s+([，。；、])/g, '$1')
+      .replace(/[，、；]\s*$/g, '')
+      .trim();
+    const result = text || fallback;
+    return limit > 0 ? clip(result, limit) : result;
+  }
+
+  function uniqueTextRows(values) {
+    const seen = new Set();
+    return values.filter((value) => {
+      const text = sanitizeUserFacingText(value);
+      const key = text.toLocaleLowerCase('zh-CN').replace(/[\s，。；、:：'"“”‘’]/g, '');
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map((value) => sanitizeUserFacingText(value));
   }
 
   function human(value, fallback = '待诊断') {
@@ -334,7 +382,14 @@
   }
 
   function allEvents() {
-    return asArray(state.data?.recent_events).slice().sort((a, b) => {
+    const seen = new Set();
+    return asArray(state.data?.recent_events).filter((event) => {
+      const id = String(event?.id || '').trim();
+      const key = id || [event?.event_type, event?.created_at, JSON.stringify(event?.payload || {})].join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).sort((a, b) => {
       return timestamp(a.created_at) - timestamp(b.created_at);
     });
   }
@@ -760,8 +815,7 @@
         label,
         value: styleOptionLabel(dimension, dominant),
         status: STYLE_STATUS_LABELS[status] || status,
-        confidence: pct(data.confidence ?? option.confidence ?? 0),
-        evidence: `${num(option.evidence_count, 0)} 证据`,
+        confidence: `可信度 ${pct(data.confidence ?? option.confidence ?? 0)}`,
         sort: clamp01(data.confidence ?? option.confidence ?? 0),
       };
     }).filter(Boolean).sort((a, b) => b.sort - a.sort);
@@ -809,7 +863,7 @@
   function renderStyleText(targetId, rows, fallback = '暂无画像信号') {
     const target = byId(targetId);
     if (!target) return;
-    const items = rows.filter(Boolean).slice(0, 5);
+    const items = uniqueTextRows(rows).slice(0, 5);
     if (!items.length) {
       target.textContent = fallback;
       return;
@@ -860,6 +914,56 @@
     startTimelineAutoScroll(target);
   }
 
+  function stopTimelineAutoScroll(target = byId('event-timeline')) {
+    if (state.timelineLayoutRaf) {
+      window.cancelAnimationFrame(state.timelineLayoutRaf);
+      state.timelineLayoutRaf = 0;
+    }
+    target?.classList.remove('is-auto-scrolling', 'is-paused');
+    const track = target?.querySelector('[data-loop-track]');
+    track?.style.removeProperty('--timeline-duration');
+    track?.style.removeProperty('--timeline-distance');
+    if (track) track.dataset.loopLayoutKey = '';
+  }
+
+  function timelineLoopLayoutKey(target, track) {
+    return [
+      target?.dataset.timelineSignature || '',
+      Math.round(target?.clientWidth || 0),
+      Math.round(target?.clientHeight || 0),
+      Math.round(track?.querySelector('[data-loop-group]')?.scrollHeight || 0),
+    ].join(':');
+  }
+
+  function isTimelineLoopReady(target) {
+    const track = target?.querySelector('[data-loop-track]');
+    if (!target || !track || !target.classList.contains('is-auto-scrolling')) return false;
+    return track.dataset.loopLayoutKey === timelineLoopLayoutKey(target, track);
+  }
+
+  function ensureTimelineAutoScroll(target) {
+    if (!isTimelineLoopReady(target)) startTimelineAutoScroll(target);
+  }
+
+  function startTimelineAutoScroll(target) {
+    if (!target || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    stopTimelineAutoScroll(target);
+    state.timelineLayoutRaf = window.requestAnimationFrame(() => {
+      state.timelineLayoutRaf = 0;
+      const track = target.querySelector('[data-loop-track]');
+      const firstGroup = track?.querySelector('[data-loop-group]');
+      if (!track || !firstGroup) return;
+      const loopHeight = firstGroup.scrollHeight;
+      const itemCount = firstGroup.querySelectorAll('.event-item').length;
+      if (itemCount < 2 || loopHeight <= target.clientHeight + 16) return;
+      const duration = clamp(loopHeight / 8, 96, 480);
+      track.style.setProperty('--timeline-duration', `${duration}s`);
+      track.style.setProperty('--timeline-distance', `${loopHeight}px`);
+      track.dataset.loopLayoutKey = timelineLoopLayoutKey(target, track);
+      target.classList.add('is-auto-scrolling');
+    });
+  }
+
   function timelineSignature(items) {
     return [
       state.timelineFilter,
@@ -878,125 +982,76 @@
 
   function timelineItemHtml(item, { clone = false } = {}) {
     const isNew = !clone && item.isNew;
+    const title = sanitizeUserFacingText(item.title, '学习记录');
+    const detail = sanitizeUserFacingText(item.detail);
+    const tags = uniqueTextRows(item.tags);
     return `
       <article class="event-item${isNew ? ' is-new' : ''}" data-event-id="${escapeHtml(item.id || '')}" style="--event-color:${item.color}">
         <div class="event-topline">
           <span class="event-type">${escapeHtml(item.typeLabel)}</span>
           <span class="event-time">${escapeHtml(item.time)}</span>
         </div>
-        <div class="event-title">${escapeHtml(item.title)}</div>
-        ${item.detail ? `<div class="event-detail">${escapeHtml(item.detail)}</div>` : ''}
-        ${item.tags.length ? `<div class="event-tags">${item.tags.map((tag) => `<span class="event-tag">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
+        <div class="event-title">${escapeHtml(title)}</div>
+        ${detail ? `<div class="event-detail">${escapeHtml(detail)}</div>` : ''}
+        ${tags.length ? `<div class="event-tags">${tags.map((tag) => `<span class="event-tag">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
       </article>
     `;
   }
 
-  function stopTimelineAutoScroll(target = byId('event-timeline')) {
-    if (state.timelineLayoutRaf) {
-      window.cancelAnimationFrame(state.timelineLayoutRaf);
-      state.timelineLayoutRaf = 0;
-    }
-    window.clearTimeout(state.timelinePauseTimer);
-    state.timelinePauseTimer = 0;
-    target?.classList.remove('is-auto-scrolling', 'is-paused');
-    const track = target?.querySelector('[data-loop-track]');
-    track?.querySelectorAll('[data-loop-fill]').forEach((node) => node.remove());
-    track?.style.removeProperty('--timeline-duration');
-    track?.style.removeProperty('--timeline-distance');
-    if (track) track.dataset.loopLayoutKey = '';
-  }
-
-  function timelineLoopLayoutKey(target, track) {
-    return [
-      target?.dataset.timelineSignature || '',
-      Math.round(target?.clientWidth || 0),
-      Math.round(target?.clientHeight || 0),
-    ].join(':');
-  }
-
-  function isTimelineLoopReady(target) {
-    const track = target?.querySelector('[data-loop-track]');
-    if (!target || !track) return false;
-    if (!target.classList.contains('is-auto-scrolling')) return false;
-    if (!track.style.getPropertyValue('--timeline-distance')) return false;
-    return track.dataset.loopLayoutKey === timelineLoopLayoutKey(target, track);
-  }
-
-  function ensureTimelineAutoScroll(target) {
-    if (isTimelineLoopReady(target)) return;
-    startTimelineAutoScroll(target);
-  }
-
-  function startTimelineAutoScroll(target) {
-    if (!target) return;
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    if (isTimelineLoopReady(target)) return;
-    if (state.timelineLayoutRaf) {
-      window.cancelAnimationFrame(state.timelineLayoutRaf);
-    }
-    state.timelineLayoutRaf = window.requestAnimationFrame(() => {
-      state.timelineLayoutRaf = 0;
-      const track = target.querySelector('[data-loop-track]');
-      if (!track) return;
-
-      const groups = [...track.querySelectorAll('[data-loop-group]')];
-      const firstGroup = groups[0];
-      const copyGroup = groups[1];
-      if (!firstGroup || !copyGroup) return;
-      const layoutKey = timelineLoopLayoutKey(target, track);
-
-      groups.forEach((group) => {
-        group.querySelectorAll('[data-loop-fill]').forEach((node) => node.remove());
+  function buildTimelineItems() {
+    const rawEvents = allEvents();
+    const eventById = new Map(rawEvents.map((event) => [String(event.id || ''), event]));
+    const events = rawEvents.map(eventToTimelineItem).filter(Boolean);
+    const summaries = allSummaries()
+      .filter((summary) => !isRedundantSummary(summary, eventById))
+      .map(summaryToTimelineItem)
+      .filter(Boolean);
+    const seen = new Map();
+    return [...events, ...summaries]
+      .sort((a, b) => b.sortTime - a.sortTime)
+      .filter((item) => {
+        const key = [item.category, item.typeLabel, item.title]
+          .map((value) => sanitizeUserFacingText(value).toLocaleLowerCase('zh-CN'))
+          .join('|');
+        const previousTime = seen.get(key);
+        if (Number.isFinite(previousTime) && Math.abs(previousTime - item.sortTime) < 90 * 1000) return false;
+        seen.set(key, item.sortTime);
+        return true;
       });
-      track.style.removeProperty('--timeline-duration');
-      track.style.removeProperty('--timeline-distance');
-      target.classList.remove('is-auto-scrolling');
+  }
 
-      const originalItemCount = firstGroup.querySelectorAll('.event-item').length;
-      const fillHtml = copyGroup.innerHTML;
-      if (firstGroup.scrollHeight <= 0 || originalItemCount < 1) return;
-
-      let copyCount = 0;
-      while (firstGroup.scrollHeight <= target.clientHeight * 1.35 && copyCount < 10) {
-        groups.forEach((group) => {
-          const fill = document.createElement('div');
-          fill.className = 'event-loop-fill';
-          fill.dataset.loopFill = 'true';
-          fill.innerHTML = fillHtml;
-          fill.querySelectorAll('.is-new').forEach((node) => node.classList.remove('is-new'));
-          group.appendChild(fill);
-        });
-        copyCount += 1;
-      }
-
-      const loopHeight = firstGroup.scrollHeight;
-      const duration = clamp(loopHeight / 7, 72, 220);
-      track.style.setProperty('--timeline-duration', `${duration}s`);
-      track.style.setProperty('--timeline-distance', `${loopHeight}px`);
-      track.dataset.loopLayoutKey = layoutKey;
-      target.classList.add('is-auto-scrolling');
+  function isRedundantSummary(summary, eventById) {
+    const summaryValue = sanitizeUserFacingText(summaryText(summary));
+    if (!summaryValue) return true;
+    return asArray(summary.source_event_ids).some((id) => {
+      const event = eventById.get(String(id || ''));
+      if (!event) return false;
+      const payload = event.payload || {};
+      const candidates = [
+        payload.feedback_text,
+        payload.misconception_summary,
+        payload.remedial_suggestion,
+        payload.answer,
+        payload.question,
+        payload.title,
+        payload.topic,
+      ].map((value) => sanitizeUserFacingText(value)).filter(Boolean);
+      return candidates.some((candidate) => {
+        const shorter = candidate.length <= summaryValue.length ? candidate : summaryValue;
+        const longer = candidate.length > summaryValue.length ? candidate : summaryValue;
+        return shorter.length >= 8 && longer.includes(shorter);
+      });
     });
   }
 
-  function pauseTimelineAutoScroll(ms = 3200) {
-    const target = byId('event-timeline');
-    if (!target) return;
-    target.classList.add('is-paused');
-    window.clearTimeout(state.timelinePauseTimer);
-    state.timelinePauseTimer = window.setTimeout(() => {
-      target.classList.remove('is-paused');
-      state.timelinePauseTimer = 0;
-    }, ms);
-  }
-
-  function buildTimelineItems() {
-    const events = allEvents()
-      .map(eventToTimelineItem)
-      .filter(Boolean);
-    const summaries = allSummaries()
-      .map(summaryToTimelineItem)
-      .filter(Boolean);
-    return [...events, ...summaries].sort((a, b) => b.sortTime - a.sortTime);
+  function knowledgeTitleFromIds(ids) {
+    for (const rawId of ids) {
+      const parts = String(rawId || '').split('/').filter(Boolean);
+      const chapter = parts.length >= 2 ? parts[parts.length - 2] : '';
+      const title = chapter.replace(/^\d+[-_]/, '').trim();
+      if (title) return title;
+    }
+    return '';
   }
 
   function eventToTimelineItem(event) {
@@ -1006,7 +1061,7 @@
       id: event.id,
       time: formatTime(event.created_at),
       sortTime: timestamp(event.created_at),
-      tags: kgIds.slice(0, 3),
+      tags: [],
       isNew: state.newEventIds.has(event.id),
     };
 
@@ -1027,28 +1082,38 @@
         ...base,
         category: 'lesson',
         typeLabel: '课程',
-        title: `开始学习：${payload.topic || '未命名课程'}`,
-        detail: `${num(payload.node_count, 0)} 个学习节点，${num(payload.resource_count, 0)} 个资源`,
+        title: `开始学习：${sanitizeUserFacingText(payload.topic, '未命名课程', 52)}`,
+        detail: num(payload.node_count, 0) > 0 ? `课程已规划为 ${num(payload.node_count, 0)} 个学习环节` : '',
         color: COLORS.violet,
       };
     }
     if (event.event_type === 'tutor_exposure') {
+      const sectionTitle = sanitizeUserFacingText(
+        payload.handout_section_title || knowledgeTitleFromIds(kgIds),
+        '当前知识点',
+        52,
+      );
       return {
         ...base,
         category: 'lesson',
         typeLabel: '讲课',
-        title: `学习知识点：${payload.handout_section_title || event.outline_node_id || '当前小节'}`,
-        detail: kgIds.length ? `覆盖 ${kgIds.length} 个知识点` : '',
+        title: `学习知识点：${sectionTitle}`,
+        detail: '',
         color: COLORS.sky,
       };
     }
     if (event.event_type === 'tutor_step_generated') {
+      const sectionTitle = sanitizeUserFacingText(
+        payload.handout_section_title || payload.title,
+        '当前小节',
+        52,
+      );
       return {
         ...base,
         category: 'lesson',
         typeLabel: '讲课',
-        title: `完成讲解：${payload.outline_node_id || event.outline_node_id || '当前小节'}`,
-        detail: payload.content_status ? `内容状态：${payload.content_status}` : '',
+        title: `完成讲解：${sectionTitle}`,
+        detail: '',
         color: COLORS.cyan,
       };
     }
@@ -1058,13 +1123,12 @@
         ...base,
         category: 'quiz',
         typeLabel: '题目',
-        title: `完成题目：${clip(payload.question_stem || payload.question_id || '练习题', 52)}`,
-        detail: payload.remedial_suggestion || payload.misconception_summary || '',
+        title: `完成题目：${sanitizeUserFacingText(payload.question_stem, '练习题', 52)}`,
+        detail: sanitizeUserFacingText(payload.remedial_suggestion || payload.misconception_summary, '', 100),
         tags: [
           correct ? '正确' : '需复盘',
           `得分 ${Math.round(num(payload.score, 0) * 100)}%`,
           ...asArray(payload.mistake_tags).slice(0, 2),
-          ...kgIds.slice(0, 2),
         ],
         color: correct ? COLORS.blue : COLORS.pink,
       };
@@ -1074,8 +1138,8 @@
         ...base,
         category: 'qa',
         typeLabel: '答疑',
-        title: `提出问题：${clip(payload.question || '课堂提问', 58)}`,
-        detail: clip(payload.answer || '', 86),
+        title: `提出问题：${sanitizeUserFacingText(payload.question, '课堂提问', 58)}`,
+        detail: sanitizeUserFacingText(payload.answer, '', 100),
         color: COLORS.lavender,
       };
     }
@@ -1085,7 +1149,7 @@
         category: 'lesson',
         typeLabel: payload.lesson_completed ? '完成' : '进度',
         title: payload.lesson_completed ? '完成课程' : payload.advanced ? '学习进度推进' : '学习进度保持',
-        detail: payload.action ? `策略：${payload.action}` : '',
+        detail: payload.advanced ? '本次学习进度已同步' : '',
         tags: [payload.advanced ? '已推进' : '', payload.lesson_completed ? '课程完成' : ''].filter(Boolean),
         color: payload.lesson_completed ? COLORS.rose : COLORS.indigo,
       };
@@ -1101,22 +1165,15 @@
   }
 
   function summaryToTimelineItem(summary) {
-    const payload = summary.summary || {};
-    const slots = asArray(payload.slots);
-    const sourceIds = asArray(summary.source_event_ids);
     return {
       id: summary.id,
       category: 'memory',
       typeLabel: '记忆摘要',
       time: formatTime(summary.created_at),
       sortTime: timestamp(summary.created_at),
-      title: `沉淀摘要：${clip(summaryText(summary), 58)}`,
-      detail: slots.length ? `写入槽位：${slots.map((slot) => MEMORY_SLOT_LABELS[slot] || slot).join('、')}` : '',
-      tags: [
-        surfaceLabel(summary.surface),
-        ...asArray(payload.key_signals).slice(0, 1),
-        sourceIds.length ? `${sourceIds.length} 条证据` : '',
-      ].filter(Boolean).map((tag) => clip(tag, 24)),
+      title: `学习摘要：${sanitizeUserFacingText(summaryText(summary), '本次学习已记录', 68)}`,
+      detail: '',
+      tags: [surfaceLabel(summary.surface)],
       color: COLORS.themePurple,
       isNew: false,
     };
@@ -1221,13 +1278,13 @@
   }
 
   function drawRadarChart(canvas, data) {
-    const prepared = prepareCanvas(canvas, 260, 260);
+    const prepared = prepareCanvas(canvas, 220, 220);
     if (!prepared) return;
     const { ctx, width, height } = prepared;
     const items = data?.length ? data : [];
     const cx = width / 2;
     const cy = height / 2 + 8;
-    const radius = Math.max(70, Math.min(width, height) * 0.31);
+    const radius = Math.max(54, Math.min(height * 0.31, (width - 128) / 2));
     const levels = 5;
 
     ctx.lineWidth = 1;
@@ -1248,11 +1305,16 @@
       ctx.strokeStyle = 'rgba(138, 128, 168, 0.16)';
       ctx.stroke();
 
-      const lx = cx + Math.cos(angle) * (radius + 28);
-      const ly = cy + Math.sin(angle) * (radius + 28);
       ctx.fillStyle = COLORS.text;
       ctx.font = `12px ${NODE_FONT}`;
-      ctx.textAlign = Math.cos(angle) > 0.3 ? 'left' : Math.cos(angle) < -0.3 ? 'right' : 'center';
+      const textAlign = Math.cos(angle) > 0.3 ? 'left' : Math.cos(angle) < -0.3 ? 'right' : 'center';
+      const textWidth = ctx.measureText(item.label).width;
+      let lx = cx + Math.cos(angle) * (radius + 24);
+      const ly = clamp(cy + Math.sin(angle) * (radius + 24), 14, height - 14);
+      if (textAlign === 'left') lx = Math.min(lx, width - textWidth - 4);
+      if (textAlign === 'right') lx = Math.max(lx, textWidth + 4);
+      if (textAlign === 'center') lx = clamp(lx, textWidth / 2 + 4, width - textWidth / 2 - 4);
+      ctx.textAlign = textAlign;
       ctx.textBaseline = Math.sin(angle) > 0.45 ? 'top' : Math.sin(angle) < -0.45 ? 'bottom' : 'middle';
       ctx.fillText(item.label, lx, ly);
     });
@@ -1333,7 +1395,7 @@
     state.timer = window.setInterval(() => {
       if (document.hidden) return;
       loadProfile({ silent: true });
-    }, 5000);
+    }, 3000);
   }
 
   function bindEvents() {
@@ -1346,18 +1408,11 @@
         renderTimeline();
       });
     });
-    const timeline = byId('event-timeline');
-    timeline?.addEventListener('focusin', () => {
-      timeline.classList.add('is-paused');
-    });
-    timeline?.addEventListener('focusout', () => {
-      timeline.classList.remove('is-paused');
-    });
-    ['wheel', 'touchstart', 'pointerdown'].forEach((type) => {
-      timeline?.addEventListener(type, () => pauseTimelineAutoScroll(), { passive: true });
-    });
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && state.auto) loadProfile({ silent: true });
+    });
+    window.addEventListener('focus', () => {
+      if (state.auto) loadProfile({ silent: true });
     });
     window.addEventListener('resize', () => {
       renderCharts();
@@ -1368,77 +1423,128 @@
     });
   }
 
-  function ensureStyleDimensionToggle() {
-    const list = byId('style-dimension-list');
-    if (!list) return null;
-    let toggle = byId('style-dimension-toggle');
-    if (toggle) return toggle;
-    toggle = document.createElement('details');
-    toggle.id = 'style-dimension-toggle';
-    toggle.className = 'style-dimension-toggle';
-    toggle.innerHTML = '<summary>查看画像推理细节</summary>';
-    const stylePanel = document.querySelector('.style-panel');
-    const styleLines = stylePanel?.querySelector('.style-lines');
-    if (stylePanel && styleLines) {
-      stylePanel.insertBefore(toggle, styleLines);
-    } else {
-      list.parentNode?.insertBefore(toggle, list);
-    }
-    toggle.appendChild(list);
-    return toggle;
+  function renderStyleOverview() {
+    const target = byId('style-overview-tags');
+    if (!target) return;
+    const profile = state.data?.profile || {};
+    const assessmentState = state.data?.assessment_state || {};
+    const learnerType = String(profile.learner_type || '').trim();
+    const observedDimensions = buildStyleDimensionRows().slice(0, 3).map((row) => row.value);
+    const assessedRows = [
+      human(profile.preferred_explanation, ''),
+      human(profile.pace, ''),
+      human(profile.goal, ''),
+      PLANNING_SUPPORT_LABELS[profile.planning_support_need] || '',
+    ];
+    const rows = uniqueTextRows([
+      ...observedDimensions,
+      ...(learnerType || assessmentState.has_assessment_record ? assessedRows : []),
+    ]).slice(0, 4);
+    target.innerHTML = rows.length
+      ? rows.map((row) => `<span class="style-overview-tag">${escapeHtml(row)}</span>`).join('')
+      : '<span class="style-overview-empty">尚无稳定的风格维度</span>';
   }
 
-  function renderStyleDimensions(stateSnapshot = profileState()) {
-    const target = byId('style-dimension-list');
+  function weaknessStatusLabel(status) {
+    return {
+      active: '需重点复盘',
+      improving: '正在改善',
+      resolved: '已掌握',
+    }[status] || '待复盘';
+  }
+
+  function weaknessLevelLabel(severity) {
+    const value = clamp01(severity);
+    if (value >= 0.8) return '重点';
+    if (value >= 0.5) return '关注';
+    return '轻度';
+  }
+
+  function buildWeaknessRows(stateSnapshot = profileState()) {
+    const profile = state.data?.profile || {};
+    const stateRows = asArray(stateSnapshot?.weakness_summary);
+    const memoryRows = slotItems('weaknesses');
+    const sourceRows = stateRows.length ? stateRows : memoryRows;
+    const seen = new Set();
+    const rows = sourceRows.filter((item) => {
+      const label = sanitizeUserFacingText(item?.label || item?.text);
+      const key = label.toLocaleLowerCase('zh-CN').replace(/[\s，。；、:：'"“”‘’]/g, '');
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map((item) => ({
+      id: String(item.id || item.label || item.text || '').trim(),
+      label: sanitizeUserFacingText(item.label || item.text, '待复盘知识点', 48),
+      cause: sanitizeUserFacingText(item.text, '', 140),
+      status: weaknessStatusLabel(item.status),
+      level: weaknessLevelLabel(item.severity ?? item.confidence ?? 0.5),
+    }));
+    if (rows.length) return rows.slice(0, 4);
+    return uniqueTextRows(asArray(profile.mistake_patterns))
+      .filter((text) => !/^kg:\/\//i.test(text))
+      .slice(0, 4)
+      .map((text) => ({ id: `legacy:${text}`, label: clip(text, 48), cause: '', status: '待复盘', level: '关注' }));
+  }
+
+  function renderWeaknesses(stateSnapshot = profileState()) {
+    const target = byId('profile-weaknesses');
     if (!target) return;
-    const toggle = ensureStyleDimensionToggle();
-    const rows = buildStyleDimensionRows(stateSnapshot);
+    const rows = buildWeaknessRows(stateSnapshot);
     if (!rows.length) {
-      if (toggle) toggle.hidden = true;
-      target.innerHTML = '<div class="style-dimension-empty">等待更多交互证据</div>';
+      target.innerHTML = '<span class="weakness-empty">暂无易错点记录</span>';
+      target.dataset.weaknessSignature = 'empty';
+      target.dataset.weaknessRendered = 'true';
       return;
     }
-    if (toggle) toggle.hidden = false;
-    target.innerHTML = rows.map((row) => `
-      <div class="style-dimension-item">
-        <div class="style-dimension-top">
-          <span>${escapeHtml(row.label)}</span>
-          <strong>${escapeHtml(row.value)}</strong>
-        </div>
-        <div class="style-dimension-meta">
-          <span>${escapeHtml(row.status)}</span>
-          <span>${escapeHtml(row.confidence)}</span>
-          <span>${escapeHtml(row.evidence)}</span>
-        </div>
-      </div>
-    `).join('');
+    const signature = JSON.stringify(rows);
+    if (target.dataset.weaknessSignature === signature) return;
+    const wasRendered = target.dataset.weaknessRendered === 'true';
+    const openIds = new Set([...target.querySelectorAll('.weakness-item[open]')]
+      .map((node) => node.getAttribute('data-weakness-id'))
+      .filter(Boolean));
+    target.innerHTML = rows.map((row, index) => {
+      const cause = row.cause && row.cause !== row.label
+        ? `<p><span>错因</span>${escapeHtml(row.cause)}</p>`
+        : '';
+      const isOpen = wasRendered ? openIds.has(row.id) : index === 0;
+      return `
+        <details class="weakness-item" data-weakness-id="${escapeHtml(row.id)}"${isOpen ? ' open' : ''}>
+          <summary>
+            <span class="weakness-title">${escapeHtml(row.label)}</span>
+            <span class="weakness-badges">
+              <span>${escapeHtml(row.level)}</span>
+              <span>${escapeHtml(row.status)}</span>
+            </span>
+          </summary>
+          ${cause}
+        </details>
+      `;
+    }).join('');
+    target.dataset.weaknessSignature = signature;
+    target.dataset.weaknessRendered = 'true';
   }
 
   function renderLearningStyle() {
     const profile = state.data?.profile || {};
     const stateSnapshot = profileState();
-    const hasStateEvidence = hasProfileStateEvidence(stateSnapshot);
-    const weaknesses = slotTexts('weaknesses', 4);
+    const assessmentState = state.data?.assessment_state || {};
+    const hasDisplayProfile = Boolean(
+      profile.learner_type
+      || assessmentState.has_assessment_record
+      || assessmentState.has_history_data
+      || hasProfileStateEvidence(stateSnapshot)
+    );
     const goals = slotTexts('goals', 4);
-    const legacyWeaknesses = [
-      ...asArray(profile.known_weak_points),
-      ...asArray(profile.mistake_patterns),
-    ].filter(Boolean);
-    const stateWeaknessRows = asArray(stateSnapshot?.weakness_summary)
-      .map(formatWeaknessSummary)
-      .filter(Boolean);
-    const weaknessRows = stateWeaknessRows.length
-      ? stateWeaknessRows
-      : weaknesses.length ? weaknesses : legacyWeaknesses;
-    const preferenceRows = hasStateEvidence ? [`解释偏好：${human(profile.preferred_explanation)}`] : [];
+    const preferenceRows = hasDisplayProfile ? [human(profile.preferred_explanation)] : [];
     const goalRows = goals.length
-      ? goals
-      : hasStateEvidence ? [`目标导向：${human(profile.goal)}`] : [];
-    const paceRow = styleDimensionText(stateSnapshot, 'pace');
-    const rhythmRows = [paceRow || (hasStateEvidence ? `学习节奏：${human(profile.pace)}` : '')].filter(Boolean);
+      ? goals.map((value) => String(value).replace(/^目标导向\s*[:：]\s*/, ''))
+      : hasDisplayProfile ? [human(profile.goal)] : [];
+    const paceDimension = buildStyleDimensionRows(stateSnapshot)
+      .find((item) => item.dimension === 'pace');
+    const rhythmRows = [paceDimension?.value || (hasDisplayProfile ? human(profile.pace) : '')].filter(Boolean);
 
-    renderStyleDimensions(stateSnapshot);
-    renderStyleText('profile-weaknesses', weaknessRows, '暂无易错点记录');
+    renderStyleOverview();
+    renderWeaknesses(stateSnapshot);
     renderStyleText('profile-preferences', preferenceRows, '暂无画像信号');
     renderStyleText('profile-goals', goalRows, '暂无画像信号');
     renderStyleText('profile-rhythm', rhythmRows, '暂无画像信号');
@@ -1451,44 +1557,100 @@
     if (!title || !copy || !button) return;
     const profile = state.data?.profile || {};
     const assessmentState = state.data?.assessment_state || {};
+    const effectiveStyle = profileState()?.effective_style || {};
+    const effectiveType = String(effectiveStyle.type || '').trim();
     const learnerType = String(profile.learner_type || '').trim();
     const summary = String(profile.learner_type_summary || '').trim();
     const skipped = skippedAssessment(profile, assessmentState);
     const needs = needsInitialAssessment(profile, assessmentState);
     const hasHistoryWithoutAssessment = assessmentState.reason === 'history_without_assessment';
+    const observedDimensions = buildStyleDimensionRows();
+    const behaviorSummary = sanitizeUserFacingText(profileState()?.summary);
     const minutes = num(profile.daily_available_minutes, 45);
+
+    function applyCardState(cardState, titleText, copyText, buttonText, icon) {
+      const card = byId('profile-assessment-card');
+      if (card) card.dataset.profileState = cardState;
+      title.textContent = titleText;
+      copy.textContent = copyText;
+      button.innerHTML = `<i data-lucide="${icon}"></i><span>${escapeHtml(buttonText)}</span>`;
+      button.setAttribute('aria-label', buttonText);
+    }
+
+    if (effectiveType) {
+      const display = LEARNER_TYPE_LABELS[effectiveType] || {
+        zh: sanitizeUserFacingText(effectiveStyle.label, '学习画像已建立'),
+        advice: `当前画像已建立，每日学习预算约 ${minutes} 分钟。`,
+      };
+      const hasAssessment = Boolean(assessmentState.has_assessment_record && !skipped);
+      const cardState = ['forming', 'emerging', 'mixed', 'recalibrating'].includes(effectiveStyle.status)
+        ? 'forming'
+        : hasAssessment ? 'assessed' : 'observed';
+      applyCardState(
+        cardState,
+        sanitizeUserFacingText(effectiveStyle.label, display.zh),
+        sanitizeUserFacingText(effectiveStyle.summary, display.advice),
+        hasAssessment ? '重新测评' : '校准学习风格',
+        hasAssessment ? 'refresh-cw' : 'sliders-horizontal',
+      );
+      return;
+    }
 
     if (learnerType) {
       const display = LEARNER_TYPE_LABELS[learnerType] || {
         zh: '学习画像已建立',
         advice: `当前画像已建立，每日学习预算约 ${minutes} 分钟。`,
       };
-      title.textContent = display.zh;
-      copy.textContent = summary || display.advice;
-      button.textContent = '重新测评';
+      applyCardState('assessed', display.zh, summary || display.advice, '重新测评', 'refresh-cw');
+      return;
+    }
+    if (observedDimensions.length) {
+      applyCardState(
+        'forming',
+        '学习风格正在形成',
+        behaviorSummary || '已观察到部分学习偏好，系统会随后续学习继续校准。',
+        '校准学习风格',
+        'sliders-horizontal',
+      );
       return;
     }
     if (skipped) {
-      title.textContent = '你已跳过初始测评';
-      copy.textContent = '当前画像使用默认值。若想获得更贴合你的学习计划，可以随时重新测评。';
-      button.textContent = '立即测评';
+      applyCardState(
+        'skipped',
+        '你已跳过初始测评',
+        '当前画像使用默认值。若想获得更贴合你的学习计划，可以随时重新测评。',
+        '立即测评',
+        'sliders-horizontal',
+      );
       return;
     }
     if (hasHistoryWithoutAssessment) {
-      title.textContent = '学习画像已建立';
-      copy.textContent = '已检测到历史学习数据，当前不会自动重新初始化；如需校准偏好，可以手动重新测评。';
-      button.textContent = '重新测评';
+      applyCardState(
+        'pending',
+        '行为画像已建立，学习风格待确认',
+        '已记录薄弱点等学习行为；完成测评后将生成学习者类型。',
+        '校准学习风格',
+        'sliders-horizontal',
+      );
       return;
     }
     if (needs) {
-      title.textContent = '学习者标签待建立';
-      copy.textContent = '完成轻量测评后，这里会展示你的学习者类型、时间预算和计划引导偏好。';
-      button.textContent = '进行测评';
+      applyCardState(
+        'pending',
+        '学习者标签待建立',
+        '完成轻量测评后，这里会展示你的学习者类型、时间预算和计划引导偏好。',
+        '进行测评',
+        'sliders-horizontal',
+      );
       return;
     }
-    title.textContent = '学习画像已建立';
-    copy.textContent = `当前画像已可用，每日学习预算约 ${minutes} 分钟。`;
-    button.textContent = '重新测评';
+    applyCardState(
+      'pending',
+      '学习画像已建立',
+      `当前画像已可用，每日学习预算约 ${minutes} 分钟。`,
+      '重新测评',
+      'refresh-cw',
+    );
   }
 
   function boot() {

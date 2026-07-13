@@ -46,7 +46,7 @@ STYLE_TOKEN_RULES: tuple[tuple[str, str, tuple[str, ...], float], ...] = (
     ("entry_mode", "concept_first", ("concept", "definition", "principle", "概念", "定义", "原理", "本质"), 0.75),
     ("entry_mode", "case_first", ("case", "clinical", "example", "病例", "案例", "临床", "举例"), 0.9),
     ("entry_mode", "question_first", ("question", "ask", "follow-up", "提问", "追问", "问题", "疑问"), 0.85),
-    ("entry_mode", "practice_first", ("practice", "quiz", "exercise", "wrong answer", "练习", "做题", "题目", "错题", "答题"), 0.85),
+    ("entry_mode", "practice_first", ("practice", "quiz", "exercise", "wrong answer", "retrieval_enhanced", "active recall", "练习", "做题", "题目", "错题", "答题", "检索增强", "主动回忆"), 0.85),
     ("interaction_tendency", "asks_why", ("why", "mechanism", "causal", "为什么", "机制", "因果", "原理"), 1.0),
     ("interaction_tendency", "asks_examples", ("example", "case", "clinical", "举例", "例子", "病例", "案例", "临床"), 0.9),
     ("interaction_tendency", "asks_exam_points", ("exam", "test", "key point", "考试", "考点", "重点", "怎么记"), 0.9),
@@ -55,6 +55,88 @@ STYLE_TOKEN_RULES: tuple[tuple[str, str, tuple[str, ...], float], ...] = (
     ("pace", "fast", ("fast", "faster", "too slow", "快", "加快", "太慢"), 1.0),
     ("pace", "standard", ("standard", "normal pace", "标准节奏", "正常节奏"), 0.5),
 )
+USER_STYLE_EVENT_TYPES = {
+    "user_interruption_question",
+    "answer_submitted",
+    "resource_opened",
+    "reading_completed",
+    "review_completed",
+    "lesson_finished",
+    "study_plan_item_completed",
+    "study_plan_item_deferred",
+}
+LEARNER_STYLE_DEFINITIONS: dict[str, tuple[str, str]] = {
+    "exam_oriented_learner": (
+        "考试导向型学习者",
+        "你更适合围绕考试重点组织学习，并通过练习反馈持续校准。",
+    ),
+    "practice_driven_learner": (
+        "练习驱动型学习者",
+        "你更适合边做边学，通过问题、反馈和错题复盘建立理解。",
+    ),
+    "case_driven_learner": (
+        "病例驱动型学习者",
+        "你更适合从病例或临床情境进入，再回到概念理解。",
+    ),
+    "text_depth_learner": (
+        "推导深度型学习者",
+        "你更偏好机制、原理和推理过程的分步拆解。",
+    ),
+    "steady_paced_learner": (
+        "稳健节奏型学习者",
+        "你更适合稳定推进、少量多次、循序渐进的学习节奏。",
+    ),
+    "visual_structured_learner": (
+        "图解结构型学习者",
+        "你更适合通过结构清晰、分层明确的框架组织知识。",
+    ),
+    "concept_then_case_learner": (
+        "概念后接病例型学习者",
+        "你更适合先理解概念框架，再通过病例或案例验证理解。",
+    ),
+    "concise_focus_learner": (
+        "要点聚焦型学习者",
+        "你更适合先获得简洁清晰的要点，再按需要补充细节。",
+    ),
+}
+LEARNER_STYLE_TOKEN_MAP = {
+    "exam_oriented_learner": "exam_oriented_learner",
+    "practice_driven_learner": "practice_driven_learner",
+    "case_driven_learner": "case_driven_learner",
+    "text_depth_learner": "text_depth_learner",
+    "steady_paced_learner": "steady_paced_learner",
+    "visual_structured_learner": "visual_structured_learner",
+    "concept_then_case_learner": "concept_then_case_learner",
+    "concise_focus_learner": "concise_focus_learner",
+    "考试导向型学习者": "exam_oriented_learner",
+    "练习驱动型学习者": "practice_driven_learner",
+    "检索增强型学习者": "practice_driven_learner",
+    "病例驱动型学习者": "case_driven_learner",
+    "文本深度型学习者": "text_depth_learner",
+    "推导型学习者": "text_depth_learner",
+    "推导深度型学习者": "text_depth_learner",
+    "稳健节奏型学习者": "steady_paced_learner",
+    "视觉结构型学习者": "visual_structured_learner",
+    "图解结构型学习者": "visual_structured_learner",
+    "概念后接病例型学习者": "concept_then_case_learner",
+    "要点型学习者": "concise_focus_learner",
+    "要点聚焦型学习者": "concise_focus_learner",
+    "retrieval_enhanced": "practice_driven_learner",
+    "retrieval_enhanced_learner": "practice_driven_learner",
+    "active_recall_learner": "practice_driven_learner",
+}
+STYLE_DIMENSION_TYPE_MAP = {
+    ("explanation_depth", "mechanism_deep"): "text_depth_learner",
+    ("explanation_depth", "concise"): "concise_focus_learner",
+    ("entry_mode", "concept_first"): "concept_then_case_learner",
+    ("entry_mode", "case_first"): "case_driven_learner",
+    ("entry_mode", "question_first"): "practice_driven_learner",
+    ("entry_mode", "practice_first"): "practice_driven_learner",
+    ("interaction_tendency", "asks_why"): "text_depth_learner",
+    ("interaction_tendency", "asks_examples"): "case_driven_learner",
+    ("interaction_tendency", "asks_exam_points"): "exam_oriented_learner",
+    ("pace", "slow"): "steady_paced_learner",
+}
 MEMORY_ASPECTS: dict[str, tuple[str, ...]] = {
     "profile": (
         "learning_style_tendency",
@@ -300,15 +382,7 @@ def extract_event_signals(
 ) -> dict[str, Any]:
     """Use the LLM to extract candidate memory signals from one event."""
     if not is_learning_memory_llm_configured():
-        return {
-            "should_update": False,
-            "signals": [],
-            "trace": {
-                "mode": "llm_event_signal_extractor",
-                "status": "skipped_no_llm",
-                "uses_llm": False,
-            },
-        }
+        return _rule_event_style_extraction(event, status="fallback_no_llm")
 
     messages = _build_signal_extractor_messages(
         event=event,
@@ -329,30 +403,20 @@ def extract_event_signals(
             response_format={"type": "json_object"},
         )
     except Exception as exc:  # noqa: BLE001 - best-effort memory layer
-        return {
-            "should_update": False,
-            "signals": [],
-            "trace": {
-                "mode": "llm_event_signal_extractor",
-                "status": "fallback_exception",
-                "uses_llm": True,
-                "error": str(exc)[:240],
-            },
-        }
+        return _rule_event_style_extraction(
+            event,
+            status="fallback_exception",
+            error=str(exc),
+        )
 
     try:
         parsed = _extract_json(raw)
     except (json.JSONDecodeError, ValueError) as exc:
-        return {
-            "should_update": False,
-            "signals": [],
-            "trace": {
-                "mode": "llm_event_signal_extractor",
-                "status": "invalid_json",
-                "uses_llm": True,
-                "error": str(exc)[:240],
-            },
-        }
+        return _rule_event_style_extraction(
+            event,
+            status="fallback_invalid_json",
+            error=str(exc),
+        )
 
     signals = _normalize_signals(parsed.get("signals", []), fallback_event_id=event["id"])
     return {
@@ -367,6 +431,52 @@ def extract_event_signals(
             else 0,
             "valid_signal_count": len(signals),
         },
+    }
+
+
+def _rule_event_style_extraction(
+    event: dict[str, Any],
+    *,
+    status: str,
+    error: str = "",
+) -> dict[str, Any]:
+    event_type = str(event.get("event_type") or "")
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    texts: list[str] = []
+    if event_type == "user_interruption_question":
+        texts.append(str(payload.get("question") or ""))
+    for key in ("learning_strategy", "preferred_explanation", "interaction_preference"):
+        texts.append(str(payload.get(key) or ""))
+    label = _infer_learning_style_label(" ".join(texts))
+    signals: list[dict[str, Any]] = []
+    if event_type in USER_STYLE_EVENT_TYPES and label:
+        signals = _normalize_signals(
+            [
+                {
+                    "slot": "profile",
+                    "aspect": "learning_style_tendency",
+                    "label": label,
+                    "action": "reinforce",
+                    "content": _learning_style_content(label),
+                    "confidence": 0.46,
+                    "evidence_event_ids": [str(event.get("id") or "")],
+                    "reason": "explicit user behavior rule fallback",
+                }
+            ],
+            fallback_event_id=str(event.get("id") or ""),
+        )
+    trace = {
+        "mode": "rule_event_style_extractor",
+        "status": status,
+        "uses_llm": status != "fallback_no_llm",
+        "valid_signal_count": len(signals),
+    }
+    if error:
+        trace["error"] = error[:240]
+    return {
+        "should_update": bool(signals),
+        "signals": signals,
+        "trace": trace,
     }
 
 
@@ -550,9 +660,25 @@ def refresh_profile_state_from_l3(
 ) -> dict[str, Any]:
     """Recompute the stable L3 profile state from evidence memory slots."""
     l3 = _with_default_slots(memory.get_learner_memory(user_id))
+    previous_state = l3.get(PROFILE_STATE_SLOT, {})
+    if not isinstance(previous_state, dict):
+        previous_state = {}
+    compact_profile = memory.get_or_create_profile(user_id)
     style = _build_style_state(l3)
     weakness_summary = _build_weakness_summary(_slot_items(l3, "weaknesses"))
     mastery_summary = _build_mastery_summary(_slot_items(l3, "mastery"))
+    assessed_style = _build_assessed_style(compact_profile)
+    observed_style = _build_observed_style(
+        memory,
+        user_id=user_id,
+        l3=l3,
+        style=style,
+    )
+    effective_style = _build_effective_style(
+        assessed_style,
+        observed_style,
+        previous_state=previous_state,
+    )
 
     summary, personalization_policy, confidence = _build_profile_state_summary(
         style,
@@ -566,17 +692,335 @@ def refresh_profile_state_from_l3(
     )
     state = {
         "schema_version": 1,
+        "style_fusion_version": "v1",
         "slot": PROFILE_STATE_SLOT,
         "style": style,
+        "assessed_style": assessed_style,
+        "observed_style": observed_style,
+        "effective_style": effective_style,
         "weakness_summary": weakness_summary,
         "mastery_summary": mastery_summary,
         "summary": summary,
         "confidence": confidence,
         "personalization_policy": personalization_policy,
         "evidence_ids": evidence_ids[:40],
-        "updated_at": _now(),
+        "updated_at": str(previous_state.get("updated_at") or ""),
     }
+    comparable_keys = tuple(key for key in state if key != "updated_at")
+    if previous_state and all(previous_state.get(key) == state.get(key) for key in comparable_keys):
+        return previous_state
+    state["updated_at"] = _now()
     return memory.save_learner_memory_slot(user_id, PROFILE_STATE_SLOT, state)
+
+
+def _style_definition(learner_type: str) -> tuple[str, str]:
+    return LEARNER_STYLE_DEFINITIONS.get(
+        learner_type,
+        ("学习风格正在形成", "系统会随后续学习行为继续校准你的学习画像。"),
+    )
+
+
+def _canonical_learner_type(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    direct = LEARNER_STYLE_TOKEN_MAP.get(text)
+    if direct:
+        return direct
+    token = re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+    return LEARNER_STYLE_TOKEN_MAP.get(token, "")
+
+
+def _empty_style_profile(source: str) -> dict[str, Any]:
+    return {
+        "type": "",
+        "label": "",
+        "summary": "",
+        "source": source,
+        "status": "unobserved",
+        "confidence": 0.0,
+        "evidence_count": 0,
+        "session_count": 0,
+        "evidence_ids": [],
+        "updated_at": "",
+    }
+
+
+def _build_assessed_style(profile: dict[str, Any]) -> dict[str, Any]:
+    learner_type = _canonical_learner_type(profile.get("learner_type"))
+    if not learner_type:
+        return _empty_style_profile("assessment")
+    label, default_summary = _style_definition(learner_type)
+    return {
+        "type": learner_type,
+        "label": label,
+        "summary": _clean_text(profile.get("learner_type_summary"), limit=180) or default_summary,
+        "source": "assessment",
+        "status": "baseline",
+        "confidence": round(_clamp_float(profile.get("confidence"), 0.0, 0.95, 0.72), 3),
+        "evidence_count": 0,
+        "session_count": 0,
+        "evidence_ids": [],
+        "updated_at": str(profile.get("last_assessed_at") or ""),
+    }
+
+
+def _user_style_events(
+    memory: LearningMemory,
+    *,
+    user_id: str,
+    evidence_ids: list[str],
+    cache: dict[str, dict[str, Any] | None],
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for event_id in _dedupe(evidence_ids)[:40]:
+        if event_id not in cache:
+            cache[event_id] = memory.get_event(event_id, user_id=user_id)
+        event = cache[event_id]
+        if event and str(event.get("event_type") or "") in USER_STYLE_EVENT_TYPES:
+            events.append(event)
+    return events
+
+
+def _build_observed_style(
+    memory: LearningMemory,
+    *,
+    user_id: str,
+    l3: dict[str, Any],
+    style: dict[str, Any],
+) -> dict[str, Any]:
+    event_cache: dict[str, dict[str, Any] | None] = {}
+    candidates: dict[str, dict[str, Any]] = {}
+
+    def add_candidate(
+        learner_type: str,
+        *,
+        confidence: float,
+        evidence_ids: list[str],
+        updated_at: str,
+        rank_bonus: float = 0.0,
+    ) -> None:
+        if learner_type not in LEARNER_STYLE_DEFINITIONS:
+            return
+        events = _user_style_events(
+            memory,
+            user_id=user_id,
+            evidence_ids=evidence_ids,
+            cache=event_cache,
+        )
+        valid_ids = [str(event.get("id") or "") for event in events if event.get("id")]
+        if not valid_ids:
+            return
+        event_updated_at = max((str(event.get("created_at") or "") for event in events), default="")
+        current = candidates.setdefault(
+            learner_type,
+            {
+                "type": learner_type,
+                "confidence": 0.0,
+                "evidence_ids": [],
+                "updated_at": "",
+                "rank": 0.0,
+            },
+        )
+        current["evidence_ids"] = _dedupe(current["evidence_ids"] + valid_ids)[:40]
+        evidence_count = len(current["evidence_ids"])
+        normalized_confidence = _style_confidence(
+            _clamp_float(confidence, 0.0, 1.0, 0.0),
+            evidence_count,
+        )
+        current["confidence"] = round(max(float(current["confidence"]), normalized_confidence), 3)
+        current["rank"] = max(float(current["rank"]), normalized_confidence + rank_bonus)
+        current["updated_at"] = max(str(current["updated_at"]), event_updated_at, str(updated_at or ""))
+
+    for item in _slot_items(l3, "profile"):
+        if item.get("aspect") != "learning_style_tendency":
+            continue
+        learner_type = _canonical_learner_type(item.get("label"))
+        if not learner_type:
+            learner_type = _canonical_learner_type(_infer_learning_style_label(str(item.get("text") or "")))
+        add_candidate(
+            learner_type,
+            confidence=_clamp_float(item.get("confidence"), 0.0, 1.0, 0.5),
+            evidence_ids=_item_evidence_ids(item),
+            updated_at=str(item.get("updated_at") or ""),
+            rank_bonus=0.12,
+        )
+
+    for dimension, data in style.items():
+        if not isinstance(data, dict):
+            continue
+        dominant = str(data.get("dominant") or "")
+        learner_type = STYLE_DIMENSION_TYPE_MAP.get((dimension, dominant), "")
+        option = (data.get("options") or {}).get(dominant, {})
+        if not isinstance(option, dict):
+            continue
+        add_candidate(
+            learner_type,
+            confidence=_clamp_float(option.get("score"), 0.0, 1.0, 0.0),
+            evidence_ids=_as_str_list(option.get("evidence_ids")),
+            updated_at=str(option.get("last_seen_at") or ""),
+        )
+
+    if not candidates:
+        return {**_empty_style_profile("learning_behavior"), "candidates": []}
+
+    ranked = sorted(candidates.values(), key=lambda item: float(item.get("rank", 0.0)), reverse=True)
+    top = ranked[0]
+    evidence_ids = _dedupe(_as_str_list(top.get("evidence_ids")))
+    evidence_events = _user_style_events(
+        memory,
+        user_id=user_id,
+        evidence_ids=evidence_ids,
+        cache=event_cache,
+    )
+    session_count = len({str(event.get("session_id") or "") for event in evidence_events if event.get("session_id")})
+    evidence_count = len(evidence_ids)
+    confidence = round(_clamp_float(top.get("confidence"), 0.0, 0.95, 0.0), 3)
+    if evidence_count == 1:
+        status = "forming"
+    elif evidence_count < 4:
+        status = "emerging"
+    else:
+        status = "stable" if confidence >= 0.65 else "emerging"
+    if _is_stale_timestamp(str(top.get("updated_at") or "")):
+        status = "stale"
+    if len(ranked) > 1 and float(top.get("rank", 0.0)) - float(ranked[1].get("rank", 0.0)) < 0.12:
+        status = "mixed"
+
+    learner_type = str(top["type"])
+    label, summary = _style_definition(learner_type)
+    return {
+        "type": learner_type,
+        "label": label,
+        "summary": summary,
+        "source": "learning_behavior",
+        "status": status,
+        "confidence": confidence,
+        "evidence_count": evidence_count,
+        "session_count": session_count,
+        "evidence_ids": evidence_ids[:20],
+        "updated_at": str(top.get("updated_at") or ""),
+        "candidates": [
+            {
+                "type": str(item["type"]),
+                "label": _style_definition(str(item["type"]))[0],
+                "confidence": round(_clamp_float(item.get("confidence"), 0.0, 0.95, 0.0), 3),
+                "evidence_count": len(_dedupe(_as_str_list(item.get("evidence_ids")))),
+            }
+            for item in ranked[:3]
+        ],
+    }
+
+
+def _style_transition(
+    previous_effective: dict[str, Any],
+    observed_style: dict[str, Any],
+) -> dict[str, Any]:
+    previous = previous_effective.get("transition")
+    previous = previous if isinstance(previous, dict) else {}
+    candidate_type = str(observed_style.get("type") or "")
+    evidence_ids = _dedupe(_as_str_list(observed_style.get("evidence_ids")))
+    if previous.get("candidate_type") != candidate_type:
+        confirmations = 1
+    else:
+        previous_ids = set(_as_str_list(previous.get("evidence_ids")))
+        confirmations = int(previous.get("confirmations") or 1)
+        if any(event_id not in previous_ids for event_id in evidence_ids):
+            confirmations += 1
+    return {
+        "candidate_type": candidate_type,
+        "confirmations": min(confirmations, 3),
+        "evidence_ids": evidence_ids[:20],
+    }
+
+
+def _effective_style_value(
+    style_profile: dict[str, Any],
+    *,
+    source: str,
+    status: str | None = None,
+    confidence: float | None = None,
+    transition: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    value = {
+        key: style_profile.get(key, default)
+        for key, default in _empty_style_profile(source).items()
+    }
+    value["source"] = source
+    if status:
+        value["status"] = status
+    if confidence is not None:
+        value["confidence"] = round(_clamp_float(confidence, 0.0, 0.95, 0.0), 3)
+    if transition:
+        value["transition"] = transition
+    return value
+
+
+def _build_effective_style(
+    assessed_style: dict[str, Any],
+    observed_style: dict[str, Any],
+    *,
+    previous_state: dict[str, Any],
+) -> dict[str, Any]:
+    assessed_type = str(assessed_style.get("type") or "")
+    observed_type = str(observed_style.get("type") or "")
+    previous_effective = previous_state.get("effective_style")
+    previous_effective = previous_effective if isinstance(previous_effective, dict) else {}
+    previous_type = str(previous_effective.get("type") or "")
+
+    if not assessed_type and not observed_type:
+        return _empty_style_profile("none")
+    if not observed_type:
+        return _effective_style_value(assessed_style, source="assessment")
+
+    observed_stable = (
+        observed_style.get("status") == "stable"
+        and int(observed_style.get("evidence_count") or 0) >= 4
+        and int(observed_style.get("session_count") or 0) >= 2
+        and float(observed_style.get("confidence") or 0.0) >= 0.65
+    )
+
+    if not assessed_type:
+        if previous_type and previous_type != observed_type:
+            transition = _style_transition(previous_effective, observed_style)
+            if not observed_stable or int(transition["confirmations"]) < 2:
+                return _effective_style_value(
+                    previous_effective,
+                    source=str(previous_effective.get("source") or "learning_behavior"),
+                    status="recalibrating",
+                    transition=transition,
+                )
+        return _effective_style_value(observed_style, source="learning_behavior")
+
+    if assessed_type == observed_type:
+        assessed_confidence = float(assessed_style.get("confidence") or 0.0)
+        observed_confidence = float(observed_style.get("confidence") or 0.0)
+        fused_confidence = 1.0 - (1.0 - assessed_confidence) * (1.0 - observed_confidence * 0.7)
+        return _effective_style_value(
+            observed_style,
+            source="fused",
+            status="stable" if observed_stable else "calibrated",
+            confidence=fused_confidence,
+        )
+
+    transition = _style_transition(previous_effective, observed_style)
+    if observed_stable and previous_type == observed_type:
+        return _effective_style_value(observed_style, source="learning_behavior", status="updated")
+    if observed_stable and int(transition["confirmations"]) >= 2:
+        return _effective_style_value(observed_style, source="learning_behavior", status="updated")
+    if previous_type and previous_type not in {assessed_type, observed_type}:
+        return _effective_style_value(
+            previous_effective,
+            source=str(previous_effective.get("source") or "learning_behavior"),
+            status="recalibrating",
+            transition=transition,
+        )
+    return _effective_style_value(
+        assessed_style,
+        source="assessment",
+        status="calibrating",
+        transition=transition,
+    )
 
 
 def refresh_compact_profile_from_l3(
@@ -1513,9 +1957,9 @@ def _infer_learning_style_label(text: str) -> str:
         return "概念后接病例型学习者"
     if any(word in value for word in ("病例", "案例", "临床", "case", "clinical", "example")):
         return "病例驱动型学习者"
-    if any(word in value for word in ("练习", "题目", "答题", "错题", "反复做题", "practice")):
+    if any(word in value for word in ("练习", "题目", "答题", "错题", "反复做题", "检索增强", "主动回忆", "practice", "retrieval_enhanced", "active recall")):
         return "练习驱动型学习者"
-    if any(word in value for word in ("详细", "推导", "拆解", "一步步", "detailed", "step", "reasoning")):
+    if any(word in value for word in ("详细", "推导", "拆解", "一步步", "为什么", "机制", "原理", "detailed", "step", "reasoning", "why", "mechanism", "principle")):
         return "推导型学习者"
     if any(word in value for word in ("简洁", "要点", "直接", "concise")):
         return "要点型学习者"
@@ -1705,6 +2149,10 @@ def _learning_style_label_from_token(label: str) -> str:
         "practice_driven": "练习驱动型学习者",
         "quiz_driven": "练习驱动型学习者",
         "exercise_driven": "练习驱动型学习者",
+        "retrieval_enhanced": "练习驱动型学习者",
+        "retrieval_enhanced_learner": "练习驱动型学习者",
+        "active_recall": "练习驱动型学习者",
+        "active_recall_learner": "练习驱动型学习者",
         "reasoning": "推导型学习者",
         "stepwise_reasoning": "推导型学习者",
         "deductive": "推导型学习者",
@@ -1901,8 +2349,12 @@ def _compact_profile_state_for_prompt(value: Any) -> dict[str, Any]:
 def _default_profile_state() -> dict[str, Any]:
     return {
         "schema_version": 1,
+        "style_fusion_version": "v1",
         "slot": PROFILE_STATE_SLOT,
         "style": {},
+        "assessed_style": _empty_style_profile("assessment"),
+        "observed_style": {**_empty_style_profile("learning_behavior"), "candidates": []},
+        "effective_style": _empty_style_profile("none"),
         "weakness_summary": [],
         "mastery_summary": [],
         "summary": "暂无足够稳定的画像证据，先采用标准讲解策略。",
