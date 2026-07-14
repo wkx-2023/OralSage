@@ -337,6 +337,7 @@ def _route_message(intent: Any) -> str:
         "study_plan": "已进入计划模式。",
         "literature": "已进入文献模式。",
         "clarification": "需要补充需求信息。",
+        "direct_qa": "已进入直接问答模式。",
     }.get(str(intent or ""), "总控已完成路由。")
 
 

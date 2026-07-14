@@ -86,6 +86,22 @@ CREATE TABLE IF NOT EXISTS mastery_records (
     updated_at        TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS direct_qa_mastery_records (
+    id                TEXT PRIMARY KEY,
+    user_id           TEXT NOT NULL,
+    kg_node_id        TEXT,
+    concept_name      TEXT NOT NULL,
+    mastery_score     REAL NOT NULL,
+    confidence        REAL NOT NULL,
+    source            TEXT NOT NULL DEFAULT 'direct_qa',
+    source_ref        TEXT,
+    evidence_json     TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_direct_qa_mastery_user_kg
+ON direct_qa_mastery_records (user_id, kg_node_id);
+
 CREATE TABLE IF NOT EXISTS answer_records (
     id                TEXT PRIMARY KEY,
     session_id        TEXT NOT NULL,
@@ -1367,6 +1383,153 @@ class LearningMemory:
         self._conn.commit()
 
         return mastery_records, eid
+
+    # -- Direct QA mastery records ------------------------------------
+
+    def upsert_direct_qa_mastery(
+        self,
+        user_id: str,
+        concept_name: str,
+        mastery_delta: float,
+        kg_node_id: str | None = None,
+        evidence: dict[str, Any] | None = None,
+        confidence_delta: float = 0.05,
+        source_ref: str | None = None,
+    ) -> dict[str, Any]:
+        """Insert or update a Direct QA mastery record.
+
+        Looks up the latest record matching (user_id, kg_node_id, concept_name).
+        If found, updates it; otherwise inserts a new one.
+
+        ``mastery_score`` is clamped to [0.0, 1.0].
+        ``confidence`` is clamped to [0.0, 1.0].
+        ``source`` is always ``'direct_qa'``.
+
+        This is **physically isolated** from course ``mastery_records`` — it
+        writes to ``direct_qa_mastery_records`` only and never touches
+        course session-scoped mastery rows.
+
+        Parameters
+        ----------
+        user_id:
+            The user id.
+        concept_name:
+            Human-readable concept label (required).
+        mastery_delta:
+            Signed delta to apply to mastery_score (e.g. -0.03 for confusion).
+        kg_node_id:
+            Optional KG node id.  When omitted the record is scoped to
+            concept_name alone.
+        evidence:
+            Arbitrary evidence dict (question, resolved_question, KAG results,
+            etc.).  Stored as JSON.
+        confidence_delta:
+            Signed delta to apply to confidence (default 0.05).
+        source_ref:
+            Opaque reference for upstream traceability (e.g. a Direct QA
+            conversation / event id).  Optional.
+        """
+        # Try to find an existing record
+        existing_row = self._conn.execute(
+            """SELECT * FROM direct_qa_mastery_records
+               WHERE user_id = ?
+                 AND (kg_node_id = ? OR (kg_node_id IS NULL AND ? IS NULL))
+                 AND concept_name = ?
+               ORDER BY updated_at DESC LIMIT 1""",
+            (user_id, kg_node_id, kg_node_id, concept_name),
+        ).fetchone()
+
+        if existing_row:
+            existing = dict(existing_row)
+            new_score = max(0.0, min(1.0, existing["mastery_score"] + mastery_delta))
+            new_confidence = max(
+                0.0, min(1.0, existing["confidence"] + confidence_delta)
+            )
+            self._conn.execute(
+                """UPDATE direct_qa_mastery_records
+                   SET mastery_score = ?, confidence = ?,
+                       source_ref = ?, evidence_json = ?,
+                       updated_at = ?
+                   WHERE id = ?""",
+                (
+                    new_score,
+                    new_confidence,
+                    source_ref,
+                    json.dumps(evidence or {}, ensure_ascii=False),
+                    _now(),
+                    existing["id"],
+                ),
+            )
+            self._conn.commit()
+            return self._direct_qa_mastery_row_to_dict(existing["id"])
+        else:
+            mid = _new_id("dqa_")
+            new_score = max(0.0, min(1.0, 0.3 + mastery_delta))
+            new_confidence = max(0.0, min(1.0, 0.3 + confidence_delta))
+            self._conn.execute(
+                """INSERT INTO direct_qa_mastery_records
+                   (id, user_id, kg_node_id, concept_name,
+                    mastery_score, confidence, source, source_ref,
+                    evidence_json, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'direct_qa', ?, ?, ?)""",
+                (
+                    mid,
+                    user_id,
+                    kg_node_id,
+                    concept_name,
+                    new_score,
+                    new_confidence,
+                    source_ref,
+                    json.dumps(evidence or {}, ensure_ascii=False),
+                    _now(),
+                ),
+            )
+            self._conn.commit()
+            return self._direct_qa_mastery_row_to_dict(mid)
+
+    def _direct_qa_mastery_row_to_dict(self, mid: str) -> dict[str, Any]:
+        """Read a Direct QA mastery record by id and return it as a dict."""
+        row = self._conn.execute(
+            "SELECT * FROM direct_qa_mastery_records WHERE id = ?", (mid,)
+        ).fetchone()
+        if row is None:
+            return {}
+        d = dict(row)
+        d["evidence"] = json.loads(d.pop("evidence_json", "{}"))
+        return d
+
+    def get_direct_qa_mastery_by_user(
+        self,
+        user_id: str,
+        kg_node_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return all Direct QA mastery records for *user_id*, newest first.
+
+        When *kg_node_id* is provided the result is filtered to that single
+        KG node.
+
+        Each record includes ``evidence`` parsed from JSON.
+        """
+        if kg_node_id:
+            rows = self._conn.execute(
+                """SELECT * FROM direct_qa_mastery_records
+                   WHERE user_id = ? AND kg_node_id = ?
+                   ORDER BY updated_at DESC""",
+                (user_id, kg_node_id),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """SELECT * FROM direct_qa_mastery_records
+                   WHERE user_id = ?
+                   ORDER BY updated_at DESC""",
+                (user_id,),
+            ).fetchall()
+        result: list[dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            d["evidence"] = json.loads(d.pop("evidence_json", "{}"))
+            result.append(d)
+        return result
 
     # -- summary -------------------------------------------------------
 

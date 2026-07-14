@@ -8,7 +8,7 @@ Architecture
 ``MasterRouter`` receives a user message + context and:
 
 1. If ``context.plan_item_id`` is present → deterministic lookup (no LLM).
-2. Otherwise → constrained LLM classification into one of four intents.
+2. Otherwise → constrained LLM classification into one of five intents.
 3. Dispatches to the existing downstream service and returns a unified
    ``{route, final_result, next_action}`` response.
 
@@ -33,6 +33,7 @@ from backend.services.llm_client import (
 from backend.services.learning.study_plan import recommend_study_plan
 from backend.services.learning.llm_policy import decide_next_action_with_llm
 from backend.services.literature.agent import run_literature_search
+from backend.services.qa.direct_qa import answer_direct_question
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 VALID_INTENTS: frozenset[str] = frozenset(
-    {"learning", "study_plan", "literature", "clarification"}
+    {"learning", "study_plan", "literature", "clarification", "direct_qa"}
 )
 
 INTENT_TO_TARGET: dict[str, str] = {
@@ -49,6 +50,7 @@ INTENT_TO_TARGET: dict[str, str] = {
     "study_plan": "study_plan",
     "literature": "frontier_literature",
     "clarification": "none",
+    "direct_qa": "direct_qa_service",
 }
 
 INTENT_TO_NEXT_ACTION: dict[str, str] = {
@@ -56,15 +58,23 @@ INTENT_TO_NEXT_ACTION: dict[str, str] = {
     "study_plan": "show_recommendations",
     "literature": "show_literature",
     "clarification": "select_plan",
+    "direct_qa": "show_direct_answer",
 }
 
 CLASSIFIER_SYSTEM_PROMPT = (
-    "你是一个学习需求分类器。根据用户的消息内容，判断用户意图属于以下四类中的哪一类：\n"
+    "你是一个学习需求分类器。根据用户的消息内容，判断用户意图属于以下五类中的哪一类：\n"
     "\n"
-    "- learning: 用户想学习某个知识主题、了解某个概念、开始学习某项内容\n"
+    "- learning: 用户想系统学习某个知识主题、了解某个概念、开始学习某项内容，"
+    "需要课程结构、连续讲解或完整主题学习\n"
+    "- direct_qa: 用户提出具体的口腔医学问题，希望获得直接文字回答而非系统学习课程；"
+    "问题明确、可以一次回答，不需要大纲、讲义或 PPT\n"
     "- study_plan: 用户想获取学习计划推荐、想知道今天学什么、需要安排学习任务\n"
     "- literature: 用户想检索论文文献、查找最新研究、翻译文章、了解科研进展\n"
     "- clarification: 用户意图模糊不清，或无法判断其具体需求\n"
+    "\n"
+    "区分 learning 和 direct_qa 的关键：如果用户的问题是为了求解一个具体疑问"
+    "（如鉴别诊断、治疗方法、病因机制等），属于 direct_qa；"
+    "如果用户需要系统性地学习一个主题（如\"系统学习牙周炎\"），属于 learning。\n"
     "\n"
     "同时判断用户是否明确要求开始或完成自己已有的学习计划项。只有用户明确提到"
     "自己的学习计划、计划任务或要完成已有计划时，plan_item_requested 才能为 true。"
@@ -72,7 +82,7 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "或安排学习计划属于 study_plan，plan_item_requested 应为 false。\n"
     "\n"
     "请严格只返回一个 JSON 对象，格式如下，不要附带任何其他文本：\n"
-    '{"intent": "<learning|study_plan|literature|clarification>", '
+    '{"intent": "<learning|direct_qa|study_plan|literature|clarification>", '
     '"plan_item_requested": <true|false>, "topic": "<学习主题或空字符串>", '
     '"reason": "<简短中文说明>"}'
 )
@@ -141,6 +151,26 @@ def _validate_route(parsed: dict[str, Any]) -> dict[str, Any] | None:
     return route
 
 
+def _normalize_history_for_direct_qa(
+    history: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Keep only ``role`` + ``content`` fields with non-empty string values.
+
+    The Direct QA service performs its own internal normalization (max 8
+    turns, user/assistant roles only), so this is a lightweight pre-filter
+    to satisfy the type contract.
+    """
+    cleaned: list[dict[str, str]] = []
+    for turn in history:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role", "")).strip()
+        content = str(turn.get("content", "")).strip()
+        if role and content:
+            cleaned.append({"role": role, "content": content})
+    return cleaned
+
+
 def _normalize_learning_topic(value: Any) -> str:
     text = " ".join(str(value or "").split()).strip()
     prefixes = ("我想要学习", "我想学习", "我想要了解", "我想了解", "请学习", "学习")
@@ -201,12 +231,14 @@ class MasterRouter:
         literature_service: Callable[..., Any] | None = None,
         study_plan_service: Callable[..., Any] | None = None,
         plan_matcher: Callable[..., str | None] | None = None,
+        direct_qa_service: Callable[..., dict[str, Any]] | None = None,
     ) -> None:
         self.learning_orchestrator = learning_orchestrator
         self._classifier = classifier
         self._literature_service = literature_service or run_literature_search
         self._study_plan_service = study_plan_service or recommend_study_plan
         self._plan_matcher = plan_matcher
+        self._direct_qa_service = direct_qa_service or answer_direct_question
 
     # ------------------------------------------------------------------
     # Public API
@@ -261,6 +293,8 @@ class MasterRouter:
         # --- dispatch --------------------------------------------------------
         if route["intent"] == "learning":
             return await self._handle_learning(user_id, message, route)
+        elif route["intent"] == "direct_qa":
+            return await self._handle_direct_qa(message, user_id, route, history)
         elif route["intent"] == "study_plan":
             return await self._handle_study_plan(user_id, message, route)
         elif route["intent"] == "literature":
@@ -557,6 +591,47 @@ class MasterRouter:
 
         return {
             "ok": result.get("ok", False),
+            "route": route,
+            "final_result": result,
+            "next_action": INTENT_TO_NEXT_ACTION[route["intent"]],
+        }
+
+    async def _handle_direct_qa(
+        self,
+        message: str,
+        user_id: str,
+        route: dict[str, Any],
+        history: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        """Call the Direct QA service — no session, PPT, or outline created.
+
+        Passes the raw *message*, real conversation *history*, and *user_id*
+        to :func:`answer_direct_question`.  The history is only used for
+        reference resolution; answers are never treated as medical evidence.
+        """
+        normalized_history = _normalize_history_for_direct_qa(history or [])
+        try:
+            result = await asyncio.to_thread(
+                self._direct_qa_service,
+                message=message,
+                history=normalized_history,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            logger.exception("Direct QA service failed")
+            return {
+                "ok": False,
+                "route": route,
+                "final_result": {
+                    "answer": "答疑系统当前不可用，请稍后重试。",
+                    "error": str(exc),
+                },
+                "next_action": INTENT_TO_NEXT_ACTION[route["intent"]],
+                "error": f"直接问答失败：{exc}",
+            }
+
+        return {
+            "ok": True,
             "route": route,
             "final_result": result,
             "next_action": INTENT_TO_NEXT_ACTION[route["intent"]],
