@@ -36,6 +36,11 @@
     visualGraph: null,
     detailVisible: false,
     bookPromptVisible: true,
+    selectionRequestId: 0,
+    graphTransitionId: 0,
+    searchTimer: 0,
+    edgeLabelReferenceScale: 0,
+    suppressGraphClickUntil: 0,
   };
 
   const ENTRANCE_DURATION = 4200;
@@ -43,6 +48,7 @@
   const MAX_GRAPH_SCALE = 1.9;
   const OVERVIEW_MIN_SCALE = 0.2;
   const OVERVIEW_MAX_SCALE = 0.42;
+  const EDGE_LABEL_SCREEN_SIZE = 13;
 
   const GRAPH_NODE_COLORS = [
     '#5D66D0',
@@ -246,6 +252,7 @@
     ctx.clearRect(0, 0, state.width, state.height);
     ctx.save();
     ctx.lineCap = 'round';
+    const chapterCoreIds = activeChapterCoreIds();
 
     graph.edges.forEach((edge) => {
       const delay = timings?.edgeDelay?.get(graphEdgeKey(edge)) || 0;
@@ -254,8 +261,9 @@
       const a = canvasPoint(edge.sourceNode.x, edge.sourceNode.y);
       const b = canvasPoint(edge.targetNode.x, edge.targetNode.y);
       const sameBook = edge.sourceNode.properties?.book_title === edge.targetNode.properties?.book_title;
+      const chapterInternal = isChapterInternalEdge(edge, chapterCoreIds);
       const color = sameBook ? colorForNode(edge.sourceNode) : '#7468A6';
-      ctx.globalAlpha = (sameBook ? 0.14 : 0.065) * t;
+      ctx.globalAlpha = (chapterInternal ? 0.46 : sameBook ? 0.14 : 0.065) * t;
       ctx.strokeStyle = color;
       ctx.lineWidth = (['IS_SUBTYPE_OF', 'DIFFERENTIAL_FROM'].includes(edge.type) ? 0.44 : 0.28) * Math.max(0.72, state.scale);
       ctx.beginPath();
@@ -395,6 +403,17 @@
 
   function chapterKey(chapter) {
     return chapter.key || `${chapter.book_title || ''}::${chapter.number || ''}::${chapter.title || ''}`;
+  }
+
+  function activeChapterCoreIds() {
+    if (!state.activeChapter || state.selectedId) return null;
+    const chapter = state.chapters.find((item) => chapterKey(item) === state.activeChapter);
+    if (!chapter) return null;
+    return new Set(chapter.core_ids || (chapter.cores || []).map((item) => item.id));
+  }
+
+  function isChapterInternalEdge(edge, coreIds) {
+    return Boolean(coreIds?.has(edge.source) && coreIds.has(edge.target));
   }
 
   function bookColor(bookTitle) {
@@ -687,7 +706,7 @@
     };
   }
 
-  function layoutGraph(graph) {
+  function layoutGraph(graph, options = {}) {
     const width = state.width;
     const height = state.height;
     const nodes = graph.nodes;
@@ -886,13 +905,31 @@
     }
 
     graph.clusters = Array.from(clusterMap.values());
+    const focusNode = options.centerNodeId ? nodeById.get(options.centerNodeId) : null;
+    if (focusNode) {
+      const offsetX = centerX - focusNode.x;
+      const offsetY = centerY - focusNode.y;
+      nodes.forEach((node) => {
+        node.x += offsetX;
+        node.y += offsetY;
+        if (Number.isFinite(node.anchorX)) node.anchorX += offsetX;
+        if (Number.isFinite(node.anchorY)) node.anchorY += offsetY;
+        if (Number.isFinite(node.clusterX)) node.clusterX += offsetX;
+        if (Number.isFinite(node.clusterY)) node.clusterY += offsetY;
+      });
+      graph.clusters.forEach((cluster) => {
+        cluster.x += offsetX;
+        cluster.y += offsetY;
+      });
+    }
     return graph;
   }
 
-  function graphLayoutKey(source) {
+  function graphLayoutKey(source, centerNodeId = '') {
     return [
       state.width,
       state.height,
+      centerNodeId,
       source.nodes.map((node) => node.id).sort().join(','),
       source.edges.map((edge) => graphEdgeKey(edge)).sort().join(','),
     ].join('|');
@@ -940,7 +977,7 @@
     return state.overviewLayout;
   }
 
-  function layoutEdgeLabels(edges) {
+  function layoutEdgeLabels(edges, fontSize = 12) {
     const placed = [];
     return edges.map((edge, index) => {
       const label = edge.label || relationLabel(edge.type);
@@ -951,14 +988,14 @@
       const length = Math.max(1, Math.sqrt(dx * dx + dy * dy));
       const normalX = -dy / length;
       const normalY = dx / length;
-      const width = Math.max(34, String(label).length * 10.2);
-      const height = 15;
+      const width = Math.max(fontSize * 3.6, String(label).length * fontSize * 1.06);
+      const height = fontSize * 1.5;
       const preferredSide = index % 2 === 0 ? 1 : -1;
       let best = { x: midX, y: midY, label, width, height };
 
       for (let step = 0; step < 10; step += 1) {
         const side = step % 2 === 0 ? preferredSide : -preferredSide;
-        const distance = Math.ceil(step / 2) * 12;
+        const distance = Math.ceil(step / 2) * Math.max(12, fontSize * 1.25);
         const x = midX + normalX * distance * side;
         const y = midY + normalY * distance * side;
         const candidate = { x, y, label, width, height };
@@ -979,6 +1016,11 @@
     const tx = state.width / 2 + state.panX;
     const ty = state.height / 2 + state.panY;
     return `translate(${tx.toFixed(1)} ${ty.toFixed(1)}) scale(${state.scale.toFixed(3)}) translate(${-state.width / 2} ${-state.height / 2})`;
+  }
+
+  function edgeLabelGraphFontSize() {
+    const referenceScale = state.edgeLabelReferenceScale || state.scale;
+    return EDGE_LABEL_SCREEN_SIZE / Math.max(referenceScale, 0.01);
   }
 
   function applyGraphTransform() {
@@ -1053,6 +1095,85 @@
     });
   }
 
+  function elementIsVisible(element) {
+    if (!element) return false;
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none'
+      && style.visibility !== 'hidden'
+      && Number(style.opacity || 1) > 0.01
+      && rect.width > 0
+      && rect.height > 0;
+  }
+
+  function clientPointToSvg(clientX, clientY) {
+    const svg = byId('kg-canvas');
+    const matrix = svg?.getScreenCTM();
+    if (!svg || !matrix) return null;
+    const point = svg.createSVGPoint();
+    point.x = clientX;
+    point.y = clientY;
+    return point.matrixTransform(matrix.inverse());
+  }
+
+  function getUsableViewport(options = {}) {
+    const svg = byId('kg-canvas');
+    const canvasRect = svg?.getBoundingClientRect();
+    if (!svg || !canvasRect?.width || !canvasRect?.height) {
+      return { left: 0, right: state.width, top: 0, bottom: state.height };
+    }
+
+    const gap = options.gap ?? 22;
+    const safe = {
+      left: canvasRect.left + gap,
+      right: canvasRect.right - gap,
+      top: canvasRect.top + gap,
+      bottom: canvasRect.bottom - gap,
+    };
+    const canvasCenterX = canvasRect.left + canvasRect.width / 2;
+    const canvasCenterY = canvasRect.top + canvasRect.height / 2;
+    const detail = document.querySelector('.kg-detail');
+    const narrowViewport = canvasRect.width <= 980;
+    const detailExpanded = state.detailVisible && !detail?.classList.contains('minimized');
+    const overlays = [];
+    if (!(narrowViewport && detailExpanded)) overlays.push(document.querySelector('.kg-chapters'));
+    if (narrowViewport) overlays.push(document.querySelector('.kg-toolbar'));
+    if (options.includeDetail !== false && state.detailVisible) {
+      overlays.push(detail);
+    }
+
+    overlays.filter(elementIsVisible).forEach((element) => {
+      const rect = element.getBoundingClientRect();
+      const spansMostWidth = rect.width > canvasRect.width * 0.55;
+      if (spansMostWidth) {
+        if (rect.top < canvasCenterY) safe.top = Math.max(safe.top, rect.bottom + gap);
+        else safe.bottom = Math.min(safe.bottom, rect.top - gap);
+        return;
+      }
+      if (rect.left < canvasCenterX) safe.left = Math.max(safe.left, rect.right + gap);
+      else safe.right = Math.min(safe.right, rect.left - gap);
+    });
+
+    if (safe.right - safe.left < 180 || safe.bottom - safe.top < 180) {
+      safe.left = canvasRect.left + gap;
+      safe.right = canvasRect.right - gap;
+      safe.top = canvasRect.top + gap;
+      safe.bottom = canvasRect.bottom - gap;
+    }
+
+    const topLeft = clientPointToSvg(safe.left, safe.top);
+    const bottomRight = clientPointToSvg(safe.right, safe.bottom);
+    if (!topLeft || !bottomRight) {
+      return { left: 0, right: state.width, top: 0, bottom: state.height };
+    }
+    return {
+      left: Math.min(topLeft.x, bottomRight.x),
+      right: Math.max(topLeft.x, bottomRight.x),
+      top: Math.min(topLeft.y, bottomRight.y),
+      bottom: Math.max(topLeft.y, bottomRight.y),
+    };
+  }
+
   function viewForBounds(nodes, scaleLimits = {}) {
     if (!nodes?.length) {
       return { scale: state.scale, panX: state.panX, panY: state.panY };
@@ -1060,6 +1181,12 @@
     const padding = scaleLimits.padding ?? 130;
     const minScale = scaleLimits.minScale ?? 0.54;
     const maxScale = scaleLimits.maxScale ?? 1.2;
+    const viewport = scaleLimits.viewport || {
+      left: 0,
+      right: state.width,
+      top: 0,
+      bottom: state.height,
+    };
     const bounds = nodes.reduce((acc, node) => ({
       minX: Math.min(acc.minX, node.x - (node.radius || 0)),
       maxX: Math.max(acc.maxX, node.x + (node.radius || 0)),
@@ -1073,16 +1200,68 @@
     });
     const width = Math.max(1, bounds.maxX - bounds.minX);
     const height = Math.max(1, bounds.maxY - bounds.minY);
-    const availableWidth = Math.max(220, state.width - padding * 2);
-    const availableHeight = Math.max(220, state.height - padding * 2);
+    const availableWidth = Math.max(120, viewport.right - viewport.left - padding * 2);
+    const availableHeight = Math.max(120, viewport.bottom - viewport.top - padding * 2);
     const scale = clamp(Math.min(availableWidth / width, availableHeight / height), minScale, maxScale);
     const centerX = (bounds.minX + bounds.maxX) / 2;
     const centerY = (bounds.minY + bounds.maxY) / 2;
+    const viewportCenterX = (viewport.left + viewport.right) / 2;
+    const viewportCenterY = (viewport.top + viewport.bottom) / 2;
     return {
       scale,
-      panX: (state.width / 2 - centerX) * scale,
-      panY: (state.height / 2 - centerY) * scale,
+      panX: viewportCenterX - state.width / 2 - (centerX - state.width / 2) * scale,
+      panY: viewportCenterY - state.height / 2 - (centerY - state.height / 2) * scale,
     };
+  }
+
+  function viewForNode(node, nodes, options = {}) {
+    if (!node) return viewForBounds(nodes, options);
+    const viewport = options.viewport || getUsableViewport();
+    const padding = options.padding ?? 54;
+    const minScale = options.minScale ?? 0.42;
+    const maxScale = options.maxScale ?? 1.14;
+    const bounds = (nodes || [node]).reduce((acc, item) => ({
+      minX: Math.min(acc.minX, item.x - (item.radius || 0)),
+      maxX: Math.max(acc.maxX, item.x + (item.radius || 0)),
+      minY: Math.min(acc.minY, item.y - (item.radius || 0)),
+      maxY: Math.max(acc.maxY, item.y + (item.radius || 0)),
+    }), {
+      minX: node.x,
+      maxX: node.x,
+      minY: node.y,
+      maxY: node.y,
+    });
+    const focusX = (viewport.left + viewport.right) / 2;
+    const focusYRatio = options.focusYRatio ?? 0.5;
+    const focusY = viewport.top + (viewport.bottom - viewport.top) * focusYRatio;
+    const candidates = [
+      (focusX - viewport.left) / Math.max(padding, node.x - bounds.minX + padding),
+      (viewport.right - focusX) / Math.max(padding, bounds.maxX - node.x + padding),
+      (focusY - viewport.top) / Math.max(padding, node.y - bounds.minY + padding),
+      (viewport.bottom - focusY) / Math.max(padding, bounds.maxY - node.y + padding),
+    ];
+    const scale = clamp(Math.min(...candidates), minScale, maxScale);
+    return {
+      scale,
+      panX: focusX - state.width / 2 - (node.x - state.width / 2) * scale,
+      panY: focusY - state.height / 2 - (node.y - state.height / 2) * scale,
+    };
+  }
+
+  function focusSelectedNode(duration = 720) {
+    const graph = state.laidOutGraph;
+    const node = graph?.nodes?.find((item) => item.id === state.selectedId);
+    if (!node) return Promise.resolve(false);
+    const target = viewForNode(node, graph.nodes, {
+      viewport: getUsableViewport(),
+      minScale: 0.42,
+      maxScale: 1.14,
+      padding: 58,
+      focusYRatio: window.innerWidth > 980 ? 0.46 : 0.5,
+    });
+    state.edgeLabelReferenceScale = target.scale;
+    renderGraph();
+    return animateViewTo(target, duration);
   }
 
   function fitOverviewView(graph) {
@@ -1106,10 +1285,14 @@
     svg.setAttribute('viewBox', `0 0 ${state.width} ${state.height}`);
 
     const source = currentGraphSource();
-    const layoutKey = graphLayoutKey(source);
+    const centerNodeId = state.selectedId && source.nodes.some((node) => node.id === state.selectedId)
+      ? state.selectedId
+      : '';
+    const layoutKey = graphLayoutKey(source, centerNodeId);
     if (state.layoutKey !== layoutKey || !state.laidOutGraph) {
       state.layoutKey = layoutKey;
-      state.laidOutGraph = options.preservedLayout || layoutGraph(normalizeGraph(source.nodes, source.edges));
+      state.laidOutGraph = options.preservedLayout
+        || layoutGraph(normalizeGraph(source.nodes, source.edges), { centerNodeId });
       if (!state.search.trim() && source === state.overview) {
         state.overviewLayout = state.laidOutGraph;
         state.overviewLayoutKey = layoutKey;
@@ -1132,11 +1315,13 @@
 
     const transform = graphTransform();
     const selectedEdges = new Set();
+    const chapterCoreIds = activeChapterCoreIds();
     graph.edges.forEach((edge) => {
       if (edge.source === state.selectedId || edge.target === state.selectedId) selectedEdges.add(edge.id);
     });
     const labeledEdges = graph.edges.filter((edge) => selectedEdges.has(edge.id));
-    const edgeLabels = new Map(layoutEdgeLabels(labeledEdges));
+    const edgeLabelFontSize = edgeLabelGraphFontSize();
+    const edgeLabels = new Map(layoutEdgeLabels(labeledEdges, edgeLabelFontSize));
     const entrance = entranceTimings(graph);
     const entranceActive = state.entranceActive && !state.entrancePlayed && !prefersReducedMotion();
     if (entranceActive) {
@@ -1146,12 +1331,13 @@
     const edgeHtml = graph.edges.map((edge) => {
       const selected = selectedEdges.has(edge.id);
       const strong = ['IS_SUBTYPE_OF', 'DIFFERENTIAL_FROM'].includes(edge.type);
+      const chapterInternal = isChapterInternalEdge(edge, chapterCoreIds);
       const label = edge.label || relationLabel(edge.type);
       const labelPlacement = edgeLabels.get(edge.id);
       const sameBook = edge.sourceNode.properties?.book_title === edge.targetNode.properties?.book_title;
       const edgeColor = sameBook ? colorForNode(edge.sourceNode) : '#7468A6';
       return `
-        <g class="kg-edge-group${sameBook ? '' : ' cross-book'}${strong ? ' strong' : ''}${selected ? ' selected' : ''}" style="--edge-color:${escapeHtml(edgeColor)}">
+        <g class="kg-edge-group${sameBook ? '' : ' cross-book'}${strong ? ' strong' : ''}${chapterInternal ? ' chapter-internal' : ''}${selected ? ' selected' : ''}" style="--edge-color:${escapeHtml(edgeColor)}">
           <line class="kg-edge" pathLength="1" x1="${edge.sourceNode.x.toFixed(1)}" y1="${edge.sourceNode.y.toFixed(1)}" x2="${edge.targetNode.x.toFixed(1)}" y2="${edge.targetNode.y.toFixed(1)}"></line>
           ${selected && labelPlacement ? `<text class="kg-edge-label" text-anchor="middle" x="${labelPlacement.x.toFixed(1)}" y="${labelPlacement.y.toFixed(1)}">${escapeHtml(label)}</text>` : ''}
         </g>
@@ -1190,7 +1376,7 @@
 
     svg.innerHTML = `
       <rect class="kg-pan-surface" width="${state.width}" height="${state.height}"></rect>
-      <g class="${viewportClass}" transform="${transform}">
+      <g class="${viewportClass}" transform="${transform}" style="--kg-edge-label-font-size:${edgeLabelFontSize.toFixed(2)}px">
         <g class="kg-layer kg-layer-clusters">${clusterHtml}</g>
         <g class="kg-layer kg-layer-edges">${edgeHtml}</g>
         <g class="kg-layer kg-layer-nodes">${nodeHtml}</g>
@@ -1546,9 +1732,49 @@
     `;
   }
 
+  function waitForMilliseconds(duration) {
+    return new Promise((resolve) => window.setTimeout(resolve, duration));
+  }
+
+  function nextAnimationFrame() {
+    return new Promise((resolve) => window.requestAnimationFrame(resolve));
+  }
+
+  function cancelGraphTransition() {
+    state.graphTransitionId += 1;
+    document.querySelector('.kg-canvas-panel')?.classList.remove('kg-graph-swapping');
+  }
+
+  function cancelPendingSearch() {
+    window.clearTimeout(state.searchTimer);
+    state.searchTimer = 0;
+  }
+
+  async function swapRenderedGraph(render, duration = 180) {
+    const panel = document.querySelector('.kg-canvas-panel');
+    if (!panel || prefersReducedMotion() || !state.entrancePlayed) {
+      render();
+      return true;
+    }
+    const transitionId = state.graphTransitionId + 1;
+    state.graphTransitionId = transitionId;
+    panel.classList.add('kg-graph-swapping');
+    await waitForMilliseconds(duration);
+    if (transitionId !== state.graphTransitionId) return false;
+    render();
+    await nextAnimationFrame();
+    await nextAnimationFrame();
+    if (transitionId !== state.graphTransitionId) return false;
+    panel.classList.remove('kg-graph-swapping');
+    return true;
+  }
+
   async function showOverview() {
     cancelViewAnimation();
+    cancelGraphTransition();
+    cancelPendingSearch();
     state.bookFlightId += 1;
+    state.selectionRequestId += 1;
     state.activeChapter = null;
     state.selectedId = '';
     state.activeBookTitle = '';
@@ -1574,6 +1800,9 @@
     if (!bookTitle) return;
     if (state.entranceActive) completeGraphEntrance();
     cancelViewAnimation();
+    cancelGraphTransition();
+    cancelPendingSearch();
+    state.selectionRequestId += 1;
     const flightId = state.bookFlightId + 1;
     state.bookFlightId = flightId;
     const baseLayout = overviewLayout() || state.laidOutGraph;
@@ -1598,7 +1827,8 @@
       await animateViewTo(viewForBounds(targetNodes, {
         minScale: 0.42,
         maxScale: 0.9,
-        padding: 220,
+        padding: 54,
+        viewport: getUsableViewport({ includeDetail: false }),
       }), 940);
     }
     if (flightId !== state.bookFlightId) return;
@@ -1614,23 +1844,19 @@
     state.layoutKey = '';
     renderBookPicker();
     renderChapters();
-    renderGraph({ preservedLayout });
+    await swapRenderedGraph(() => renderGraph({ preservedLayout }));
   }
 
   async function selectChapter(key) {
     const chapter = state.chapters.find((item) => chapterKey(item) === key);
     if (!chapter) return;
     cancelViewAnimation();
-    state.bookFlightId += 1;
+    cancelGraphTransition();
+    cancelPendingSearch();
+    state.selectionRequestId += 1;
+    const flightId = state.bookFlightId + 1;
+    state.bookFlightId = flightId;
     const coreIds = new Set(chapter.core_ids || (chapter.cores || []).map((item) => item.id));
-    state.activeBookTitle = chapter.book_title || state.activeBookTitle;
-    state.activeChapter = chapterKey(chapter);
-    state.selectedId = '';
-    state.bookPromptVisible = false;
-    closeDetailPanel();
-    byId('kg-overview-btn')?.classList.remove('active');
-    const graphTitle = byId('kg-graph-title');
-    if (graphTitle) graphTitle.textContent = chapter.title || '章节核心关系网';
     const nodes = (state.overview.nodes || []).filter((node) => coreIds.has(node.id));
     const neighborIds = new Set(coreIds);
     (state.overview.edges || []).forEach((edge) => {
@@ -1639,29 +1865,60 @@
         neighborIds.add(edge.target);
       }
     });
-    state.graph = {
+    const targetGraph = {
       nodes: (state.overview.nodes || []).filter((node) => neighborIds.has(node.id)),
       edges: (state.overview.edges || []).filter((edge) => neighborIds.has(edge.source) && neighborIds.has(edge.target)),
     };
-    if (!state.graph.nodes.length) state.graph.nodes = nodes;
-    state.scale = 0.72;
-    state.panX = 0;
-    state.panY = 0;
+    if (!targetGraph.nodes.length) targetGraph.nodes = nodes;
+    const preservedLayout = preserveLayoutSubset(targetGraph, state.laidOutGraph);
+    const targetNodes = (preservedLayout?.nodes || []).filter((node) => coreIds.has(node.id));
+    if (targetNodes.length) {
+      await animateViewTo(viewForBounds(targetNodes, {
+        minScale: 0.44,
+        maxScale: 1.02,
+        padding: 48,
+        viewport: getUsableViewport({ includeDetail: false }),
+      }), 720);
+    }
+    if (flightId !== state.bookFlightId) return;
+    state.activeBookTitle = chapter.book_title || state.activeBookTitle;
+    state.activeChapter = chapterKey(chapter);
+    state.selectedId = '';
+    state.bookPromptVisible = false;
+    closeDetailPanel();
+    byId('kg-overview-btn')?.classList.remove('active');
+    const graphTitle = byId('kg-graph-title');
+    if (graphTitle) graphTitle.textContent = chapter.title || '章节核心关系网';
+    state.graph = targetGraph;
     state.layoutKey = '';
     renderBookPicker();
     renderChapters();
-    renderGraph();
+    await swapRenderedGraph(() => renderGraph({ preservedLayout }));
+    if (!preservedLayout && state.laidOutGraph?.nodes?.length) {
+      await animateViewTo(viewForBounds(state.laidOutGraph.nodes, {
+        minScale: 0.44,
+        maxScale: 1.02,
+        padding: 48,
+        viewport: getUsableViewport({ includeDetail: false }),
+      }), 620);
+    }
   }
 
   async function selectNode(nodeId, expand = true) {
     if (!nodeId) return;
     if (state.entranceActive) completeGraphEntrance();
     cancelViewAnimation();
+    cancelGraphTransition();
+    cancelPendingSearch();
     state.bookFlightId += 1;
+    const requestId = state.selectionRequestId + 1;
+    state.selectionRequestId = requestId;
+    state.edgeLabelReferenceScale = 0;
     state.selectedId = nodeId;
     const result = expand
       ? await apiPost('/api/knowledge-graph/neighborhood', { node_id: nodeId, depth: 1, limit: 120 })
       : await apiGet(`/api/knowledge-graph/node/${encodeURIComponent(nodeId)}`);
+    if (requestId !== state.selectionRequestId) return;
     const cardBookTitle = result.card?.book_title || result.node?.properties?.book_title || result.center?.properties?.book_title || '';
     if (cardBookTitle) state.activeBookTitle = cardBookTitle;
     if (cardBookTitle) state.bookPromptVisible = false;
@@ -1673,13 +1930,15 @@
       const graphTitle = byId('kg-graph-title');
       if (graphTitle) graphTitle.textContent = result.card?.name || result.center?.label || '核心邻域';
       byId('kg-overview-btn')?.classList.remove('active');
-      state.scale = 1.02;
-      state.panX = 0;
-      state.panY = 0;
       state.layoutKey = '';
     }
     renderBookPicker();
-    if (renderDetail(result)) setDetailPanelOpen(true);
+    setDetailPanelOpen(true);
+    const rendered = await swapRenderedGraph(() => renderDetail(result));
+    if (rendered && requestId === state.selectionRequestId) {
+      await nextAnimationFrame();
+      await focusSelectedNode(720);
+    }
   }
 
   function zoomBy(delta) {
@@ -1749,6 +2008,30 @@
     button.innerHTML = minimized ? '<i data-lucide="maximize-2"></i>' : '<i data-lucide="minus"></i>';
     if (window.lucide) window.lucide.createIcons();
     resetDetailCardIfNeeded();
+    window.requestAnimationFrame(() => {
+      if (state.selectedId) focusSelectedNode(420);
+    });
+  }
+
+  async function applySearchFilter() {
+    state.searchTimer = 0;
+    cancelViewAnimation();
+    cancelGraphTransition();
+    const source = currentGraphSource();
+    const preservedLayout = preserveLayoutSubset(source, state.laidOutGraph);
+    state.layoutKey = '';
+    const rendered = await swapRenderedGraph(() => renderGraph({ preservedLayout }), 150);
+    if (!rendered || !state.laidOutGraph?.nodes?.length) return;
+    if (state.selectedId && state.laidOutGraph.nodes.some((node) => node.id === state.selectedId)) {
+      await focusSelectedNode(520);
+      return;
+    }
+    await animateViewTo(viewForBounds(state.laidOutGraph.nodes, {
+      minScale: state.activeChapter ? 0.44 : OVERVIEW_MIN_SCALE,
+      maxScale: state.activeChapter ? 1.02 : 0.82,
+      padding: 44,
+      viewport: getUsableViewport(),
+    }), 520);
   }
 
   function bindEvents() {
@@ -1788,6 +2071,7 @@
 
       const core = event.target.closest('[data-core-id]');
       if (core) {
+        if (core.closest('#kg-canvas') && performance.now() < state.suppressGraphClickUntil) return;
         selectNode(core.dataset.coreId).catch((err) => setEmpty(err.message || String(err)));
         return;
       }
@@ -1805,18 +2089,15 @@
       if (event.target.closest('#kg-zoom-in')) zoomBy(0.15);
       if (event.target.closest('#kg-zoom-out')) zoomBy(-0.15);
       if (event.target.closest('#kg-reset-view')) {
-        if (state.activeChapter === null && state.laidOutGraph?.nodes?.length) {
+        if (state.selectedId) {
+          focusSelectedNode(620);
+        } else if (state.laidOutGraph?.nodes?.length) {
           animateViewTo(viewForBounds(state.laidOutGraph.nodes, {
-            minScale: OVERVIEW_MIN_SCALE,
-            maxScale: OVERVIEW_MAX_SCALE,
+            minScale: state.activeChapter ? 0.44 : OVERVIEW_MIN_SCALE,
+            maxScale: state.activeChapter ? 1.02 : OVERVIEW_MAX_SCALE,
             padding: Math.max(42, Math.min(88, Math.min(state.width, state.height) * 0.07)),
+            viewport: getUsableViewport(),
           }), 620);
-        } else {
-          animateViewTo({
-            scale: 0.82,
-            panX: 0,
-            panY: 0,
-          }, 620);
         }
       }
     });
@@ -1824,9 +2105,11 @@
     document.addEventListener('input', (event) => {
       if (event.target.id === 'kg-search') {
         state.search = event.target.value || '';
-        state.layoutKey = '';
         renderChapters();
-        renderGraph();
+        cancelPendingSearch();
+        state.searchTimer = window.setTimeout(() => {
+          applySearchFilter().catch((err) => setEmpty(err.message || String(err)));
+        }, 200);
       }
     });
 
@@ -1848,23 +2131,50 @@
     }, { passive: false });
 
     svg?.addEventListener('pointerdown', (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
       window.getSelection?.().removeAllRanges();
-      if (event.target.closest('.kg-node')) return;
-      event.preventDefault();
-      cancelViewAnimation();
-      state.dragging = { x: event.clientX, y: event.clientY, panX: state.panX, panY: state.panY };
-      svg.setPointerCapture(event.pointerId);
+      const rect = svg.getBoundingClientRect();
+      state.dragging = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        panX: state.panX,
+        panY: state.panY,
+        scaleX: state.width / Math.max(1, rect.width),
+        scaleY: state.height / Math.max(1, rect.height),
+        moved: false,
+      };
     });
     svg?.addEventListener('pointermove', (event) => {
-      if (!state.dragging) return;
+      if (!state.dragging || state.dragging.pointerId !== event.pointerId) return;
+      const deltaX = event.clientX - state.dragging.x;
+      const deltaY = event.clientY - state.dragging.y;
+      if (!state.dragging.moved && Math.hypot(deltaX, deltaY) < 5) return;
+      if (!state.dragging.moved) {
+        state.dragging.moved = true;
+        cancelViewAnimation();
+        svg.classList.add('is-panning');
+        svg.setPointerCapture(event.pointerId);
+      }
       event.preventDefault();
-      state.panX = state.dragging.panX + event.clientX - state.dragging.x;
-      state.panY = state.dragging.panY + event.clientY - state.dragging.y;
+      state.panX = state.dragging.panX + deltaX * state.dragging.scaleX;
+      state.panY = state.dragging.panY + deltaY * state.dragging.scaleY;
       scheduleGraphTransform();
     });
-    svg?.addEventListener('pointerup', () => {
+    const finishGraphGesture = (event, cancelled = false) => {
+      if (!state.dragging || (event.pointerId !== undefined && state.dragging.pointerId !== event.pointerId)) return;
+      if (state.dragging.moved && !cancelled) {
+        state.suppressGraphClickUntil = performance.now() + 160;
+      }
+      if (event.pointerId !== undefined && svg.hasPointerCapture(event.pointerId)) {
+        svg.releasePointerCapture(event.pointerId);
+      }
       state.dragging = null;
-    });
+      svg.classList.remove('is-panning');
+    };
+    svg?.addEventListener('pointerup', (event) => finishGraphGesture(event));
+    svg?.addEventListener('pointercancel', (event) => finishGraphGesture(event, true));
+    svg?.addEventListener('lostpointercapture', (event) => finishGraphGesture(event, true));
 
     const detail = byId('kg-detail-body')?.closest('.kg-detail');
     const detailHead = detail?.querySelector('.kg-detail-head');
@@ -1908,6 +2218,9 @@
         state.overviewLayout = null;
         resetDetailCardIfNeeded();
         renderGraph();
+        if (state.selectedId) {
+          window.requestAnimationFrame(() => focusSelectedNode(360));
+        }
       }, 120);
     });
   }
@@ -1946,6 +2259,8 @@
       setEmpty('', true);
       if (window.lucide) window.lucide.createIcons();
     } catch (err) {
+      document.body?.classList.remove('kg-entrance-pending', 'kg-entrance-active');
+      document.body?.classList.add('kg-entrance-complete');
       setEmpty(err.message || String(err));
     }
   }
