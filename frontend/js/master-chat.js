@@ -39,10 +39,25 @@
   function loadSessions() {
     try {
       const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed) ? parsed.map(migrateStoredSession) : [];
     } catch (_err) {
       return [];
     }
+  }
+
+  function migrateStoredSession(session) {
+    if (!session || typeof session !== 'object') return session;
+    const messages = Array.isArray(session.messages) ? session.messages.map((message) => {
+      if (!message || typeof message !== 'object') return message;
+      if (typeof message.html === 'string' && /<h3>(横向思维导图|轻量树状图)<\/h3>/.test(message.html)) {
+        return {
+          ...message,
+          html: message.html.replace(/<h3>(横向思维导图|轻量树状图)<\/h3>/g, '<h3>思维导图</h3>'),
+        };
+      }
+      return message;
+    }) : [];
+    return { ...session, messages };
   }
 
   function saveSessions() {
@@ -496,6 +511,44 @@
     `;
   }
 
+  function mindmapNodeTitle(node) {
+    return String(node?.name || node?.title || node?.label || '').trim();
+  }
+
+  function renderMindmapTree(node, currentNodeId, depth = 0) {
+    if (!node || depth > 3) return '';
+    const title = mindmapNodeTitle(node);
+    const children = Array.isArray(node.children) ? node.children.filter(Boolean) : [];
+    if (!title && !children.length) return '';
+    const nodeId = String(node.id || node.node_id || '');
+    const active = currentNodeId && nodeId === currentNodeId;
+    const classes = [
+      depth === 0 ? 'mindmap-node-root' : '',
+      `mindmap-depth-${depth}`,
+      children.length ? 'has-children' : '',
+      active ? 'active' : '',
+    ].filter(Boolean).join(' ');
+    return `
+      <li class="${classes}">
+        ${title ? `<span>${escapeHtml(title)}</span>` : ''}
+        ${children.length ? `<ol>${children.map((child) => renderMindmapTree(child, currentNodeId, depth + 1)).join('')}</ol>` : ''}
+      </li>
+    `;
+  }
+
+  function renderMindmap(final, currentNodeId) {
+    const root = final?.mindmap?.root || null;
+    if (!root) return '';
+    const tree = renderMindmapTree(root, currentNodeId);
+    if (!tree) return '';
+    return `
+      <section class="mindmap-resource">
+        <div class="resource-heading"><div><span class="mode-label">学习地图</span><h3>思维导图</h3></div><span class="resource-state">已同步</span></div>
+        <ol class="mindmap-tree">${tree}</ol>
+      </section>
+    `;
+  }
+
   function renderLearningResult(routerResult, step) {
     const final = routerResult?.final_result || {};
     const session = final.session || {};
@@ -512,6 +565,7 @@
       return `
         <section class="learning-response">
           <div class="learning-section-head"><div><span class="mode-label">学习模式</span><h2>${escapeHtml(title)}</h2></div></div>
+          ${renderMindmap(final, nodeId)}
           <div class="assistant-markdown">${formatMarkdown(base)}</div>
           ${step?.stage_exam ? renderStageExamHtml(step.stage_exam) : ''}
           ${renderRouteDetails(routerResult)}
@@ -530,6 +584,7 @@
             <i data-lucide="loader-circle"></i><span>语音准备中</span>
           </button>
         </header>
+        ${renderMindmap(final, nodeId)}
         ${renderLectureCopy(teachingText, sessionId, nodeId)}
         <div class="learning-actions">
           <button type="button" class="learning-action primary" data-chat-prompt="继续">
@@ -1191,6 +1246,7 @@
       const targetKey = button.dataset.audioKey || '';
       if (targetKey !== key && !targetKey.startsWith(`${key}:`)) return;
       if (activeAudio?.button === button) return;
+      delete button.dataset.audioSpeechFallback;
       const queue = queueForButton(targetKey, button);
       audioQueues.set(targetKey, queue);
       const expectedHash = String(button.dataset.audioTextHash || '');
@@ -1212,10 +1268,19 @@
         button.title = '语音缓存与当前讲稿不一致，正在重新生成';
         button.innerHTML = '<i data-lucide="loader-circle"></i><span>等待语音</span>';
       } else if (['failed', 'skipped'].includes(section?.status)) {
+        const canSpeak = targetKey === key && speechTextForKey(key) && 'speechSynthesis' in window;
         button.dataset.audioPending = 'false';
-        button.disabled = true;
-        button.title = targetKey === key ? '本节语音生成失败，可稍后重试资源生成' : '本段语音暂不可用';
-        button.innerHTML = '<i data-lucide="volume-x"></i><span>语音暂不可用</span>';
+        if (canSpeak) {
+          button.disabled = false;
+          button.dataset.audioSpeechFallback = 'true';
+          button.title = '服务器语音暂不可用，使用浏览器朗读本节讲稿';
+          button.dataset.audioIdleLabel = '朗读讲稿';
+          setAudioButtonIdle(button);
+        } else {
+          button.disabled = true;
+          button.title = targetKey === key ? '本节语音生成失败，可稍后重试资源生成' : '本段语音暂不可用';
+          button.innerHTML = '<i data-lucide="volume-x"></i><span>语音暂不可用</span>';
+        }
       } else {
         button.dataset.audioPending = 'true';
         button.disabled = true;
@@ -1258,8 +1323,9 @@
       || hasPendingAudioButtons(key);
     const waitingSlides = preview?.result?.status !== 'ready';
     const waitingPpt = !['ready', 'partial', 'failed'].includes(pptStateLabel(ppt));
-    if ((waitingAudio || waitingSlides || waitingPpt) && attempt < 30) {
-      const timer = setTimeout(() => refreshLearningResource(key, attempt + 1), 2500);
+    if ((waitingAudio || waitingSlides || waitingPpt) && attempt < 45) {
+      const delay = attempt < 12 ? 1000 : 2500;
+      const timer = setTimeout(() => refreshLearningResource(key, attempt + 1), delay);
       resourceRefreshes.set(key, timer);
     } else {
       resourceRefreshes.delete(key);
@@ -1284,11 +1350,41 @@
 
   function stopActiveAudio() {
     if (!activeAudio) return;
-    activeAudio.audio.pause();
-    activeAudio.audio.src = '';
+    if (activeAudio.speech) {
+      window.speechSynthesis?.cancel();
+    } else if (activeAudio.audio) {
+      activeAudio.audio.pause();
+      activeAudio.audio.src = '';
+    }
     setAudioButtonIdle(activeAudio.button);
     activeAudio = null;
     refreshIcons();
+  }
+
+  function speechTextForKey(key) {
+    const node = Array.from(document.querySelectorAll('[data-lecture-key]')).find((item) => item.dataset.lectureKey === key);
+    return String(node?.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function playSpeechFallback(key, button) {
+    const text = speechTextForKey(key);
+    if (!text || !('speechSynthesis' in window)) return false;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'zh-CN';
+    utterance.rate = 0.95;
+    utterance.onend = () => {
+      if (activeAudio?.utterance === utterance) stopActiveAudio();
+    };
+    utterance.onerror = () => {
+      if (activeAudio?.utterance === utterance) stopActiveAudio();
+    };
+    activeAudio = { key, button, speech: true, utterance };
+    button.classList.add('is-playing');
+    button.innerHTML = '<i data-lucide="square"></i><span>停止</span>';
+    refreshIcons();
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    return true;
   }
 
   function playAudioQueue(key, button) {
@@ -1298,7 +1394,10 @@
     }
     stopActiveAudio();
     const queue = audioQueues.get(key) || [];
-    if (!queue.length) return;
+    if (!queue.length) {
+      playSpeechFallback(key, button);
+      return;
+    }
     let index = 0;
     const audio = new Audio();
     activeAudio = { key, audio, button };

@@ -23,6 +23,13 @@ class _LearningRouter:
                     "title": "牙周炎",
                     "nodes": [{"id": "node-1", "title": "病因与机制", "secret": "drop"}],
                 },
+                "mindmap": {
+                    "format": "markmap_json",
+                    "root": {
+                        "name": "牙周炎",
+                        "children": [{"id": "node-1", "name": "病因与机制"}],
+                    },
+                },
                 "evidence_pool": {"large": "must not reach chat"},
                 "current_outline_node_id": "node-1",
             },
@@ -108,6 +115,10 @@ class RouterJobManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             router_result["final_result"]["outline"]["nodes"],
             [{"id": "node-1", "title": "病因与机制"}],
+        )
+        self.assertEqual(
+            router_result["final_result"]["mindmap"]["root"]["children"][0],
+            {"id": "node-1", "name": "病因与机制"},
         )
         self.assertEqual(result["learning_step"]["teaching_text"], "这是本节有效讲稿。")
         self.assertNotIn("internal_trace", result["learning_step"])

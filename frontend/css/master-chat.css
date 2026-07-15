@@ -1580,6 +1580,128 @@
   border-top: 1px solid var(--chat-line);
 }
 
+.mindmap-resource {
+  margin-top: 18px;
+  padding: 14px 0 12px;
+  border-top: 1px solid var(--chat-line);
+  border-bottom: 1px solid var(--chat-line);
+  background: linear-gradient(90deg, rgba(95, 75, 199, 0.06), transparent 56%);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.mindmap-tree,
+.mindmap-tree ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mindmap-tree {
+  min-width: max-content;
+  margin-top: 14px;
+  padding: 2px 8px 6px 0;
+}
+
+.mindmap-tree ol {
+  display: grid;
+  gap: 10px;
+}
+
+.mindmap-tree li {
+  min-width: 0;
+  position: relative;
+}
+
+.mindmap-tree > li,
+.mindmap-tree li.has-children,
+.mindmap-tree li:has(> ol) {
+  display: grid;
+  grid-template-columns: max-content minmax(170px, 1fr);
+  align-items: center;
+  column-gap: 30px;
+}
+
+.mindmap-tree li.has-children > ol,
+.mindmap-tree li:has(> ol) > ol {
+  position: relative;
+  min-width: 180px;
+  padding-left: 22px;
+  border-left: 2px solid rgba(95, 75, 199, 0.18);
+}
+
+.mindmap-tree li.has-children > ol::before,
+.mindmap-tree li:has(> ol) > ol::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -30px;
+  width: 30px;
+  border-top: 2px solid rgba(95, 75, 199, 0.18);
+}
+
+.mindmap-tree ol > li::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -22px;
+  width: 18px;
+  border-top: 2px solid rgba(95, 75, 199, 0.18);
+}
+
+.mindmap-tree span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: max-content;
+  min-width: 108px;
+  max-width: 240px;
+  min-height: 36px;
+  border: 1px solid rgba(95, 75, 199, 0.16);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--chat-ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  padding: 7px 9px;
+  overflow-wrap: anywhere;
+}
+
+.mindmap-tree span::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: rgba(95, 75, 199, 0.36);
+}
+
+.mindmap-tree .mindmap-node-root > span,
+.mindmap-tree > li > span {
+  border-color: rgba(95, 75, 199, 0.24);
+  background: #f7f4ff;
+  color: var(--chat-action);
+  font-size: 13px;
+  min-width: 150px;
+  max-width: 260px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 20px rgba(95, 75, 199, 0.08);
+}
+
+.mindmap-tree .mindmap-node-root > span::before,
+.mindmap-tree > li > span::before {
+  width: 9px;
+  height: 9px;
+  background: var(--chat-action);
+}
+
+.mindmap-tree li.active > span {
+  border-color: var(--chat-action);
+  background: #f0ecff;
+  color: var(--chat-action);
+}
+
 .resource-tools {
   display: flex;
   align-items: center;

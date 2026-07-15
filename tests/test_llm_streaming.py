@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import unittest
+from io import BytesIO
+from urllib.error import HTTPError
 from unittest.mock import patch
 
 from backend.services.learning.tutor import _TeachingTextStreamParser
@@ -23,6 +25,22 @@ class _StreamingResponse:
 
     def __iter__(self):
         return iter(self.lines)
+
+
+class _JsonResponse:
+    headers = {"Content-Type": "application/json"}
+
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8")
 
 
 class LlmStreamingTests(unittest.TestCase):
@@ -47,6 +65,36 @@ class LlmStreamingTests(unittest.TestCase):
         self.assertTrue(payload["stream"])
         self.assertEqual(captured, ["hello ", "world"])
         self.assertEqual(result, "hello world")
+
+    def test_chat_completion_retries_without_json_mode_on_400(self) -> None:
+        calls = []
+
+        def fake_urlopen(request, timeout):
+            calls.append(json.loads(request.data.decode("utf-8")))
+            if len(calls) == 1:
+                raise HTTPError(
+                    request.full_url,
+                    400,
+                    "Bad Request",
+                    hdrs=None,
+                    fp=BytesIO(b"response_format unsupported"),
+                )
+            return _JsonResponse({
+                "choices": [{"message": {"content": "{\"ok\": true}"}}],
+            })
+
+        with (
+            patch.dict(os.environ, {"QWEN_API_KEY": "test-key"}),
+            patch("backend.services.llm_client.urlopen", side_effect=fake_urlopen),
+        ):
+            result = chat_completion(
+                [{"role": "user", "content": "test"}],
+                response_format={"type": "json_object"},
+            )
+
+        self.assertEqual(result, "{\"ok\": true}")
+        self.assertIn("response_format", calls[0])
+        self.assertNotIn("response_format", calls[1])
 
     def test_tutor_parser_only_emits_teaching_text(self) -> None:
         chunks = []

@@ -109,6 +109,7 @@ function processRouterResponse(data, existingBackendSessionId) {
     Array.isArray(final.stage_exam.questions) &&
     final.stage_exam.questions.length > 0
   );
+  var hasMindmap = !!(final && final.mindmap && final.mindmap.root);
 
   // Detect select_plan candidates
   var selectPlanCandidates = null;
@@ -123,6 +124,7 @@ function processRouterResponse(data, existingBackendSessionId) {
     routeParts: routeParts,
     isLiterature: isLiterature,
     hasStageExam: hasStageExam,
+    hasMindmap: hasMindmap,
     hasFinalResult: !!final,
     selectPlanCandidates: selectPlanCandidates,
   });
@@ -288,6 +290,30 @@ test('learning completion response exposes stage exam in chat payload', function
   equal(result.messages[0].hasStageExam, true);
   equal(result.messages[0].routeParts[1], 'show_stage_exam');
   equal(result.backendSessionId, 'sess-existing', 'existing learning session should remain active');
+});
+
+test('learning response exposes mindmap in chat payload', function () {
+  var data = {
+    ok: true,
+    route: { intent: 'learning', reason: '开始学习' },
+    next_action: 'start_session',
+    final_result: {
+      session: { id: 'sess-map', topic: '牙周炎' },
+      outline: { nodes: [{ id: 'node-1', title: '病因与机制' }] },
+      mindmap: {
+        format: 'markmap_json',
+        root: {
+          name: '牙周炎',
+          children: [{ id: 'node-1', name: '病因与机制' }],
+        },
+      },
+    },
+  };
+
+  var result = processRouterResponse(data, null);
+
+  equal(result.messages[0].hasMindmap, true);
+  equal(result.backendSessionId, 'sess-map');
 });
 
 console.log('\n3. Response processing — literature intent');

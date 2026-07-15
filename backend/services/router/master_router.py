@@ -12,8 +12,9 @@ Architecture
 3. Dispatches to the existing downstream service and returns a unified
    ``{route, final_result, next_action}`` response.
 
-LLM failures / invalid output ALWAYS fall back to ``clarification`` — never
-to a keyword-based heuristic or an auto‑started lesson.
+LLM failures / invalid output fall back to ``clarification`` except for
+high-confidence literature requests, which can be routed deterministically so
+the literature tool remains usable without a classifier LLM.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import date
 from typing import Any, Callable
 
@@ -155,6 +157,141 @@ def _normalize_learning_topic(value: Any) -> str:
     return text
 
 
+def _deterministic_literature_route(message: str) -> dict[str, Any] | None:
+    """Route only obvious literature-search requests without an LLM."""
+    text = "".join(str(message or "").lower().split())
+    if not text:
+        return None
+
+    strong_markers = (
+        "文献",
+        "论文",
+        "pubmed",
+        "elsevier",
+        "scopus",
+        "综述",
+        "meta分析",
+        "系统评价",
+        "研究进展",
+        "科研进展",
+        "最新研究",
+    )
+    temporal_research_markers = (
+        "近一个月",
+        "近1个月",
+        "近三个月",
+        "近3个月",
+        "近半年",
+        "近6个月",
+        "近一年",
+        "近1年",
+        "近两年",
+        "近2年",
+        "最近研究",
+    )
+    has_strong_literature_marker = any(marker in text for marker in strong_markers)
+    has_temporal_research_marker = (
+        any(marker in text for marker in temporal_research_markers)
+        and any(marker in text for marker in ("研究", "科研", "阅读", "检索", "查找", "论文", "文献"))
+    )
+    if not (has_strong_literature_marker or has_temporal_research_marker):
+        return None
+
+    return {
+        "intent": "literature",
+        "target": INTENT_TO_TARGET["literature"],
+        "plan_item_requested": False,
+        "reason": "根据文献检索相关表述进入文献模式。",
+        "source": "deterministic_literature_route",
+    }
+
+
+def _deterministic_learning_route(message: str) -> dict[str, Any] | None:
+    """Route explicit learn/teach requests without relying on the LLM."""
+    raw = " ".join(str(message or "").split()).strip()
+    text = "".join(raw.lower().split())
+    if not text:
+        return None
+    if any(marker in text for marker in ("学习计划", "推荐计划", "今日计划", "文献", "论文")):
+        return None
+    markers = (
+        "我想学习",
+        "我想要学习",
+        "开始学习",
+        "系统学习",
+        "学习一下",
+        "请讲解",
+        "讲解一下",
+        "教我",
+        "我想了解",
+        "我想要了解",
+    )
+    if not any(marker in text for marker in markers):
+        return None
+    topic = _normalize_learning_topic(raw)
+    if not topic:
+        return None
+    return {
+        "intent": "learning",
+        "target": INTENT_TO_TARGET["learning"],
+        "plan_item_requested": False,
+        "reason": "根据明确学习表述进入学习模式。",
+        "source": "deterministic_learning_route",
+        "topic": topic,
+    }
+
+
+def _deterministic_route(message: str) -> dict[str, Any] | None:
+    return _deterministic_literature_route(message) or _deterministic_learning_route(message)
+
+
+def _coerce_int(value: Any, *, minimum: int, maximum: int) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(minimum, min(number, maximum))
+
+
+def _extract_requested_limit(message: str) -> int | None:
+    text = str(message or "")
+    patterns = (
+        r"(?:前|top\s*)(\d{1,2})\s*(?:篇|条|个)?",
+        r"(\d{1,2})\s*(?:篇|条)\s*(?:文献|论文|研究)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return _coerce_int(match.group(1), minimum=1, maximum=30)
+    return None
+
+
+def _literature_options_from_context(
+    message: str,
+    context: dict[str, Any] | None,
+) -> dict[str, Any]:
+    ctx = context or {}
+    fields = ctx.get("fields") if isinstance(ctx.get("fields"), dict) else {}
+    data = ctx.get("data") if isinstance(ctx.get("data"), dict) else {}
+
+    def first_value(*names: str) -> Any:
+        for source in (ctx, fields, data):
+            for name in names:
+                if name in source and source.get(name) is not None:
+                    return source.get(name)
+        return None
+
+    months = _coerce_int(first_value("months", "month_window"), minimum=1, maximum=120)
+    limit = _coerce_int(first_value("limit", "top_k"), minimum=1, maximum=30)
+    if limit is None:
+        limit = _extract_requested_limit(message)
+
+    return {
+        "months": months,
+        "limit": limit or 5,
+    }
+
+
 def _build_candidate_whitelist(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return a field-whitelisted copy of each candidate for the frontend.
 
@@ -264,7 +401,7 @@ class MasterRouter:
         elif route["intent"] == "study_plan":
             return await self._handle_study_plan(user_id, message, route)
         elif route["intent"] == "literature":
-            return await self._handle_literature(message, route)
+            return await self._handle_literature(message, route, ctx)
         else:
             return self._respond_clarification(message, route)
 
@@ -293,8 +430,9 @@ class MasterRouter:
             return self._clarification_route("分类器返回无效结果。")
 
         # --- default: LLM classifier -----------------------------------------
+        fallback_route = _deterministic_route(message)
         if not is_llm_configured():
-            return self._clarification_route("LLM 未配置，无法进行意图分类。")
+            return fallback_route or self._clarification_route("LLM 未配置，无法进行意图分类。")
 
         messages = _build_classifier_messages(message, history)
         try:
@@ -307,19 +445,24 @@ class MasterRouter:
             )
         except (LLMConfigurationError, LLMRequestError, OSError, ValueError) as exc:
             logger.warning("LLM classifier failed: %s", exc)
-            return self._clarification_route(f"意图分类失败：{exc}")
+            return fallback_route or self._clarification_route(f"意图分类失败：{exc}")
 
         # Parse and validate
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
             logger.warning("LLM classifier returned invalid JSON: %s", raw[:200])
-            return self._clarification_route("分类器返回了无效的 JSON。")
+            return fallback_route or self._clarification_route("分类器返回了无效的 JSON。")
 
         validated = _validate_route(parsed)
         if validated is None:
             logger.warning("LLM classifier returned invalid route: %s", parsed)
-            return self._clarification_route("分类器返回了无效的意图值。")
+            return fallback_route or self._clarification_route("分类器返回了无效的意图值。")
+        if fallback_route is not None and validated["intent"] == "clarification":
+            logger.info(
+                "LLM classified an obvious request as clarification; using deterministic route."
+            )
+            return fallback_route
 
         return validated
 
@@ -539,12 +682,18 @@ class MasterRouter:
         }
 
     async def _handle_literature(
-        self, message: str, route: dict[str, Any]
+        self, message: str, route: dict[str, Any], context: dict[str, Any] | None
     ) -> dict[str, Any]:
         """Call the existing literature search service."""
         query = message.strip()
+        options = _literature_options_from_context(query, context)
         try:
-            result = await self._literature_service(query)
+            result = await self._literature_service(
+                query,
+                options["months"],
+                options["limit"],
+                include_chat_translations=True,
+            )
         except Exception as exc:
             logger.exception("Literature search failed")
             return {
@@ -737,6 +886,7 @@ class MasterRouter:
                 **result,
                 "answer": f"本阶段知识点已学完，已生成阶段卷，共 {question_count} 题。请在下面作答。",
             }
+        result = self._attach_session_learning_context(result, session_id)
 
         return {
             "ok": True,
@@ -845,16 +995,61 @@ class MasterRouter:
             execution_input,
             **execution_kwargs,
         )
+        final_result = execution.get("result") or {
+            "message": execution.get("error") or "学习动作未执行。",
+            "session_id": session_id,
+        }
+        if isinstance(final_result, dict):
+            final_result = self._attach_session_learning_context(final_result, session_id)
         return {
             "ok": bool(execution.get("executed")) or bool(execution.get("terminal")),
             "route": route,
-            "final_result": execution.get("result") or {
-                "message": execution.get("error") or "学习动作未执行。",
-                "session_id": session_id,
-            },
+            "final_result": final_result,
             "next_action": action,
             "error": execution.get("error"),
         }
+
+    def _attach_session_learning_context(
+        self,
+        result: dict[str, Any],
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Attach lightweight outline/mindmap context for chat rendering."""
+        if not isinstance(result, dict):
+            return result
+        enriched = dict(result)
+        try:
+            session = self.learning_orchestrator.memory.get_session(session_id)
+        except Exception:
+            session = {"id": session_id}
+        session_payload = dict(enriched.get("session") or {})
+        session_payload.setdefault("id", session.get("id") or session_id)
+        if session.get("topic"):
+            session_payload.setdefault("topic", session.get("topic"))
+        if session.get("user_id"):
+            session_payload.setdefault("user_id", session.get("user_id"))
+        enriched["session"] = session_payload
+
+        try:
+            latest = self.learning_orchestrator.memory.latest_outline(session_id)
+        except Exception:
+            latest = None
+        if isinstance(latest, dict):
+            outline = latest.get("outline")
+            if isinstance(outline, dict) and "outline" not in enriched:
+                nodes = outline.get("nodes") if isinstance(outline.get("nodes"), list) else []
+                enriched["outline"] = {
+                    "title": outline.get("title"),
+                    "nodes": [
+                        {"id": node.get("id"), "title": node.get("title")}
+                        for node in nodes
+                        if isinstance(node, dict)
+                    ],
+                }
+            mindmap = latest.get("mindmap")
+            if isinstance(mindmap, dict) and "mindmap" not in enriched:
+                enriched["mindmap"] = mindmap
+        return enriched
 
     @staticmethod
     def _is_continue_message(message: str) -> bool:

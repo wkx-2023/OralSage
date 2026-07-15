@@ -389,6 +389,106 @@ def build_tutor_step_llm(
 # ============================================================================
 
 
+def build_tutor_step_from_handout_rule(
+    *,
+    outline_node: dict[str, Any],
+    handout_section_content: dict[str, Any],
+    handout_section_title: str,
+    kg_node_ids: list[str] | None = None,
+    section_position: dict[str, Any] | None = None,
+    stream_callback: Callable[[str], None] | None = None,
+    error: str = "",
+) -> dict[str, Any]:
+    """Build a local Tutor step from an already validated handout section."""
+    node_id = str(outline_node.get("id") or "")
+    title = handout_section_title or str(outline_node.get("title") or "本节内容")
+    overview = str(handout_section_content.get("overview") or "").strip()
+    key_points = [
+        item for item in handout_section_content.get("key_points", [])
+        if isinstance(item, dict)
+    ]
+    confusions = [
+        item for item in handout_section_content.get("common_confusions", [])
+        if isinstance(item, dict)
+    ]
+    clinical_example = str(handout_section_content.get("clinical_example") or "").strip()
+    transition = str(handout_section_content.get("transition_to_next") or "").strip()
+
+    lines = [f"这一节我们学习「{title}」。"]
+    if overview:
+        lines.extend(["", overview])
+    if key_points:
+        lines.append("")
+        lines.append("本节可以抓住这些要点：")
+        for index, point in enumerate(key_points, 1):
+            heading = str(point.get("heading") or f"要点 {index}").strip()
+            explanation = str(point.get("explanation") or "").strip()
+            lines.append(f"{index}. {heading}。{explanation}")
+    if clinical_example:
+        lines.extend(["", f"使用提示：{clinical_example}"])
+    if confusions:
+        lines.append("")
+        lines.append("容易混淆的地方：")
+        for item in confusions[:3]:
+            confusion = str(item.get("confusion") or "").strip()
+            clarification = str(item.get("clarification") or "").strip()
+            if confusion or clarification:
+                lines.append(f"- {confusion}：{clarification}")
+    if transition:
+        lines.extend(["", transition])
+    lines.append("")
+    lines.append("这段讲解来自系统已检索到的知识图谱、题库和来源章节整理；如果需要更深入的临床推理，可以继续追问本节细节。")
+    teaching_text = "\n".join(line for line in lines if line is not None).strip()
+    if stream_callback is not None and teaching_text:
+        stream_callback(teaching_text)
+
+    first_heading = str((key_points[0] if key_points else {}).get("heading") or title).strip()
+    questions = [{
+        "id": f"{node_id}_rule_q1",
+        "type": "single_choice",
+        "stem": f"学习「{title}」时，最稳妥的做法是？",
+        "options": [
+            "A. 只背题干关键词",
+            f"B. 围绕「{first_heading}」回到证据来源理解",
+            "C. 跳过概念直接记答案",
+            "D. 不看来源章节",
+        ],
+        "answer": "B",
+        "explanation": "本地兜底讲稿只整理证据来源，学习时应回到 KG 节点、关系和来源章节理解。",
+    }]
+
+    current = int((section_position or {}).get("current_index") or -1)
+    total = int((section_position or {}).get("total") or -1)
+    return {
+        "outline_node_id": node_id,
+        "teaching_text": teaching_text,
+        "questions": questions,
+        "quiz_scope": "section",
+        "quiz_timing": "after_section",
+        "available_user_actions": ["ask_question", "take_quiz", "continue"],
+        "expected_user_action": "choose_next_action",
+        "signals": {
+            "used_kg_node_ids": kg_node_ids or [],
+            "used_handout_section_title": title,
+            "advance_progress": False,
+        },
+        "trace": {
+            "mode": "fallback_handout_tutor_step",
+            "uses_llm": False,
+            "uses_handout_section": True,
+            "advance_progress": False,
+            "fallback_rule_based": True,
+            "llm_error": error,
+        },
+        "content_status": "fallback_rule_based",
+        "content_note": "LLM Tutor 不可用；当前讲稿由已生成 handout 证据结构本地整理。",
+        "progress": {
+            "current_index": current,
+            "total": total,
+        },
+    }
+
+
 def build_tutor_step_rule(
     outline: dict[str, Any],
     current_node_id: str | None,
@@ -503,9 +603,23 @@ def build_tutor_step(
             ts_error = result.get("trace", {}).get("error", "")
             if "missing_valid_handout_section" in ts_error:
                 return result
-            # For other failures (e.g. llm_call_failed), still try rule-based
-            # if outline is available — but NEVER for missing handout.
-            if ts_error and "no_llm_api_key" not in ts_error and "llm_client_import" not in ts_error:
+            if ts_error and (
+                "no_llm_api_key" in ts_error
+                or "llm_client_import" in ts_error
+                or "llm_call_failed" in ts_error
+                or "Arrearage" in ts_error
+                or "HTTP Error 400" in ts_error
+            ):
+                return build_tutor_step_from_handout_rule(
+                    outline_node=outline_node,
+                    handout_section_content=handout_section_content,
+                    handout_section_title=handout_section_title,
+                    kg_node_ids=kg_node_ids or [],
+                    section_position=section_position,
+                    stream_callback=stream_callback,
+                    error=ts_error,
+                )
+            if ts_error:
                 return result
         except Exception:
             pass  # Fall through to rule-based for unexpected errors

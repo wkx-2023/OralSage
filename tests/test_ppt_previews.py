@@ -162,6 +162,52 @@ class PptPreviewTests(unittest.TestCase):
                 )
                 self.assertTrue(image.is_file())
 
+    def test_preview_renderer_uses_system_temp_outside_session_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project path #with marker"
+            session_id = "lesson-preview-path"
+            plan_path = root / session_id / "slides" / "pin_and_paper_plan.v1.json"
+            plan_path.parent.mkdir(parents=True)
+            plan = {
+                "schema_version": "pin_and_paper_slide_plan.v1",
+                "template_slug": "pin-and-paper",
+                "deck_title": "龋病",
+                "session_id": session_id,
+                "status": "ready",
+                "slides": [
+                    {
+                        "source_slide_id": "cover",
+                        "source_outline_node_id": "",
+                        "page_type": "cover",
+                        "slots": {"title": "龋病"},
+                    }
+                ],
+            }
+            plan_path.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+            seen_output_dirs: list[Path] = []
+
+            def fake_renderer(*, output_dir: Path, slide_count: int, **_kwargs):
+                seen_output_dirs.append(output_dir.resolve())
+                images = []
+                for index in range(slide_count):
+                    path = output_dir / f"slide_{index + 1:03d}.png"
+                    path.write_bytes(b"fake-rendered-page" * 100)
+                    images.append(path)
+                return images
+
+            with patch(
+                "backend.services.learning.ppt_pipeline._render_plan_to_pngs",
+                side_effect=fake_renderer,
+            ):
+                preview = ensure_pin_and_paper_previews(
+                    session_id=session_id,
+                    resource_root=root,
+                )
+
+            self.assertEqual(preview["status"], "ready")
+            self.assertEqual(len(seen_output_dirs), 1)
+            self.assertNotIn(root.resolve(), seen_output_dirs[0].parents)
+
 
 if __name__ == "__main__":
     unittest.main()

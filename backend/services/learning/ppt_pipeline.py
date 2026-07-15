@@ -759,10 +759,13 @@ def ensure_pin_and_paper_previews(
         cached = current_manifest()
         if cached is not None:
             return cached
-        render_dir = Path(tempfile.mkdtemp(prefix="ppt-preview-", dir=str(session_dir)))
+        # Keep browser scratch files in the system temp directory. Project paths
+        # may contain spaces or '#' characters, which some headless browser
+        # screenshot implementations handle poorly when used as output targets.
+        render_dir = Path(tempfile.mkdtemp(prefix="ppt-preview-"))
         try:
             images = _render_plan_to_pngs(
-                plan_path=plan_path,
+                plan_path=plan_path.resolve(),
                 output_dir=render_dir,
                 slide_count=len(slides),
                 browser_path=browser_path,
@@ -896,11 +899,13 @@ def export_pin_and_paper_pptx(
         "pptx_path": "",
         "error": None,
     })
-    render_dir = Path(tempfile.mkdtemp(prefix="ppt-render-", dir=str(session_dir)))
+    # Match preview generation: render browser screenshots in system temp so
+    # paths containing spaces or '#' do not break headless screenshot output.
+    render_dir = Path(tempfile.mkdtemp(prefix="ppt-render-"))
     candidate_output_path = render_dir / "lesson.pptx"
     try:
         images = _render_plan_to_pngs(
-            plan_path=Path(plan_path),
+            plan_path=Path(plan_path).resolve(),
             output_dir=render_dir,
             slide_count=len(plan.get("slides", [])),
             browser_path=browser_path,
@@ -944,7 +949,10 @@ def export_pin_and_paper_pptx(
         validation = _validate_pptx(candidate_output_path, len(export_slides), expected_notes)
         ok = not export_error and validation.get("ok") is True
         if ok:
-            os.replace(str(candidate_output_path), str(output_path))
+            staged_output_path = session_dir / "lesson.pptx.tmp"
+            staged_output_path.unlink(missing_ok=True)
+            shutil.copy2(candidate_output_path, staged_output_path)
+            os.replace(str(staged_output_path), str(output_path))
         status = {
             **base_status,
             "ok": ok,
