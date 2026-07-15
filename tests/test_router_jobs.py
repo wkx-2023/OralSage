@@ -609,7 +609,7 @@ class MasterRouterDirectQATests(unittest.IsolatedAsyncioTestCase):
                 "topic": "",
                 "reason": "用户想看学习计划。",
             },
-            study_plan_service=lambda memory, user_id, plan_date: mock_plan_result,
+            study_plan_service=lambda memory, user_id, plan_date, request_text=None: mock_plan_result,
         )
 
         result = await router.route(

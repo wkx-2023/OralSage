@@ -15,6 +15,7 @@
     sessions: loadSessions(),
     activeSessionId: createId(),
     backendSessionId: null,
+    currentPlanDraftId: null,
     userId: 'demo',
     pendingJobs: loadPendingJobs(),
   };
@@ -555,6 +556,10 @@
     const items = Array.isArray(final.recommendations) ? final.recommendations : [];
     if (!items.length) return `<div class="assistant-markdown">${formatMarkdown(resultAnswer(routerResult))}</div>${renderRouteDetails(routerResult)}`;
     const totalMinutes = items.reduce((sum, item) => sum + Number(item.estimated_minutes || 0), 0);
+    const draftId = final.plan_draft_id || '';
+    const planPageHref = draftId
+      ? `/pages/learning-plan.html?plan_draft_id=${encodeURIComponent(draftId)}`
+      : '/pages/learning-plan.html';
     return `
       <section class="plan-response">
         <header class="result-heading">
@@ -568,17 +573,17 @@
               <div><h3>${escapeHtml(item.title || '学习任务')}</h3><p>${escapeHtml(item.reason || item.notes || '')}</p></div>
               <div class="plan-item-actions">
                 <span><i data-lucide="clock-3"></i>${escapeHtml(String(item.estimated_minutes || 0))} 分钟</span>
-                <button
+                ${draftId ? '' : `<button
                   type="button"
                   data-start-recommendation="${escapeHtml(item.recommendation_id || '')}"
                   data-plan-date="${escapeHtml(final.plan_date || '')}"
                   data-recommendation-title="${escapeHtml(item.title || '学习任务')}"
-                >开始学习</button>
+                >开始学习</button>`}
               </div>
             </article>
           `).join('')}
         </div>
-        <a class="open-plan-link" href="/pages/learning-plan.html"><i data-lucide="calendar-days"></i><span>打开学习计划</span></a>
+        <a class="open-plan-link" href="${planPageHref}"><i data-lucide="calendar-days"></i><span>打开学习计划</span></a>
         ${renderRouteDetails(routerResult)}
       </section>
     `;
@@ -783,6 +788,7 @@
         time: sessionTime(),
         messages: state.messages,
         backendSessionId: state.backendSessionId,
+        currentPlanDraftId: state.currentPlanDraftId,
       });
     }
     saveSessions();
@@ -806,6 +812,7 @@
   function resetSession() {
     state.activeSessionId = createId();
     state.backendSessionId = null;
+    state.currentPlanDraftId = null;
     state.messages = [];
     const log = byId('agent-chat-log');
     if (log) log.innerHTML = '';
@@ -822,6 +829,7 @@
     state.activeSessionId = session.id;
     state.messages = Array.isArray(session.messages) ? session.messages : [];
     state.backendSessionId = session.backendSessionId || null;
+    state.currentPlanDraftId = session.currentPlanDraftId || null;
     renderMessages();
     renderSessions();
     const pending = Object.values(state.pendingJobs).some((item) => item.sessionId === session.id);
@@ -877,6 +885,7 @@
     if (session?.id === state.activeSessionId) {
       state.messages = session.messages;
       state.backendSessionId = session.backendSessionId || state.backendSessionId;
+      state.currentPlanDraftId = session.currentPlanDraftId || state.currentPlanDraftId;
       renderMessages();
     }
     saveSessions();
@@ -910,6 +919,16 @@
       delete found.message.streamText;
       const backendId = event.data?.router_result?.final_result?.session?.id;
       if (backendId) found.session.backendSessionId = backendId;
+      const routerResult = event.data?.router_result;
+      if (routerResult?.ok && routerResult?.route?.intent === 'study_plan') {
+        const planDraftId = routerResult?.final_result?.plan_draft_id;
+        if (planDraftId) {
+          found.session.currentPlanDraftId = planDraftId;
+          if (found.session.id === state.activeSessionId) {
+            state.currentPlanDraftId = planDraftId;
+          }
+        }
+      }
       delete state.pendingJobs[jobId];
       jobStreams.get(jobId)?.close();
       jobStreams.delete(jobId);
@@ -989,6 +1008,9 @@
       const context = { user_id: state.userId || 'demo' };
       if (state.backendSessionId) {
         context.session_id = state.backendSessionId;
+      }
+      if (state.currentPlanDraftId) {
+        context.parent_plan_draft_id = state.currentPlanDraftId;
       }
 
       await startRouterJob({
@@ -1463,5 +1485,16 @@
     } else {
       resumePendingJobs();
     }
+  }
+
+  // ---- test API (exposed for Node-side test verification) ----
+  if (typeof window !== 'undefined' && window.oralUi) {
+    window.oralUi.masterChatInternals = {
+      getState: function () { return state; },
+      handleJobEvent: handleJobEvent,
+      sendMessage: sendMessage,
+      resetSession: resetSession,
+      restoreSession: restoreSession,
+    };
   }
 })();

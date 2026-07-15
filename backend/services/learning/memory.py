@@ -154,6 +154,7 @@ CREATE TABLE IF NOT EXISTS study_plan_items (
     task_type           TEXT NOT NULL DEFAULT 'topic_learning',
     learning_target     TEXT,
     kg_node_ids_json    TEXT NOT NULL,
+    learning_scope_json TEXT NOT NULL DEFAULT '{}',
     sort_order          INTEGER NOT NULL DEFAULT 0,
     deferred_count      INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL,
@@ -326,6 +327,13 @@ class LearningMemory:
                 self._conn.execute(statement)
             except sqlite3.OperationalError:
                 pass  # column already exists
+        # Migration: add learning_scope_json for optional scope persistence
+        try:
+            self._conn.execute(
+                "ALTER TABLE study_plan_items ADD COLUMN learning_scope_json TEXT NOT NULL DEFAULT '{}'"
+            )
+        except sqlite3.OperationalError:
+            pass  # column already exists
         self._conn.commit()
 
     def _row_to_dict(self, row: sqlite3.Row | None) -> dict | None:
@@ -477,6 +485,12 @@ class LearningMemory:
             return None
         item = dict(row)
         item["kg_node_ids"] = _json_list(item.pop("kg_node_ids_json", "[]"))
+        scope_raw = item.pop("learning_scope_json", "{}")
+        try:
+            scope = json.loads(scope_raw) if isinstance(scope_raw, str) else scope_raw
+        except json.JSONDecodeError:
+            scope = {}
+        item["learning_scope"] = scope if isinstance(scope, dict) else {}
         return item
 
     def _next_study_plan_sort_order(self, user_id: str, plan_date: str) -> int:
@@ -577,6 +591,7 @@ class LearningMemory:
         task_type: str = "topic_learning",
         learning_target: str | None = None,
         kg_node_ids: list[str] | None = None,
+        learning_scope: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a study-plan to-do item."""
         self.ensure_user(user_id)
@@ -586,12 +601,13 @@ class LearningMemory:
             raise ValueError("title is required")
         item_id = _new_id("plan_")
         now = _now()
+        scope = learning_scope if isinstance(learning_scope, dict) else {}
         self._conn.execute(
             """INSERT INTO study_plan_items
                (id, user_id, plan_date, title, notes, status,
                 linked_course_id, linked_course_title, task_type, learning_target,
-                kg_node_ids_json, sort_order, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                kg_node_ids_json, learning_scope_json, sort_order, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 item_id,
                 user_id,
@@ -603,6 +619,7 @@ class LearningMemory:
                 str(task_type or "topic_learning").strip()[:64] or "topic_learning",
                 str(learning_target or "").strip()[:180] or None,
                 json.dumps(_json_list(kg_node_ids or []), ensure_ascii=False),
+                json.dumps(scope, ensure_ascii=False),
                 self._next_study_plan_sort_order(user_id, day),
                 now,
                 now,
@@ -643,6 +660,11 @@ class LearningMemory:
                 _json_list(updates.get("kg_node_ids") or []),
                 ensure_ascii=False,
             )
+        if "learning_scope" in updates:
+            scope = updates.get("learning_scope")
+            if not isinstance(scope, dict):
+                raise ValueError("learning_scope must be a dict or null")
+            allowed["learning_scope_json"] = json.dumps(scope, ensure_ascii=False)
         if not allowed:
             return self.get_study_plan_item(item_id, user_id=user_id)
 

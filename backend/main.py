@@ -92,6 +92,7 @@ from .services.learning.study_plan import (
     create_study_plan_item,
     defer_study_plan_item,
     delete_study_plan_item,
+    get_draft_from_default_store,
     get_study_plan_day,
     get_study_plan_month,
     recommend_study_plan,
@@ -1274,10 +1275,30 @@ async def learning_plan_recommend(req: LearningPlanRecommendRequest) -> JSONResp
             user_id=req.user_id,
             plan_date=req.plan_date,
             max_items=req.max_items,
+            request_text=req.request_text,
         )
     except ValueError as exc:
         return _learning_plan_error("study_plan_recommend", exc, 400)
     return _learning_plan_response("study_plan_recommend", result)
+
+
+@app.get("/api/learning/plan/drafts/{plan_draft_id}")
+async def learning_plan_get_draft(plan_draft_id: str, user_id: str = Query(min_length=1)) -> JSONResponse:
+    """Return a single plan draft owned by *user_id*, if it exists and has not expired.
+
+    Unknown, cross-user, and expired drafts return distinct HTTP errors —
+    none of them fall back to default recommendations or expose draft
+    content to unauthorized callers.
+    """
+    try:
+        record = get_draft_from_default_store(plan_draft_id, user_id)
+    except KeyError as exc:
+        return _learning_plan_error("study_plan_get_draft", exc, 404)
+    except PermissionError as exc:
+        return _learning_plan_error("study_plan_get_draft", exc, 403)
+    except ValueError as exc:
+        return _learning_plan_error("study_plan_get_draft", exc, 410)
+    return _learning_plan_response("study_plan_get_draft", record)
 
 
 @app.post("/api/learning/plan/items")
@@ -1295,6 +1316,7 @@ async def learning_plan_create_item(req: LearningPlanCreateRequest) -> JSONRespo
             task_type=req.task_type,
             learning_target=req.learning_target,
             kg_node_ids=req.kg_node_ids,
+            learning_scope=req.learning_scope,
         )
     except ValueError as exc:
         return _learning_plan_error("study_plan_create_item", exc, 400)
