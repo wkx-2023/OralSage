@@ -10,6 +10,7 @@
     pollTimer: null,
     pollInFlight: false,
     authMode: 'login',
+    bound: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -21,11 +22,16 @@
     }
   }
 
+  function refreshIcons() {
+    if (window.lucide) window.lucide.createIcons();
+  }
+
   function log(message, data = null) {
     const output = $('output');
     const statusMessage = $('status-message');
     const line = data ? `${message}\n${JSON.stringify(data, null, 2)}` : message;
     if (statusMessage) {
+      statusMessage.hidden = false;
       statusMessage.textContent = message;
     }
     output.textContent = `${new Date().toLocaleTimeString()}  ${line}\n\n${output.textContent || ''}`;
@@ -105,6 +111,7 @@
     if (me.user) {
       await refreshBindStatus();
     } else {
+      state.bound = false;
       setText('bind-state', '未连接');
     }
     return me;
@@ -112,6 +119,7 @@
 
   async function refreshBindStatus() {
     const status = await request('/api/auth/weixin/bind-status');
+    state.bound = Boolean(status.bound);
     setText('bind-state', status.bound
       ? `已连接：${status.weixin_user_id_masked || status.clawbot_instance_id || ''}`
       : '未连接');
@@ -165,6 +173,10 @@
   }
 
   async function startQr() {
+    if (state.bound) {
+      await unbind();
+      return;
+    }
     const qrBtn = $('qr-btn');
     qrBtn.disabled = true;
     showQrLoading();
@@ -235,6 +247,7 @@
     $('qr-box').hidden = true;
     const result = await request('/api/auth/logout', { method: 'POST' });
     log('已退出登录。', result);
+    state.bound = false;
     setText('current-user', '未登录');
     setText('bind-state', '未连接');
     await window.oralUi?.refreshAuthStatus?.();
@@ -271,6 +284,12 @@
   $('summary-btn').addEventListener('click', () => pushSummary().catch((err) => log(`推送总结失败：${err.message}`)));
   $('logout-btn').addEventListener('click', () => logout().catch((err) => log(`退出登录失败：${err.message}`)));
   $('debug-toggle').addEventListener('click', toggleDebugLog);
+  document.querySelectorAll('[data-proxy-click]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const target = $(button.dataset.proxyClick || '');
+      if (target && !target.disabled) target.click();
+    });
+  });
   window.addEventListener('pagehide', () => stopPolling({ clearSession: true }));
 
   refreshMe().catch(() => {
@@ -278,4 +297,5 @@
     setText('bind-state', '未连接');
   });
   setAuthMode('login');
+  refreshIcons();
 })();
