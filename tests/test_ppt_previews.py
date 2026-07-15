@@ -22,6 +22,7 @@ class PptPreviewTests(unittest.TestCase):
                 Path("browser.exe"),
                 profile_dir=profile_dir,
                 url="http://127.0.0.1/preview.html",
+                screenshot_path=Path(temp) / "slide.png",
             )
 
             profile_argument = next(
@@ -30,6 +31,10 @@ class PptPreviewTests(unittest.TestCase):
             configured_profile = Path(profile_argument.removeprefix("--user-data-dir="))
             self.assertTrue(configured_profile.is_absolute())
             self.assertTrue(configured_profile.is_dir())
+            screenshot_argument = next(
+                argument for argument in command if argument.startswith("--screenshot=")
+            )
+            self.assertTrue(Path(screenshot_argument.removeprefix("--screenshot=")).is_absolute())
 
     def test_legacy_preview_plan_upgrades_cover_from_saved_deck(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
