@@ -146,6 +146,7 @@ body {
 
 .top-nav {
   min-width: 0;
+  flex: 1 1 auto;
   height: 100%;
   display: flex;
   align-items: flex-end;
@@ -201,6 +202,120 @@ body {
   color: var(--accent);
   border-bottom-color: var(--accent);
   font-weight: 600;
+}
+
+.top-account {
+  position: relative;
+  flex: 0 0 auto;
+  align-self: center;
+  margin-left: auto;
+}
+
+.top-account-toggle {
+  border: 1px solid rgba(110, 92, 200, 0.16);
+  background: #ffffff;
+  color: #5249a8;
+  border-radius: 999px;
+  padding: 7px 10px 7px 7px;
+  min-width: 128px;
+  max-width: 220px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(83, 67, 170, 0.08);
+}
+
+.top-account-toggle:hover,
+.top-account-toggle[aria-expanded="true"] {
+  border-color: rgba(110, 92, 200, 0.32);
+  background: #f8f5ff;
+}
+
+.top-account-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #efeaff;
+  color: #5d51b5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.top-account.is-signed-in .top-account-avatar {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.top-account-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.top-account-name,
+.top-account-role {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-account-name {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.top-account-role {
+  font-size: 11px;
+  color: #9189bd;
+  line-height: 1.1;
+}
+
+.top-account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 1100;
+  min-width: 156px;
+  padding: 6px;
+  border: 1px solid rgba(110, 92, 200, 0.14);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 18px 36px rgba(58, 46, 130, 0.16);
+}
+
+.top-account-menu-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #554cad;
+  text-decoration: none;
+  border-radius: 8px;
+  padding: 9px 10px;
+  display: block;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.top-account-menu-item:hover {
+  background: #f1edff;
+}
+
+.top-account-menu-item.danger {
+  color: #b04475;
+}
+
+.top-account-menu-item.danger:hover {
+  background: #fff0f6;
 }
 
 .page-title,
@@ -452,6 +567,16 @@ button.btn:hover {
 
   .top-nav {
     gap: 14px;
+  }
+
+  .top-account-toggle {
+    min-width: 0;
+    max-width: 46px;
+    padding: 7px;
+  }
+
+  .top-account-copy {
+    display: none;
   }
 
   .workspace {

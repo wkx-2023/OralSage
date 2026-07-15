@@ -260,7 +260,6 @@ def _print_stage_exam(exam: dict[str, Any] | None) -> None:
         if reason:
             print(f"    selection_reason: {reason}")
 
-
 def _choose_question(questions: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not questions:
         print("当前没有可做的小测题。")

@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@tencent-weixin/openclaw-weixin": "2.1.7",
-    "openclaw": "2026.4.9"
+    "openclaw": "2026.4.9",
+    "qrcode": "^1.5.4"
   }
 }

@@ -143,6 +143,19 @@
     return body;
   }
 
+  async function syncCurrentUser() {
+    try {
+      const body = await apiGet('/api/auth/me');
+      const userId = String(body?.user?.user_id || body?.user?.username || '').trim();
+      if (body?.authenticated && userId) {
+        state.userId = userId;
+        localStorage.setItem('oralsage.learningProfile.userId', userId);
+      }
+    } catch (_err) {
+      // Anonymous/demo mode is still supported for local smoke tests.
+    }
+  }
+
   function setStatus(message, tone = 'muted') {
     const node = byId('plan-status');
     if (!node) return;
@@ -836,8 +849,13 @@
     });
   }
 
-  initAssessmentController();
-  bindEvents();
-  loadProfile();
-  loadMonth();
+  async function boot() {
+    await syncCurrentUser();
+    initAssessmentController();
+    bindEvents();
+    loadProfile();
+    loadMonth();
+  }
+
+  boot();
 })();

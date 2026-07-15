@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import secrets
 import sqlite3
@@ -14,6 +15,13 @@ from typing import Any
 
 DEFAULT_SESSION_COOKIE = "oralsage_session"
 DEFAULT_SESSION_TTL_HOURS = 24 * 30
+PASSWORD_HASH_ITERATIONS = 200_000
+
+
+class WeixinAuthError(ValueError):
+    def __init__(self, message: str, *, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def utc_now() -> str:
@@ -88,6 +96,8 @@ class WeixinAuthStore:
                 CREATE TABLE IF NOT EXISTS web_users (
                     user_id TEXT PRIMARY KEY,
                     display_name TEXT,
+                    password_hash TEXT,
+                    role TEXT NOT NULL DEFAULT 'user',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -134,41 +144,77 @@ class WeixinAuthStore:
                 ON web_sessions (expires_at);
                 """
             )
+            self._ensure_column(conn, "web_users", "password_hash", "TEXT")
+            self._ensure_column(conn, "web_users", "role", "TEXT NOT NULL DEFAULT 'user'")
+
+    @staticmethod
+    def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     @staticmethod
     def token_hash(token: str) -> str:
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-    def login(self, *, user_id: str = "demo", display_name: str | None = None) -> tuple[dict[str, Any], str]:
-        normalized_user_id = str(user_id or "demo").strip() or "demo"
+    def register(self, *, username: str, password: str, display_name: str | None = None) -> tuple[dict[str, Any], str]:
+        normalized_user_id = self._normalize_username(username)
         normalized_display_name = str(display_name or normalized_user_id).strip() or normalized_user_id
+        password_hash = self._hash_password(self._validate_new_password(password))
+        current = utc_now()
+        role = "admin" if self._registered_user_count() == 0 else "user"
+        with self._connect() as conn:
+            existing = conn.execute("SELECT * FROM web_users WHERE user_id = ?", (normalized_user_id,)).fetchone()
+            if existing and str(existing["password_hash"] or "").strip():
+                raise WeixinAuthError("Username is already taken.", status_code=409)
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE web_users
+                    SET display_name = ?, password_hash = ?, role = ?, updated_at = ?
+                    WHERE user_id = ?
+                    """,
+                    (normalized_display_name, password_hash, role, current, normalized_user_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO web_users (user_id, display_name, password_hash, role, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (normalized_user_id, normalized_display_name, password_hash, role, current, current),
+                )
+        return self._create_session(normalized_user_id)
+
+    def login(self, *, username: str, password: str) -> tuple[dict[str, Any], str]:
+        normalized_user_id = self._normalize_username(username)
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM web_users WHERE user_id = ?", (normalized_user_id,)).fetchone()
+        if not row or not self._verify_password(password, str(row["password_hash"] or "")):
+            raise WeixinAuthError("Invalid username or password.", status_code=401)
+        return self._create_session(normalized_user_id)
+
+    def _create_session(self, user_id: str) -> tuple[dict[str, Any], str]:
         current = utc_now()
         expires_at = (datetime.now(timezone.utc) + timedelta(hours=session_ttl_hours())).replace(microsecond=0).isoformat()
         token = secrets.token_urlsafe(32)
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO web_users (user_id, display_name, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    display_name = excluded.display_name,
-                    updated_at = excluded.updated_at
-                """,
-                (normalized_user_id, normalized_display_name, current, current),
-            )
-            conn.execute(
-                """
                 INSERT INTO web_sessions (token_hash, user_id, created_at, expires_at)
                 VALUES (?, ?, ?, ?)
                 """,
-                (self.token_hash(token), normalized_user_id, current, expires_at),
+                (self.token_hash(token), user_id, current, expires_at),
             )
-        return self.get_user(normalized_user_id) or {"user_id": normalized_user_id, "display_name": normalized_display_name}, token
+        user = self.get_user(user_id)
+        if not user:
+            raise WeixinAuthError("User not found.", status_code=404)
+        return user, token
 
     def get_user(self, user_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM web_users WHERE user_id = ?", (user_id,)).fetchone()
-        return dict(row) if row else None
+        return self._row_to_user(row) if row else None
 
     def get_user_by_session(self, token: str | None) -> dict[str, Any] | None:
         if not token:
@@ -183,7 +229,61 @@ class WeixinAuthStore:
                 """,
                 (self.token_hash(token), current),
             ).fetchone()
-        return dict(row) if row else None
+        return self._row_to_user(row) if row else None
+
+    def _registered_user_count(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute("SELECT COUNT(*) AS count FROM web_users WHERE password_hash IS NOT NULL AND password_hash <> ''").fetchone()
+        return int(row["count"] if row else 0)
+
+    @staticmethod
+    def _normalize_username(username: str) -> str:
+        normalized = str(username or "").strip()
+        if not (3 <= len(normalized) <= 32):
+            raise WeixinAuthError("Username must be 3 to 32 characters.", status_code=422)
+        if any(not (ch.isascii() and (ch.isalnum() or ch in {"_", "-"})) for ch in normalized):
+            raise WeixinAuthError("Username can only contain letters, numbers, underscores, or hyphens.", status_code=422)
+        return normalized
+
+    @staticmethod
+    def _validate_new_password(password: str) -> str:
+        value = str(password or "")
+        if not (8 <= len(value) <= 200):
+            raise WeixinAuthError("Password must be at least 8 characters.", status_code=422)
+        return value
+
+    @staticmethod
+    def _hash_password(password: str) -> str:
+        salt = secrets.token_hex(16)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), PASSWORD_HASH_ITERATIONS)
+        return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${digest.hex()}"
+
+    @staticmethod
+    def _verify_password(password: str, password_hash: str) -> bool:
+        try:
+            algorithm, iterations_raw, salt, digest = password_hash.split("$", 3)
+        except ValueError:
+            return False
+        if algorithm != "pbkdf2_sha256":
+            return False
+        try:
+            iterations = int(iterations_raw)
+        except ValueError:
+            return False
+        candidate = hashlib.pbkdf2_hmac("sha256", str(password or "").encode("utf-8"), salt.encode("utf-8"), iterations).hex()
+        return hmac.compare_digest(candidate, digest)
+
+    @staticmethod
+    def _row_to_user(row: sqlite3.Row) -> dict[str, Any]:
+        data = dict(row)
+        return {
+            "user_id": data["user_id"],
+            "username": data["user_id"],
+            "display_name": data.get("display_name") or data["user_id"],
+            "role": data.get("role") or "user",
+            "created_at": data.get("created_at"),
+            "updated_at": data.get("updated_at"),
+        }
 
     def logout(self, token: str | None) -> None:
         if not token:
@@ -295,6 +395,45 @@ class WeixinAuthStore:
             "clawbot_instance_id": data["clawbot_instance_id"],
             "binding_revision": data["binding_revision"],
         }
+
+    def list_bound_users(self) -> list[dict[str, Any]]:
+        """Return all active web users that have a Weixin binding."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    b.user_id,
+                    b.weixin_account_id,
+                    b.weixin_user_id,
+                    b.clawbot_instance_id,
+                    b.binding_revision,
+                    b.bound_at,
+                    u.display_name,
+                    u.role
+                FROM weixin_bindings b
+                LEFT JOIN web_users u ON u.user_id = b.user_id
+                ORDER BY b.bound_at ASC
+                """
+            ).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            data = dict(row)
+            result.append(
+                {
+                    "bound": True,
+                    "user_id": data["user_id"],
+                    "username": data["user_id"],
+                    "display_name": data.get("display_name") or data["user_id"],
+                    "role": data.get("role") or "user",
+                    "weixin_account_id": data["weixin_account_id"],
+                    "weixin_user_id": data["weixin_user_id"],
+                    "weixin_user_id_masked": mask_external_id(data["weixin_user_id"]),
+                    "weixin_bound_at": data["bound_at"],
+                    "clawbot_instance_id": data["clawbot_instance_id"],
+                    "binding_revision": data["binding_revision"],
+                }
+            )
+        return result
 
     def get_bound_user(
         self,
