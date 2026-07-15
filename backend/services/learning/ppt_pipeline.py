@@ -535,6 +535,8 @@ def _browser_command(
     screenshot_path: Path | None = None,
     dump_dom: bool = False,
 ) -> list[str]:
+    profile_dir = profile_dir.resolve()
+    profile_dir.mkdir(parents=True, exist_ok=True)
     command = [
         str(browser),
         "--headless=new",
