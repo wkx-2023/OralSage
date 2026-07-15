@@ -1213,6 +1213,7 @@
 
   function renderAudioState(key, resource) {
     const [sessionId, nodeId] = key.split(':');
+    const manifestUnavailable = !resource?.audio;
     const manifest = resource?.audio?.result || {};
     const section = (manifest.sections || []).find((item) => item.outline_node_id === nodeId);
     const tutorSlides = (section?.slides || []).filter(isTutorAudioSlide);
@@ -1256,7 +1257,21 @@
         && tutorSlides.length > 0
         && tutorSlides.every((slide) => slide.status === 'ready')
         && !sectionQueue.length;
-      if (queue.length) {
+      if (manifestUnavailable) {
+        const canSpeak = targetKey === key && speechTextForKey(key) && 'speechSynthesis' in window;
+        button.dataset.audioPending = 'false';
+        if (canSpeak) {
+          button.disabled = false;
+          button.dataset.audioSpeechFallback = 'true';
+          button.title = '服务器语音状态暂不可用，使用浏览器朗读本节讲稿';
+          button.dataset.audioIdleLabel = '朗读讲稿';
+          setAudioButtonIdle(button);
+        } else {
+          button.disabled = true;
+          button.title = '服务器语音状态暂不可用';
+          button.innerHTML = '<i data-lucide="volume-x"></i><span>语音暂不可用</span>';
+        }
+      } else if (queue.length) {
         button.dataset.audioPending = 'false';
         button.disabled = false;
         button.title = targetKey === key ? '播放本节完整讲稿' : '播放本段讲稿语音';
@@ -1319,8 +1334,12 @@
     renderLearningResource(key, resource);
 
     const section = (audio?.result?.sections || []).find((item) => key.endsWith(`:${item.outline_node_id}`));
-    const waitingAudio = (!section || !['ready', 'failed', 'skipped'].includes(section.status))
-      || hasPendingAudioButtons(key);
+    const audioUnavailable = !audio;
+    const waitingAudio = !audioUnavailable
+      && (
+        (!section || !['ready', 'failed', 'skipped'].includes(section.status))
+        || hasPendingAudioButtons(key)
+      );
     const waitingSlides = preview?.result?.status !== 'ready';
     const waitingPpt = !['ready', 'partial', 'failed'].includes(pptStateLabel(ppt));
     if ((waitingAudio || waitingSlides || waitingPpt) && attempt < 45) {
