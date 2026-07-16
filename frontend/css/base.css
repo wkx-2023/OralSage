@@ -240,6 +240,30 @@ body {
   background: #f8f5ff;
 }
 
+.top-account.is-auth-pending .top-account-toggle {
+  pointer-events: none;
+}
+
+.top-account.is-auth-pending .top-account-avatar {
+  color: transparent;
+  background: #eeeaf8;
+}
+
+.top-account.is-auth-pending .top-account-name,
+.top-account.is-auth-pending .top-account-role {
+  color: transparent;
+  border-radius: 3px;
+  background: #eeeaf8;
+}
+
+.top-account.is-auth-pending .top-account-name {
+  width: 56px;
+}
+
+.top-account.is-auth-pending .top-account-role {
+  width: 38px;
+}
+
 .top-account-avatar {
   width: 28px;
   height: 28px;

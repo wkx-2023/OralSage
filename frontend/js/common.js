@@ -124,13 +124,13 @@
 
     account = document.createElement('div');
     account.id = 'top-account';
-    account.className = 'top-account';
+    account.className = 'top-account is-auth-pending';
     account.innerHTML = `
       <button id="top-account-toggle" class="top-account-toggle" type="button" aria-haspopup="menu" aria-expanded="false">
-        <span id="top-account-avatar" class="top-account-avatar" aria-hidden="true">?</span>
+        <span id="top-account-avatar" class="top-account-avatar" aria-hidden="true"></span>
         <span class="top-account-copy">
-          <span id="top-account-name" class="top-account-name">未登录</span>
-          <span id="top-account-role" class="top-account-role">账号</span>
+          <span id="top-account-name" class="top-account-name"></span>
+          <span id="top-account-role" class="top-account-role"></span>
         </span>
       </button>
       <div id="top-account-menu" class="top-account-menu" role="menu" hidden>
@@ -183,6 +183,7 @@
     if (role) role.textContent = signedIn ? (roleText || 'user') : '去登录/注册';
     if (avatar) avatar.textContent = signedIn ? displayName.slice(0, 1).toUpperCase() : '?';
     if (account) account.classList.toggle('is-signed-in', signedIn);
+    if (account) account.classList.remove('is-auth-pending');
     if (logout) logout.hidden = !signedIn;
     if (login) login.textContent = signedIn ? '账号与微信' : '登录/注册';
   }

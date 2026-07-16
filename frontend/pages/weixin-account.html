@@ -11,8 +11,8 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-screen-webfont@1.7.0/style.css">
-  <link rel="stylesheet" href="/css/base.css?v=20260716-brand-font-stable">
-  <link rel="stylesheet" href="/css/weixin-account.css?v=20260716-responsive-qr-overlay">
+  <link rel="stylesheet" href="/css/base.css?v=20260717-auth-first-paint">
+  <link rel="stylesheet" href="/css/weixin-account.css?v=20260717-auth-first-paint">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 <body class="weixin-connect-page">
@@ -25,7 +25,7 @@
     </header>
 
     <main class="weixin-main">
-      <section class="weixin-panel">
+      <section id="weixin-panel" class="weixin-panel is-auth-pending" aria-busy="true">
         <div class="weixin-copy">
           <h2>连接微信学习助手</h2>
           <div class="weixin-intro">
@@ -38,6 +38,11 @@
         </div>
 
         <div class="weixin-content">
+          <div class="auth-pending-placeholder" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
           <div class="weixin-workflow">
             <div class="login-row" id="auth-form">
               <label>
@@ -98,7 +103,7 @@
     </main>
   </div>
 
-  <script src="/js/common.js?v=20260716-nav-no-weixin-v2"></script>
-  <script src="/js/weixin-account.js?v=20260716-errors-only-status"></script>
+  <script src="/js/common.js?v=20260717-auth-first-paint"></script>
+  <script src="/js/weixin-account.js?v=20260717-auth-first-paint"></script>
 </body>
 </html>

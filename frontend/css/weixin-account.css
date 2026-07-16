@@ -96,6 +96,50 @@
   padding-top: 16px;
 }
 
+.auth-pending-placeholder {
+  display: none;
+  grid-area: form;
+  align-self: start;
+  gap: 12px;
+  padding-top: 16px;
+}
+
+.weixin-panel.is-auth-pending .auth-tabs,
+.weixin-panel.is-auth-pending .weixin-workflow {
+  visibility: hidden;
+}
+
+.weixin-panel.is-auth-pending .auth-pending-placeholder {
+  display: grid;
+}
+
+.auth-pending-placeholder span {
+  display: block;
+  height: 42px;
+  border: 1px solid #e5dfed;
+  border-radius: 8px;
+  background: #f5f2f8;
+  animation: authPendingPulse 1.2s ease-in-out infinite alternate;
+}
+
+.auth-pending-placeholder span:nth-child(1) {
+  width: 58%;
+}
+
+.auth-pending-placeholder span:nth-child(3) {
+  height: 50px;
+}
+
+@keyframes authPendingPulse {
+  from {
+    opacity: 0.62;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 .auth-tabs {
   height: 38px;
   display: inline-flex;
@@ -597,6 +641,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .auth-pending-placeholder span,
   .assistant-visual > .qr-box {
     animation: none;
   }

@@ -10,6 +10,7 @@
     pollTimer: null,
     pollInFlight: false,
     authMode: 'login',
+    authResolved: false,
     authenticated: false,
     bindingResolved: false,
     bound: false,
@@ -114,18 +115,33 @@
     state.authenticated = Boolean(me.authenticated && me.user);
     state.bindingResolved = false;
     setText('current-user', me.user ? `${me.user.display_name || me.user.username || me.user.user_id}（${me.user.username || me.user.user_id}）` : '未登录');
-    renderControls();
     if (state.authenticated) {
-      await refreshBindStatus();
+      try {
+        await refreshBindStatus({ render: false });
+      } catch (error) {
+        state.bound = false;
+        setText('bind-state', '状态暂不可用');
+        log(`获取微信连接状态失败：${error.message}`, null, { showStatus: true });
+      }
     } else {
       state.bound = false;
       setText('bind-state', '未连接');
-      renderControls();
     }
+    finishAuthHydration();
     return me;
   }
 
+  function finishAuthHydration() {
+    state.authResolved = true;
+    renderControls();
+    const panel = $('weixin-panel');
+    panel?.classList.remove('is-auth-pending');
+    panel?.setAttribute('aria-busy', 'false');
+    refreshIcons();
+  }
+
   function renderControls() {
+    if (!state.authResolved) return;
     const authenticated = state.authenticated;
     const bindingResolved = authenticated && state.bindingResolved;
     const bound = bindingResolved && state.bound;
@@ -133,7 +149,7 @@
     $('login-btn').hidden = authenticated;
     $('login-tab').closest('.auth-tabs').hidden = authenticated;
     $('logout-btn').hidden = !authenticated;
-    $('account-actions-divider').hidden = !authenticated;
+    $('account-actions-divider').hidden = !authenticated || !bindingResolved;
     $('qr-btn').hidden = !bindingResolved || bound;
     $('unbind-btn').hidden = !bound;
     $('push-btn').hidden = !bound;
@@ -142,14 +158,14 @@
     });
   }
 
-  async function refreshBindStatus() {
+  async function refreshBindStatus({ render = true } = {}) {
     const status = await request('/api/auth/weixin/bind-status');
     state.bound = Boolean(status.bound);
     state.bindingResolved = true;
     setText('bind-state', status.bound
       ? `已连接：${status.weixin_user_id_masked || status.clawbot_instance_id || ''}`
       : '未连接');
-    renderControls();
+    if (render) renderControls();
     return status;
   }
 
@@ -330,9 +346,8 @@
     state.bound = false;
     setText('current-user', '未登录');
     setText('bind-state', '未连接');
-    renderControls();
+    finishAuthHydration();
   });
   setAuthMode('login');
-  renderControls();
   refreshIcons();
 })();
