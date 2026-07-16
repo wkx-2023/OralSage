@@ -827,6 +827,43 @@ class PptPipelineTests(unittest.TestCase):
             self.assertEqual(second["pin_and_paper_plan"]["content_slide_count"], 2)
             self.assertEqual(planner.call_count, 1)
 
+    def test_partial_plan_defers_expensive_pptx_export(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            plan = {
+                "status": "partial",
+                "plan_path": str(root / "session" / "slides" / "pin_and_paper_plan.v1.json"),
+                "expected_node_ids": ["node_1", "node_2"],
+                "ready_node_ids": ["node_1"],
+            }
+            slides = {
+                "status": "ok",
+                "resource_json": {"schema_version": "slides.v1", "slides": [{"slide_id": "slide_node_1"}]},
+            }
+            with (
+                patch(
+                    "backend.services.learning.ppt_pipeline.generate_slides_resource_from_session_cache",
+                    return_value=slides,
+                ),
+                patch(
+                    "backend.services.learning.ppt_pipeline.build_and_save_pin_and_paper_plan",
+                    return_value=plan,
+                ),
+                patch(
+                    "backend.services.learning.ppt_pipeline.export_pin_and_paper_pptx",
+                ) as export,
+            ):
+                result = refresh_ppt_resources(
+                    session_id="session",
+                    outline={"nodes": [{"id": "node_1"}, {"id": "node_2"}]},
+                    resource_root=root,
+                )
+
+            export.assert_not_called()
+            self.assertEqual(result["status"], "partial")
+            self.assertEqual(result["pptx"]["status"], "deferred")
+            self.assertEqual(result["pptx"]["ready_section_count"], 1)
+
     def test_failed_concurrent_plan_does_not_overwrite_ready_node_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

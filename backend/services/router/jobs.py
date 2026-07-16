@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
+from backend.services.learning.audio import get_audio_manifest
 from backend.services.learning.lecture_script import get_lecture_script
 
 
@@ -248,11 +249,20 @@ class RouterJobManager:
                         ),
                     )
                 try:
-                    resource_status = await asyncio.to_thread(
+                    ppt_status = await asyncio.to_thread(
                         self.learning_orchestrator.wait_for_ppt_resources,
                         session_id,
                         timeout_seconds=0,
                     )
+                    audio_status = await asyncio.to_thread(
+                        get_audio_manifest,
+                        session_id,
+                        getattr(self.learning_orchestrator, "resource_root", None),
+                    )
+                    resource_status = {
+                        "ppt": ppt_status,
+                        "audio_manifest": audio_status,
+                    }
                 except Exception as exc:  # resources must not hide the lecture
                     resource_status = {
                         "status": "pending",
@@ -368,6 +378,7 @@ def _compact_router_result(result: dict[str, Any]) -> dict[str, Any]:
                 if isinstance(node, dict)
             ],
         },
+        "mindmap": final.get("mindmap"),
         "current_outline_node_id": final.get("current_outline_node_id"),
         "outline_status": final.get("outline_status"),
         "stage_exam": final.get("stage_exam"),

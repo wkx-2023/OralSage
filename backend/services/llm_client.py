@@ -24,6 +24,17 @@ class LLMRequestError(RuntimeError):
     pass
 
 
+def _http_error_message(exc: HTTPError) -> str:
+    detail = ""
+    try:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+    except Exception:
+        detail = ""
+    if detail:
+        return f"{exc} | {detail[:500]}"
+    return str(exc)
+
+
 def _env(*names: str) -> str | None:
     for name in names:
         value = os.getenv(name)
@@ -75,23 +86,41 @@ def chat_completion(
     if stream_callback is not None:
         payload["stream"] = True
 
-    request = Request(
-        f"{base_url.rstrip('/')}/chat/completions",
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "OralPath-Rebuild/0.1",
-        },
-        method="POST",
-    )
-    try:
+    def _request_once(request_payload: dict[str, Any]) -> dict[str, Any] | str:
+        request = Request(
+            f"{base_url.rstrip('/')}/chat/completions",
+            data=json.dumps(request_payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "OralPath-Rebuild/0.1",
+            },
+            method="POST",
+        )
         with urlopen(request, timeout=_timeout_seconds()) as response:
             if stream_callback is not None and _is_event_stream(response):
                 return _read_streaming_content(response, stream_callback)
-            data = json.loads(response.read().decode("utf-8", errors="replace"))
-    except (HTTPError, URLError, TimeoutError) as exc:
+            return json.loads(response.read().decode("utf-8", errors="replace"))
+
+    try:
+        data = _request_once(payload)
+    except HTTPError as exc:
+        if exc.code == 400 and response_format is not None and "response_format" in payload:
+            retry_payload = dict(payload)
+            retry_payload.pop("response_format", None)
+            try:
+                data = _request_once(retry_payload)
+            except (HTTPError, URLError, TimeoutError) as retry_exc:
+                if isinstance(retry_exc, HTTPError):
+                    raise LLMRequestError(_http_error_message(retry_exc)) from retry_exc
+                raise LLMRequestError(str(retry_exc)) from retry_exc
+        else:
+            raise LLMRequestError(_http_error_message(exc)) from exc
+    except (URLError, TimeoutError) as exc:
         raise LLMRequestError(str(exc)) from exc
+
+    if isinstance(data, str):
+        return data
 
     try:
         content = data["choices"][0]["message"]["content"].strip()

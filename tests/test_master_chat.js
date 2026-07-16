@@ -7,6 +7,8 @@
 'use strict';
 
 var assert = require('assert');
+var fs = require('fs');
+var path = require('path');
 
 // ============================================================================
 // Test helpers — mirror the core logic from master-chat.js
@@ -72,6 +74,18 @@ function resultAnswer(result) {
 }
 
 /**
+ * Mirrors currentSectionSlideIndex() from frontend/js/master-chat.js.
+ */
+function currentSectionSlideIndex(resource, nodeId) {
+  var preview = resource && resource.preview && resource.preview.result || {};
+  var slides = Array.isArray(preview.slides) ? preview.slides : [];
+  if (preview.status !== 'ready' || !nodeId) return -1;
+  return slides.findIndex(function (slide) {
+    return slide.source_outline_node_id === nodeId;
+  });
+}
+
+/**
  * Simulates the response processing logic from sendMessage().
  * Returns { messages, backendSessionId }.
  */
@@ -109,6 +123,7 @@ function processRouterResponse(data, existingBackendSessionId) {
     Array.isArray(final.stage_exam.questions) &&
     final.stage_exam.questions.length > 0
   );
+  var hasMindmap = !!(final && final.mindmap && final.mindmap.root);
 
   // Detect select_plan candidates
   var selectPlanCandidates = null;
@@ -123,6 +138,7 @@ function processRouterResponse(data, existingBackendSessionId) {
     routeParts: routeParts,
     isLiterature: isLiterature,
     hasStageExam: hasStageExam,
+    hasMindmap: hasMindmap,
     hasFinalResult: !!final,
     selectPlanCandidates: selectPlanCandidates,
   });
@@ -288,6 +304,30 @@ test('learning completion response exposes stage exam in chat payload', function
   equal(result.messages[0].hasStageExam, true);
   equal(result.messages[0].routeParts[1], 'show_stage_exam');
   equal(result.backendSessionId, 'sess-existing', 'existing learning session should remain active');
+});
+
+test('learning response exposes mindmap in chat payload', function () {
+  var data = {
+    ok: true,
+    route: { intent: 'learning', reason: '开始学习' },
+    next_action: 'start_session',
+    final_result: {
+      session: { id: 'sess-map', topic: '牙周炎' },
+      outline: { nodes: [{ id: 'node-1', title: '病因与机制' }] },
+      mindmap: {
+        format: 'markmap_json',
+        root: {
+          name: '牙周炎',
+          children: [{ id: 'node-1', name: '病因与机制' }],
+        },
+      },
+    },
+  };
+
+  var result = processRouterResponse(data, null);
+
+  equal(result.messages[0].hasMindmap, true);
+  equal(result.backendSessionId, 'sess-map');
 });
 
 console.log('\n3. Response processing — literature intent');
@@ -989,6 +1029,62 @@ test('select_plan does not auto-start learning or create session', function () {
   equal(result.backendSessionId, 'existing-sess', 'select_plan must preserve existing session');
   // Must not have start_session next_action
   equal(result.messages[0].routeParts[1], 'select_plan');
+});
+
+// ============================================================================
+// 9. Learning resource synchronization — current section, not whole deck
+// ============================================================================
+
+console.log('\n9. Learning resource synchronization');
+
+test('partial deck is not ready for a current section it does not contain', function () {
+  var resource = {
+    preview: {
+      result: {
+        status: 'ready',
+        slides: [
+          { source_outline_node_id: '' },
+          { source_outline_node_id: 'node_1' },
+        ],
+      },
+    },
+  };
+
+  equal(currentSectionSlideIndex(resource, 'node_2'), -1);
+});
+
+test('current section becomes ready only when its rendered page exists', function () {
+  var resource = {
+    preview: {
+      result: {
+        status: 'ready',
+        slides: [
+          { source_outline_node_id: '' },
+          { source_outline_node_id: 'node_1' },
+          { source_outline_node_id: 'node_2' },
+        ],
+      },
+    },
+  };
+
+  equal(currentSectionSlideIndex(resource, 'node_2'), 2);
+});
+
+test('master chat gates lecture visibility and polling on the current section page', function () {
+  var source = fs.readFileSync(
+    path.join(__dirname, '..', 'frontend', 'js', 'master-chat.js'),
+    'utf8',
+  );
+
+  ok(source.indexOf('data-learning-content') >= 0, 'lecture content must have a synchronization wrapper');
+  ok(source.indexOf("found.message.statusText = '正在同步准备本节讲稿与 PPT';") >= 0,
+    'teaching text stream must remain hidden until the section is synchronized');
+  ok(source.indexOf('const waitingSlides = !currentSectionPreviewReady(key, resource);') >= 0,
+    'polling must wait for the current section, not merely any ready preview');
+  ok(source.indexOf('pptViewerIndices.set(key, sectionIndex);') >= 0,
+    'viewer must start on the current section page');
+  ok(source.indexOf('if (hasViewerIndex || sectionIndex >= 0)') >= 0,
+    'a missing current section must not persist the cover-page index');
 });
 
 // ============================================================================

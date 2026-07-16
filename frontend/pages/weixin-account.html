@@ -8,11 +8,14 @@
   <link rel="preload" href="/assets/fonts/rajdhani-latin-700.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/base.css?v=20260715-brand-font">
-  <link rel="stylesheet" href="/css/weixin-account.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-screen-webfont@1.7.0/style.css">
+  <link rel="stylesheet" href="/css/base.css?v=20260716-branch-merge">
+  <link rel="stylesheet" href="/css/weixin-account.css?v=20260715-auth-tab-height">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
-<body>
+<body class="weixin-connect-page">
   <div class="app-shell weixin-shell">
     <header class="topbar">
       <div>
@@ -23,56 +26,80 @@
 
     <main class="weixin-main">
       <section class="weixin-panel">
-        <div>
-          <p class="eyebrow">Weixin ClawBot</p>
-          <h2>连接微信学习计划助手</h2>
-          <p class="summary">
-            连接后，ClawBot 可以在微信里推送每日计划，接收打卡，并支持修改或延期计划。
-          </p>
-        </div>
-
-        <div class="login-row">
-          <label>
-            <span>账号 ID</span>
-            <input id="user-id" value="demo" autocomplete="username">
-          </label>
-          <label>
-            <span>显示名称</span>
-            <input id="display-name" value="demo" autocomplete="name">
-          </label>
-          <button id="login-btn" type="button">登录</button>
-        </div>
-
-        <div class="status-card">
-          <div>
-            <span class="status-label">当前账号</span>
-            <strong id="current-user">未登录</strong>
-          </div>
-          <div>
-            <span class="status-label">微信状态</span>
-            <strong id="bind-state">未连接</strong>
+        <div class="weixin-copy">
+          <h2>连接微信学习助手</h2>
+          <div class="weixin-intro">
+            <div class="auth-tabs" role="tablist" aria-label="账号操作">
+              <button id="login-tab" class="auth-tab is-active" type="button">登录</button>
+              <button id="register-tab" class="auth-tab" type="button">注册</button>
+            </div>
+            <p>微信扫码绑定ClawBot<br>可以在微信中推送每日计划、打卡哦~</p>
           </div>
         </div>
 
-        <div class="actions">
-          <button id="qr-btn" type="button">获取二维码</button>
-          <button id="push-btn" type="button">推送今日计划</button>
-          <button id="unbind-btn" type="button">解绑微信</button>
-        </div>
+        <div class="weixin-content">
+          <div class="weixin-workflow">
+            <div class="login-row" id="auth-form">
+              <label>
+                <span>用户名</span>
+                <input id="user-id" value="demo" autocomplete="username">
+              </label>
+              <label>
+                <span>密码</span>
+                <input id="password" type="password" autocomplete="current-password">
+              </label>
+              <label id="confirm-password-field" hidden>
+                <span>确认密码</span>
+                <input id="confirm-password" type="password" autocomplete="new-password">
+              </label>
+              <button id="login-btn" type="button">登录</button>
+            </div>
 
-        <div id="qr-box" class="qr-box" hidden>
-          <a id="qr-link" href="#" target="_blank" rel="noreferrer">
-            <img id="qr-img" alt="微信扫码二维码">
-          </a>
-          <p id="qr-note">请用微信扫描二维码完成连接。</p>
-        </div>
+            <div class="actions">
+              <button id="logout-btn" class="secondary-action" type="button">退出账号</button>
+              <div class="actions-divider" aria-hidden="true"></div>
+              <button id="qr-btn" class="primary-action icon-action" type="button">
+                <i data-lucide="messages-square"></i><span>扫码绑定微信/解绑</span>
+              </button>
+              <button id="push-btn" class="secondary-action visual-push-action" type="button">
+                <i data-lucide="list-checks"></i><span>推送今日学习计划</span>
+              </button>
+              <button id="summary-btn" class="secondary-action hidden-action" type="button">推送今日总结</button>
+              <div class="management-actions">
+                <button id="unbind-btn" class="quiet-action" type="button">解绑微信</button>
+              </div>
+            </div>
 
-        <pre id="output" class="output" aria-live="polite"></pre>
+            <div id="qr-box" class="qr-box" hidden>
+              <a id="qr-link" href="#" target="_blank" rel="noreferrer">
+                <img id="qr-img" alt="微信扫码二维码" hidden>
+              </a>
+              <p id="qr-note">请用微信扫描二维码完成连接。</p>
+            </div>
+
+            <div class="connection-meta" aria-live="polite">
+              <span>账号：<strong id="current-user">未登录</strong></span>
+              <span>微信：<strong id="bind-state">未连接</strong></span>
+            </div>
+            <div id="status-message" class="status-message" aria-live="polite" hidden>请先注册或登录 OralSage 学习账号。</div>
+            <button id="debug-toggle" class="debug-toggle" type="button" aria-expanded="false" aria-controls="output">
+              查看调试信息
+            </button>
+            <pre id="output" class="output" hidden></pre>
+          </div>
+
+          <div class="assistant-visual" aria-hidden="true">
+            <img src="/assets/images/weixin-assistant-robot.png" alt="">
+            <button class="visual-push-pill" type="button" data-proxy-click="push-btn">
+              <i data-lucide="list-checks"></i><span>推送今日学习计划</span>
+            </button>
+          </div>
+        </div>
       </section>
     </main>
   </div>
 
-  <script src="/js/common.js"></script>
-  <script src="/js/weixin-account.js"></script>
+  <script src="/js/common.js?v=20260716-nav-no-weixin-v2"></script>
+  <script src="/js/weixin-account.js?v=20260715-visual-redesign"></script>
 </body>
 </html>

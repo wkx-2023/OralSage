@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime, time as datetime_time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 import base64
@@ -105,8 +106,8 @@ from .services.learning.stage_exam import (
     submit_stage_exam,
 )
 from .services.clawbridge_client import ClawBridgeClient, ClawBridgeError
-from .services.weixin_auth import WeixinAuthStore, session_cookie_name
-from .services.weixin_plan_bot import build_daily_plan_text, handle_weixin_plan_message
+from .services.weixin_auth import WeixinAuthError, WeixinAuthStore, session_cookie_name
+from .services.weixin_plan_bot import build_daily_plan_text, build_daily_summary_text, handle_weixin_plan_message
 
 
 learning_orchestrator = LearningOrchestrator()
@@ -139,6 +140,33 @@ def _stream_headers() -> dict[str, str]:
 
 def _elapsed(started_at: float) -> float:
     return round(time.perf_counter() - started_at, 3)
+
+
+SHANGHAI_TZ = timezone(timedelta(hours=8), name="Asia/Shanghai")
+
+
+def _env_enabled(name: str, default: bool = True) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in {"0", "false", "no", "off", "disabled"}
+
+
+def _parse_push_time(name: str, default_value: str) -> datetime_time:
+    raw = os.getenv(name, default_value).strip() or default_value
+    try:
+        hour_text, minute_text = raw.split(":", 1)
+        return datetime_time(hour=max(0, min(23, int(hour_text))), minute=max(0, min(59, int(minute_text))))
+    except (TypeError, ValueError):
+        return datetime_time.fromisoformat(default_value)
+
+
+def _seconds_until_next(target_time: datetime_time, *, now: datetime | None = None) -> float:
+    current = now or datetime.now(SHANGHAI_TZ)
+    target = datetime.combine(current.date(), target_time, tzinfo=SHANGHAI_TZ)
+    if target <= current:
+        target += timedelta(days=1)
+    return max(1.0, (target - current).total_seconds())
 
 
 def _progress_event(
@@ -606,11 +634,34 @@ def _learning_route(
     return {"state": state, "decision": decision}
 
 
+def _current_web_user(request: Request) -> dict[str, Any] | None:
+    return weixin_auth_store.get_user_by_session(request.cookies.get(session_cookie_name()))
+
+
+def _effective_learning_user_id(
+    request: Request,
+    requested_user_id: str | None = None,
+) -> str:
+    user = _current_web_user(request)
+    if user:
+        return str(user["user_id"])
+    return str(requested_user_id or "demo").strip() or "demo"
+
+
+def _ensure_learning_session_access(request: Request, session_id: str) -> dict[str, Any]:
+    session = learning_orchestrator.memory.get_session(session_id)
+    user = _current_web_user(request)
+    if user and str(session.get("user_id") or "") != str(user["user_id"]):
+        raise HTTPException(status_code=403, detail={"message": "This learning session belongs to another account."})
+    return session
+
+
 @app.post("/api/learning/session/start")
-async def learning_session_start(req: LearningStartRequest) -> JSONResponse:
+async def learning_session_start(req: LearningStartRequest, request: Request) -> JSONResponse:
     """Start a new learning session — no policy routing needed for creation."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     result = learning_orchestrator.start_lesson(
-        user_id=req.user_id,
+        user_id=user_id,
         topic=req.topic,
         display_name=req.display_name,
         profile_input=req.profile_input,
@@ -626,8 +677,10 @@ async def learning_session_start(req: LearningStartRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/session/start/stream")
-async def learning_session_start_stream(req: LearningStartRequest) -> StreamingResponse:
+async def learning_session_start_stream(req: LearningStartRequest, request: Request) -> StreamingResponse:
     """Start a lesson and stream long-running progress events via SSE."""
+
+    user_id = _effective_learning_user_id(request, req.user_id)
 
     async def event_stream():
         action = "start_lesson_stream"
@@ -640,7 +693,7 @@ async def learning_session_start_stream(req: LearningStartRequest) -> StreamingR
                 "action": action,
                 "phase": "received",
                 "topic": req.topic,
-                "user_id": req.user_id,
+                "user_id": user_id,
                 "message": "已收到学习请求，开始检索知识库并规划课程。",
                 "elapsed_seconds": _elapsed(started_at),
             },
@@ -649,7 +702,7 @@ async def learning_session_start_stream(req: LearningStartRequest) -> StreamingR
         start_task = asyncio.create_task(
             asyncio.to_thread(
                 learning_orchestrator.start_lesson,
-                user_id=req.user_id,
+                user_id=user_id,
                 topic=req.topic,
                 display_name=req.display_name,
                 profile_input=req.profile_input,
@@ -792,9 +845,9 @@ async def learning_session_start_stream(req: LearningStartRequest) -> StreamingR
 
 
 @app.get("/api/learning/session/{session_id}/state")
-async def learning_session_state(session_id: str) -> JSONResponse:
+async def learning_session_state(session_id: str, request: Request) -> JSONResponse:
     """Return policy state + session summary for a learning session."""
-    session = learning_orchestrator.memory.get_session(session_id)
+    session = _ensure_learning_session_access(request, session_id)
     try:
         refresh_profile_state_from_l3(
             learning_orchestrator.memory,
@@ -817,8 +870,9 @@ async def learning_session_state(session_id: str) -> JSONResponse:
 
 
 @app.get("/api/learning/session/{session_id}/audio-manifest")
-async def learning_session_audio_manifest(session_id: str) -> JSONResponse:
+async def learning_session_audio_manifest(session_id: str, request: Request) -> JSONResponse:
     """Return the slide-level audio manifest for a learning session."""
+    _ensure_learning_session_access(request, session_id)
     manifest = get_audio_manifest(
         session_id,
         resource_root=learning_orchestrator.resource_root,
@@ -1072,8 +1126,10 @@ async def learning_session_audio_file(
     session_id: str,
     outline_node_id: str,
     filename: str,
+    request: Request,
 ) -> FileResponse:
     """Return one generated slide audio file."""
+    _ensure_learning_session_access(request, session_id)
     session_dir = _learning_session_resource_dir(session_id)
     audio_root = (session_dir / "audio_files").resolve()
     candidate = (audio_root / outline_node_id / filename).resolve()
@@ -1098,12 +1154,13 @@ async def learning_assessment_definition() -> JSONResponse:
 
 
 @app.post("/api/learning/assessment/submit")
-async def learning_assessment_submit(req: LearnerAssessmentSubmitRequest) -> JSONResponse:
+async def learning_assessment_submit(req: LearnerAssessmentSubmitRequest, request: Request) -> JSONResponse:
     """Submit onboarding assessment answers and persist the initial profile."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         result = submit_learner_assessment(
             learning_orchestrator.memory,
-            user_id=req.user_id,
+            user_id=user_id,
             answers=[item.model_dump() for item in req.answers],
             target_exam=req.target_exam,
             skip_assessment=req.skip_assessment,
@@ -1131,8 +1188,9 @@ async def learning_assessment_submit(req: LearnerAssessmentSubmitRequest) -> JSO
 
 
 @app.get("/api/learning/profile/{user_id}")
-async def learning_profile(user_id: str) -> JSONResponse:
+async def learning_profile(user_id: str, request: Request) -> JSONResponse:
     """Return compact profile + L3 learner memory for a user."""
+    user_id = _effective_learning_user_id(request, user_id)
     profile = learning_orchestrator.memory.get_or_create_profile(user_id)
     try:
         refresh_profile_state_from_l3(learning_orchestrator.memory, user_id)
@@ -1169,11 +1227,12 @@ async def learning_profile(user_id: str) -> JSONResponse:
 
 
 @app.post("/api/learning/profile/slice")
-async def learning_profile_slice(req: LearningProfileSliceRequest) -> JSONResponse:
+async def learning_profile_slice(req: LearningProfileSliceRequest, request: Request) -> JSONResponse:
     """Return a role-specific learner-memory slice."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     result = build_profile_slice(
         learning_orchestrator.memory,
-        user_id=req.user_id,
+        user_id=user_id,
         role=req.role,
         context=req.context,
         limit=req.limit,
@@ -1191,14 +1250,16 @@ async def learning_profile_slice(req: LearningProfileSliceRequest) -> JSONRespon
 @app.post("/api/learning/memory/consolidate")
 async def learning_memory_consolidate(
     req: LearningMemoryConsolidateRequest,
+    request: Request,
 ) -> JSONResponse:
     """Manually run L2 and/or L3 learner-memory consolidation."""
     layer = req.layer.lower().strip()
+    user_id = _effective_learning_user_id(request, req.user_id)
     result: dict[str, Any] = {}
     if layer in {"all", "l2"}:
         result["l2"] = consolidate_l2(
             learning_orchestrator.memory,
-            user_id=req.user_id,
+            user_id=user_id,
             session_id=req.session_id,
             surface=req.surface,
             surfaces=req.surfaces,
@@ -1207,7 +1268,7 @@ async def learning_memory_consolidate(
     if layer in {"all", "l3"}:
         result["l3"] = consolidate_l3(
             learning_orchestrator.memory,
-            user_id=req.user_id,
+            user_id=user_id,
             session_id=req.session_id,
             slot=req.slot,
             limit=req.limit,
@@ -1245,8 +1306,9 @@ def _learning_plan_error(action: str, exc: Exception, status_code: int) -> JSONR
 
 
 @app.get("/api/learning/plan/{user_id}/month")
-async def learning_plan_month(user_id: str, year: int, month: int) -> JSONResponse:
+async def learning_plan_month(user_id: str, year: int, month: int, request: Request) -> JSONResponse:
     """Return study-plan items grouped by calendar day for one month."""
+    user_id = _effective_learning_user_id(request, user_id)
     try:
         result = get_study_plan_month(
             learning_orchestrator.memory,
@@ -1260,8 +1322,9 @@ async def learning_plan_month(user_id: str, year: int, month: int) -> JSONRespon
 
 
 @app.get("/api/learning/plan/{user_id}/day/{plan_date}")
-async def learning_plan_day(user_id: str, plan_date: str) -> JSONResponse:
+async def learning_plan_day(user_id: str, plan_date: str, request: Request) -> JSONResponse:
     """Return study-plan items for one day."""
+    user_id = _effective_learning_user_id(request, user_id)
     try:
         result = get_study_plan_day(
             learning_orchestrator.memory,
@@ -1274,12 +1337,13 @@ async def learning_plan_day(user_id: str, plan_date: str) -> JSONResponse:
 
 
 @app.post("/api/learning/plan/recommend")
-async def learning_plan_recommend(req: LearningPlanRecommendRequest) -> JSONResponse:
+async def learning_plan_recommend(req: LearningPlanRecommendRequest, request: Request) -> JSONResponse:
     """Return preview recommendations for one study-plan day."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         result = recommend_study_plan(
             learning_orchestrator.memory,
-            user_id=req.user_id,
+            user_id=user_id,
             plan_date=req.plan_date,
             max_items=req.max_items,
         )
@@ -1289,12 +1353,13 @@ async def learning_plan_recommend(req: LearningPlanRecommendRequest) -> JSONResp
 
 
 @app.post("/api/learning/plan/items")
-async def learning_plan_create_item(req: LearningPlanCreateRequest) -> JSONResponse:
+async def learning_plan_create_item(req: LearningPlanCreateRequest, request: Request) -> JSONResponse:
     """Create one study-plan to-do item."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         result = create_study_plan_item(
             learning_orchestrator.memory,
-            user_id=req.user_id,
+            user_id=user_id,
             plan_date=req.plan_date,
             title=req.title,
             notes=req.notes,
@@ -1313,14 +1378,16 @@ async def learning_plan_create_item(req: LearningPlanCreateRequest) -> JSONRespo
 async def learning_plan_update_item(
     item_id: str,
     req: LearningPlanUpdateRequest,
+    request: Request,
 ) -> JSONResponse:
     """Update one study-plan item."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         updates = req.model_dump(exclude={"user_id"}, exclude_unset=True)
         result = update_study_plan_item(
             learning_orchestrator.memory,
             item_id=item_id,
-            user_id=req.user_id,
+            user_id=user_id,
             updates=updates,
         )
     except KeyError as exc:
@@ -1334,13 +1401,15 @@ async def learning_plan_update_item(
 async def learning_plan_complete_item(
     item_id: str,
     req: LearningPlanCompleteRequest,
+    request: Request,
 ) -> JSONResponse:
     """Toggle completion. Completed items feed a deterministic learner-memory signal."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         result = complete_study_plan_item(
             learning_orchestrator.memory,
             item_id=item_id,
-            user_id=req.user_id,
+            user_id=user_id,
             completed=req.completed,
         )
     except KeyError as exc:
@@ -1352,13 +1421,15 @@ async def learning_plan_complete_item(
 async def learning_plan_defer_item(
     item_id: str,
     req: LearningPlanDeferRequest,
+    request: Request,
 ) -> JSONResponse:
     """Move a plan item to another day, defaulting to the next day."""
+    user_id = _effective_learning_user_id(request, req.user_id)
     try:
         result = defer_study_plan_item(
             learning_orchestrator.memory,
             item_id=item_id,
-            user_id=req.user_id,
+            user_id=user_id,
             to_date=req.to_date,
         )
     except KeyError as exc:
@@ -1369,8 +1440,9 @@ async def learning_plan_defer_item(
 
 
 @app.delete("/api/learning/plan/items/{item_id}")
-async def learning_plan_delete_item(item_id: str, user_id: str = "demo") -> JSONResponse:
+async def learning_plan_delete_item(item_id: str, request: Request, user_id: str = "demo") -> JSONResponse:
     """Delete one study-plan item."""
+    user_id = _effective_learning_user_id(request, user_id)
     try:
         result = delete_study_plan_item(
             learning_orchestrator.memory,
@@ -1420,20 +1492,8 @@ def _resolve_internal_weixin_user(
     )
 
 
-@app.post("/api/auth/web-login")
-async def web_login(payload: dict[str, Any] | None = None) -> JSONResponse:
-    """Create a lightweight web session for the account page.
-
-    The project did not have a login module before the Weixin migration, so this
-    endpoint provides the minimal cookie session needed by the QR bind flow.
-    """
-    data = payload or {}
-    user, token = weixin_auth_store.login(
-        user_id=str(data.get("user_id") or "demo"),
-        display_name=str(data.get("display_name") or data.get("user_id") or "demo"),
-    )
-    json_response = JSONResponse({"ok": True, "module": "weixin_auth", "user": user})
-    json_response.set_cookie(
+def _set_weixin_auth_cookie(response: JSONResponse, token: str) -> JSONResponse:
+    response.set_cookie(
         key=session_cookie_name(),
         value=token,
         httponly=True,
@@ -1441,10 +1501,43 @@ async def web_login(payload: dict[str, Any] | None = None) -> JSONResponse:
         path="/",
         max_age=30 * 24 * 3600,
     )
-    return json_response
+    return response
+
+
+@app.post("/api/auth/register")
+@app.post("/api/v1/auth/register")
+async def web_register(payload: dict[str, Any] | None = None) -> JSONResponse:
+    data = payload or {}
+    try:
+        user, token = weixin_auth_store.register(
+            username=str(data.get("username") or data.get("user_id") or ""),
+            password=str(data.get("password") or ""),
+            display_name=str(data.get("display_name") or data.get("username") or data.get("user_id") or ""),
+        )
+    except WeixinAuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"message": str(exc)}) from exc
+    json_response = JSONResponse({"ok": True, "module": "weixin_auth", "user": user})
+    return _set_weixin_auth_cookie(json_response, token)
+
+
+@app.post("/api/auth/web-login")
+@app.post("/api/auth/login")
+@app.post("/api/v1/auth/login")
+async def web_login(payload: dict[str, Any] | None = None) -> JSONResponse:
+    data = payload or {}
+    try:
+        user, token = weixin_auth_store.login(
+            username=str(data.get("username") or data.get("user_id") or ""),
+            password=str(data.get("password") or ""),
+        )
+    except WeixinAuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"message": str(exc)}) from exc
+    json_response = JSONResponse({"ok": True, "module": "weixin_auth", "user": user})
+    return _set_weixin_auth_cookie(json_response, token)
 
 
 @app.post("/api/auth/logout")
+@app.post("/api/v1/auth/logout")
 async def web_logout(request: Request) -> JSONResponse:
     weixin_auth_store.logout(request.cookies.get(session_cookie_name()))
     response = JSONResponse({"ok": True})
@@ -1453,6 +1546,7 @@ async def web_logout(request: Request) -> JSONResponse:
 
 
 @app.get("/api/auth/me")
+@app.get("/api/v1/auth/me")
 async def web_me(request: Request) -> JSONResponse:
     user = weixin_auth_store.get_user_by_session(request.cookies.get(session_cookie_name()))
     return JSONResponse({"ok": True, "user": user, "authenticated": user is not None})
@@ -1502,7 +1596,11 @@ async def weixin_qr_status(request: Request, session_id: str = Query(min_length=
             }
         )
     try:
-        status = ClawBridgeClient(timeout_seconds=40).get_qr_status(session_id=session_id, timeout_ms=35000)
+        status = await asyncio.to_thread(
+            ClawBridgeClient(timeout_seconds=8).get_qr_status,
+            session_id=session_id,
+            timeout_ms=5000,
+        )
     except ClawBridgeError as exc:
         updated = weixin_auth_store.update_bind_session(session_id, {"status": "error", "message": str(exc)})
         return JSONResponse(
@@ -1678,6 +1776,59 @@ async def clawbridge_chatbox_messages(
     )
 
 
+def _build_weixin_plan_text(action: str, *, user_id: str, plan_date: str | None = None) -> str:
+    if action == "summary":
+        return build_daily_summary_text(learning_orchestrator.memory, user_id=user_id, plan_date=plan_date)
+    return build_daily_plan_text(learning_orchestrator.memory, user_id=user_id, plan_date=plan_date)
+
+
+def _push_weixin_plan_to_binding(
+    binding: dict[str, Any],
+    *,
+    action: str,
+    plan_date: str | None = None,
+) -> dict[str, Any]:
+    user_id = str(binding.get("user_id") or "").strip()
+    if not user_id:
+        raise ClawBridgeError("Weixin binding does not include a user_id.")
+    text = _build_weixin_plan_text(action, user_id=user_id, plan_date=plan_date)
+    sent = ClawBridgeClient().send_text(
+        text=text,
+        clawbot_instance_id=binding.get("clawbot_instance_id"),
+        weixin_account_id=binding.get("weixin_account_id"),
+    )
+    return {
+        "sent": sent,
+        "text": text,
+        "user_id": user_id,
+    }
+
+
+def _push_weixin_plan_to_all_bound(*, action: str, plan_date: str | None = None) -> dict[str, Any]:
+    bindings = weixin_auth_store.list_bound_users()
+    sent: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    for binding in bindings:
+        try:
+            sent.append(_push_weixin_plan_to_binding(binding, action=action, plan_date=plan_date))
+        except Exception as exc:
+            failed.append(
+                {
+                    "user_id": binding.get("user_id"),
+                    "message": str(exc),
+                    "error_type": type(exc).__name__,
+                }
+            )
+    return {
+        "action": action,
+        "total": len(bindings),
+        "sent_count": len(sent),
+        "failed_count": len(failed),
+        "sent": sent,
+        "failed": failed,
+    }
+
+
 @app.post("/api/weixin/plan/push-daily")
 async def weixin_push_daily_plan(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
     user = _require_web_user(request)
@@ -1686,25 +1837,36 @@ async def weixin_push_daily_plan(request: Request, payload: dict[str, Any] | Non
     binding = weixin_auth_store.get_bind_status_for_user(str(user["user_id"]))
     if not binding.get("bound"):
         raise HTTPException(status_code=409, detail={"message": "Current account is not connected to Weixin ClawBot."})
-    text = build_daily_plan_text(learning_orchestrator.memory, user_id=str(user["user_id"]), plan_date=plan_date)
     try:
-        sent = ClawBridgeClient().send_text(
-            text=text,
-            clawbot_instance_id=binding.get("clawbot_instance_id"),
-            weixin_account_id=binding.get("weixin_account_id"),
-        )
+        result = _push_weixin_plan_to_binding(binding, action="daily", plan_date=plan_date)
     except ClawBridgeError as exc:
         raise HTTPException(status_code=503, detail={"message": str(exc)}) from exc
-    return JSONResponse({"ok": True, "module": "weixin_plan", "action": "push_daily", "sent": sent, "text": text})
+    return JSONResponse({"ok": True, "module": "weixin_plan", "action": "push_daily", **result})
+
+
+@app.post("/api/weixin/plan/push-summary")
+async def weixin_push_daily_summary(request: Request, payload: dict[str, Any] | None = None) -> JSONResponse:
+    user = _require_web_user(request)
+    data = payload or {}
+    plan_date = str(data.get("plan_date") or "").strip() or None
+    binding = weixin_auth_store.get_bind_status_for_user(str(user["user_id"]))
+    if not binding.get("bound"):
+        raise HTTPException(status_code=409, detail={"message": "Current account is not connected to Weixin ClawBot."})
+    try:
+        result = _push_weixin_plan_to_binding(binding, action="summary", plan_date=plan_date)
+    except ClawBridgeError as exc:
+        raise HTTPException(status_code=503, detail={"message": str(exc)}) from exc
+    return JSONResponse({"ok": True, "module": "weixin_plan", "action": "push_summary", **result})
 
 
 @app.post("/api/learning/route")
-async def learning_route(req: LearningRouteRequest) -> JSONResponse:
+async def learning_route(req: LearningRouteRequest, request: Request) -> JSONResponse:
     """Policy-only route — returns decision, does NOT execute.
 
     Set ``use_llm_policy=true`` to use the LLM policy agent (with automatic
     fallback to rule-based on error).
     """
+    _ensure_learning_session_access(request, req.session_id)
     result = _learning_route(req.session_id, req.user_input, req.use_llm_policy)
     return JSONResponse(
         {
@@ -1717,8 +1879,9 @@ async def learning_route(req: LearningRouteRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/execute")
-async def learning_execute(req: LearningExecuteRequest) -> JSONResponse:
+async def learning_execute(req: LearningExecuteRequest, request: Request) -> JSONResponse:
     """Execute a policy decision — does NOT re-route."""
+    _ensure_learning_session_access(request, req.session_id)
     result = learning_orchestrator.execute_policy_action(
         req.session_id, req.decision, req.user_input
     )
@@ -1733,12 +1896,13 @@ async def learning_execute(req: LearningExecuteRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/step")
-async def learning_step(req: LearningStepRequest) -> JSONResponse:
+async def learning_step(req: LearningStepRequest, request: Request) -> JSONResponse:
     """Convenience: route(None) → execute (Tutor step).
 
     Does NOT call next_step directly — always goes through policy.
     Set ``use_llm_policy=true`` to use the LLM policy agent.
     """
+    _ensure_learning_session_access(request, req.session_id)
     route_result = _learning_route(req.session_id, None, req.use_llm_policy)
     decision = route_result["decision"]
     execution = learning_orchestrator.execute_policy_action(
@@ -1759,12 +1923,13 @@ async def learning_step(req: LearningStepRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/interruption")
-async def learning_interruption(req: LearningInterruptionRequest) -> JSONResponse:
+async def learning_interruption(req: LearningInterruptionRequest, request: Request) -> JSONResponse:
     """Convenience: route(interruption) → execute (QA).
 
     Does NOT call handle_interruption directly — always goes through policy.
     Set ``use_llm_policy=true`` to use the LLM policy agent.
     """
+    _ensure_learning_session_access(request, req.session_id)
     user_input = {"type": "interruption_question", "text": req.question}
     route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
     decision = route_result["decision"]
@@ -1786,8 +1951,10 @@ async def learning_interruption(req: LearningInterruptionRequest) -> JSONRespons
 
 
 @app.post("/api/learning/interruption/stream")
-async def learning_interruption_stream(req: LearningInterruptionRequest) -> StreamingResponse:
+async def learning_interruption_stream(req: LearningInterruptionRequest, request: Request) -> StreamingResponse:
     """Stream QA progress events while preserving the route -> execute path."""
+
+    _ensure_learning_session_access(request, req.session_id)
 
     async def event_stream():
         action = "interruption_stream"
@@ -1900,8 +2067,9 @@ async def learning_interruption_stream(req: LearningInterruptionRequest) -> Stre
 
 
 @app.post("/api/learning/continue")
-async def learning_continue(req: LearningContinueRequest) -> JSONResponse:
+async def learning_continue(req: LearningContinueRequest, request: Request) -> JSONResponse:
     """Convenience: route(continue) -> execute (advance + next Tutor step)."""
+    _ensure_learning_session_access(request, req.session_id)
     user_input = {"type": "continue"}
     route_result = _learning_route(req.session_id, user_input, req.use_llm_policy)
     decision = route_result["decision"]
@@ -1923,8 +2091,10 @@ async def learning_continue(req: LearningContinueRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/continue/stream")
-async def learning_continue_stream(req: LearningContinueRequest) -> StreamingResponse:
+async def learning_continue_stream(req: LearningContinueRequest, request: Request) -> StreamingResponse:
     """Stream continue progress events while preserving the route -> execute path."""
+
+    _ensure_learning_session_access(request, req.session_id)
 
     async def event_stream():
         action = "continue_stream"
@@ -2037,12 +2207,13 @@ async def learning_continue_stream(req: LearningContinueRequest) -> StreamingRes
 
 
 @app.post("/api/learning/answer")
-async def learning_answer(req: LearningSubmitAnswerRequest) -> JSONResponse:
+async def learning_answer(req: LearningSubmitAnswerRequest, request: Request) -> JSONResponse:
     """Convenience: route(answer_submission) → execute (Assessment).
 
     Does NOT call submit_answer directly — always goes through policy.
     Set ``use_llm_policy=true`` to use the LLM policy agent.
     """
+    _ensure_learning_session_access(request, req.session_id)
     user_input = {
         "type": "answer_submission",
         "question": req.question,
@@ -2068,8 +2239,10 @@ async def learning_answer(req: LearningSubmitAnswerRequest) -> JSONResponse:
 
 
 @app.post("/api/learning/answer/stream")
-async def learning_answer_stream(req: LearningSubmitAnswerRequest) -> StreamingResponse:
+async def learning_answer_stream(req: LearningSubmitAnswerRequest, request: Request) -> StreamingResponse:
     """Stream assessment progress events while preserving route -> execute."""
+
+    _ensure_learning_session_access(request, req.session_id)
 
     async def event_stream():
         action = "answer_stream"
@@ -2349,18 +2522,78 @@ async def stream_mcp_agent(agent_name: str, req: GenericAgentRequest) -> Streami
     return StreamingResponse(event_stream(), status_code=501, media_type="text/event-stream")
 
 
+async def _weixin_auto_push_job(*, action: str, env_name: str, default_time: str) -> None:
+    while True:
+        target_time = _parse_push_time(env_name, default_time)
+        sleep_seconds = _seconds_until_next(target_time)
+        await asyncio.sleep(sleep_seconds)
+        plan_date = datetime.now(SHANGHAI_TZ).date().isoformat()
+        try:
+            result = await asyncio.to_thread(_push_weixin_plan_to_all_bound, action=action, plan_date=plan_date)
+            print(
+                f"[weixin-auto-push] action={action} date={plan_date} "
+                f"sent={result['sent_count']} failed={result['failed_count']} total={result['total']}"
+            )
+        except Exception as exc:
+            print(f"[weixin-auto-push] action={action} failed: {type(exc).__name__}: {exc}")
+        await asyncio.sleep(60)
+
+
+@app.on_event("startup")
+async def _start_weixin_auto_push_jobs() -> None:
+    if not _env_enabled("ORALSAGE_WEIXIN_AUTO_PUSH_ENABLED", True):
+        app.state.weixin_auto_push_tasks = []
+        return
+    app.state.weixin_auto_push_tasks = [
+        asyncio.create_task(
+            _weixin_auto_push_job(
+                action="daily",
+                env_name="ORALSAGE_WEIXIN_DAILY_PUSH_TIME",
+                default_time="08:00",
+            )
+        ),
+        asyncio.create_task(
+            _weixin_auto_push_job(
+                action="summary",
+                env_name="ORALSAGE_WEIXIN_SUMMARY_PUSH_TIME",
+                default_time="21:30",
+            )
+        ),
+    ]
+
+
+@app.on_event("shutdown")
+async def _stop_weixin_auto_push_jobs() -> None:
+    tasks = list(getattr(app.state, "weixin_auto_push_tasks", []) or [])
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 if (FRONTEND_DIR / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIR / "assets")), name="assets")
 
 
+def _frontend_file_response(path: Path) -> FileResponse:
+    return FileResponse(
+        path,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(FRONTEND_DIR / "index.html")
+    return _frontend_file_response(FRONTEND_DIR / "index.html")
 
 
 @app.get("/{full_path:path}")
 def static_fallback(full_path: str) -> FileResponse:
     candidate = FRONTEND_DIR / full_path
     if candidate.exists() and candidate.is_file():
-        return FileResponse(candidate)
-    return FileResponse(FRONTEND_DIR / "index.html")
+        return _frontend_file_response(candidate)
+    return _frontend_file_response(FRONTEND_DIR / "index.html")

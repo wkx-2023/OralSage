@@ -1086,6 +1086,125 @@ def _failed_section_dict(
     return sec
 
 
+def _fallback_evidence_section(
+    outline_node: dict,
+    node_evidence: dict,
+    error: str,
+) -> dict:
+    """Build a read-only handout from KG/question evidence when LLM is unavailable."""
+    node_id = str(outline_node.get("id", "")).strip()
+    title = str(outline_node.get("title", "")).strip() or "本节内容"
+    kg_nodes = [item for item in node_evidence.get("kg_nodes", []) if isinstance(item, dict)]
+    kg_edges = [item for item in node_evidence.get("kg_edges", []) if isinstance(item, dict)]
+    questions = [item for item in node_evidence.get("questions", []) if isinstance(item, dict)]
+    source_refs = [item for item in node_evidence.get("source_refs", []) if isinstance(item, dict)]
+
+    used_kg_node_ids = [str(item.get("node_id")) for item in kg_nodes if item.get("node_id")]
+    used_kg_edge_ids = [str(item.get("edge_id")) for item in kg_edges if item.get("edge_id")]
+    used_question_ids = [str(item.get("question_id")) for item in questions if item.get("question_id")]
+    concept_ids = [
+        str(item.get("node_id"))
+        for item in node_evidence.get("concepts", [])
+        if isinstance(item, dict) and item.get("node_id")
+    ]
+    primary_refs = used_kg_node_ids[:3] + used_kg_edge_ids[:4] + used_question_ids[:2]
+    if not primary_refs:
+        primary_refs = [str(ref.get("kg_node_id")) for ref in source_refs if ref.get("kg_node_id")]
+
+    node_names = [
+        str(item.get("canonical_name") or item.get("name") or "").strip()
+        for item in kg_nodes[:4]
+        if str(item.get("canonical_name") or item.get("name") or "").strip()
+    ]
+    source_labels = []
+    for ref in source_refs[:3]:
+        label = " / ".join(
+            str(ref.get(key) or "").strip()
+            for key in ("subject", "chapter", "section")
+            if str(ref.get(key) or "").strip()
+        )
+        if label:
+            source_labels.append(label)
+    relation_labels = []
+    for edge in kg_edges[:8]:
+        relation = str(edge.get("relation") or "").strip()
+        target = str(edge.get("target_node_id") or "").split("/")[-1]
+        if relation:
+            relation_labels.append(f"{relation}{' -> ' + target if target else ''}")
+    question_stems = [
+        str(item.get("stem") or "").strip()
+        for item in questions[:3]
+        if str(item.get("stem") or "").strip()
+    ]
+
+    key_points: list[dict[str, Any]] = [
+        {
+            "heading": f"{title}的核心定位",
+            "explanation": (
+                f"本节主题与知识节点{('、'.join(node_names)) if node_names else title}相关。"
+                f"建议先把概念放回{('；'.join(source_labels)) if source_labels else '对应教材来源'}中理解。"
+            ),
+            "evidence_refs": primary_refs[:6],
+        },
+        {
+            "heading": "证据关系与学习线索",
+            "explanation": (
+                "当前知识图谱提示的关系包括："
+                + ("；".join(relation_labels[:5]) if relation_labels else "暂无可展开的关系边，需以来源章节为主线复习。")
+            ),
+            "evidence_refs": (used_kg_edge_ids[:6] or primary_refs[:6]),
+        },
+    ]
+    if question_stems:
+        key_points.append({
+            "heading": "自测题暴露的考查方向",
+            "explanation": "相关题库题干包括：" + "；".join(question_stems),
+            "evidence_refs": used_question_ids[:3] or primary_refs[:3],
+        })
+
+    return {
+        "outline_node_id": node_id,
+        "title": title,
+        "section_status": "llm_generated",
+        "evidence_status": "sufficient" if primary_refs else "partial",
+        "error": None,
+        "used_evidence": {
+            "kg_node_ids": used_kg_node_ids,
+            "kg_edge_ids": used_kg_edge_ids,
+            "concept_ids": concept_ids,
+            "question_ids": used_question_ids,
+            "evidence_chunk_ids": [
+                str(item.get("chunk_id"))
+                for item in node_evidence.get("evidence_chunks", [])
+                if isinstance(item, dict) and item.get("chunk_id")
+            ],
+        },
+        "content": {
+            "overview": (
+                f"本节围绕「{title}」组织学习。由于当前 LLM 服务不可用，"
+                "以下内容只整理已检索到的 KG 节点、关系、题库与来源章节，不新增教材外结论。"
+            ),
+            "key_points": key_points,
+            "clinical_example": "请结合教师指定教材页或课堂病例使用本节结构；当前本地兜底不生成新的病例事实。",
+            "common_confusions": [
+                {
+                    "confusion": "只记名称而忽略证据来源。",
+                    "clarification": "复习时需要同时看概念、关系边和来源章节，避免脱离证据作答。",
+                    "evidence_refs": primary_refs[:4],
+                }
+            ],
+            "transition_to_next": "",
+        },
+        "missing_evidence": [] if primary_refs else ["no_structured_evidence_refs"],
+        "_trace": {
+            "mode": "fallback_evidence_section",
+            "uses_llm": False,
+            "fallback_rule_based": True,
+            "llm_error": error,
+        },
+    }
+
+
 def generate_handout_section(
     outline_node: dict,
     node_evidence: dict,
@@ -1132,7 +1251,11 @@ def generate_handout_section(
         return _failed_section_dict(node_id, node_title, "llm_client_import_failed")
 
     if not is_llm_configured(*_HANDOUT_API_KEY_NAMES):
-        return _failed_section_dict(node_id, node_title, "no_llm_api_key_configured")
+        return _fallback_evidence_section(
+            outline_node,
+            node_evidence,
+            "no_llm_api_key_configured",
+        )
 
     _prompt_dir = Path(__file__).resolve().parent / "prompts"
 
@@ -1174,7 +1297,11 @@ def generate_handout_section(
             response_format={"type": "json_object"},
         )
     except Exception as exc:
-        return _failed_section_dict(node_id, node_title, f"round1_llm_call_failed: {str(exc)[:300]}")
+        return _fallback_evidence_section(
+            outline_node,
+            node_evidence,
+            f"round1_llm_call_failed: {str(exc)[:300]}",
+        )
     round1_seconds = round(time.time() - t_round1_start, 3)
 
     # --- parse Round 1 output ---

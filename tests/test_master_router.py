@@ -624,6 +624,149 @@ class TestLiteratureIntent:
         mock_orchestrator.start_lesson.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_literature_fallback_without_llm(self, mock_orchestrator):
+        """Obvious literature requests should still work when router LLM is absent."""
+        seen: dict[str, Any] = {}
+
+        async def _lit_mock(*args, **kwargs):
+            seen["args"] = args
+            seen["kwargs"] = kwargs
+            return {
+                "ok": True,
+                "module": "frontier_literature",
+                "query": args[0],
+                "terms": {"recommended_months": 3},
+                "articles": [],
+                "review": "",
+                "sources": [],
+                "errors": [],
+            }
+
+        router = MasterRouter(mock_orchestrator, literature_service=_lit_mock)
+
+        with patch("backend.services.router.master_router.is_llm_configured", return_value=False):
+            result = await router.route("我想要阅读阻生牙近三个月的文献", "demo")
+
+        assert result["ok"] is True
+        assert result["route"]["intent"] == "literature"
+        assert result["route"]["source"] == "deterministic_literature_route"
+        assert result["next_action"] == "show_literature"
+        assert seen["args"] == ("我想要阅读阻生牙近三个月的文献", None, 5)
+        assert seen["kwargs"] == {"include_chat_translations": True}
+        mock_orchestrator.start_lesson.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_temporal_text_alone_does_not_trigger_literature_fallback(self, mock_orchestrator):
+        """A time window alone is not enough to route into literature mode."""
+        router = MasterRouter(mock_orchestrator)
+
+        with patch("backend.services.router.master_router.is_llm_configured", return_value=False):
+            result = await router.route("查看近三个月学习计划", "demo")
+
+        assert result["ok"] is True
+        assert result["route"]["intent"] == "clarification"
+        mock_orchestrator.start_lesson.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_literature_fallback_overrides_llm_clarification(self, mock_orchestrator):
+        """High-confidence literature requests should survive weak LLM clarification."""
+        seen: dict[str, Any] = {}
+
+        async def _lit_mock(*args, **kwargs):
+            seen["args"] = args
+            seen["kwargs"] = kwargs
+            return {
+                "ok": True,
+                "module": "frontier_literature",
+                "query": args[0],
+                "terms": {"recommended_months": 3},
+                "articles": [],
+                "review": "",
+                "sources": [],
+                "errors": [],
+            }
+
+        router = MasterRouter(mock_orchestrator, literature_service=_lit_mock)
+
+        with patch("backend.services.router.master_router.is_llm_configured", return_value=True), patch(
+            "backend.services.router.master_router.chat_completion",
+            return_value='{"intent":"clarification","plan_item_requested":false,"topic":"","reason":"不确定"}',
+        ):
+            result = await router.route("我想要阅读阻生牙近三个月的文献", "demo")
+
+        assert result["ok"] is True
+        assert result["route"]["intent"] == "literature"
+        assert result["route"]["source"] == "deterministic_literature_route"
+        assert seen["args"] == ("我想要阅读阻生牙近三个月的文献", None, 5)
+        assert seen["kwargs"] == {"include_chat_translations": True}
+
+    @pytest.mark.asyncio
+    async def test_literature_handler_passes_context_options(self, mock_orchestrator):
+        """Chat context months/limit must reach the literature service."""
+        seen: dict[str, Any] = {}
+
+        async def _lit_mock(*args, **kwargs):
+            seen["args"] = args
+            seen["kwargs"] = kwargs
+            return {
+                "ok": True,
+                "module": "frontier_literature",
+                "query": args[0],
+                "terms": {"recommended_months": args[1]},
+                "articles": [],
+                "review": "",
+                "sources": [],
+                "errors": [],
+            }
+
+        router = MasterRouter(
+            mock_orchestrator,
+            classifier=_make_classifier("literature", "用户需要查文献"),
+            literature_service=_lit_mock,
+        )
+
+        result = await router.route(
+            "检索阻生牙文献",
+            "demo",
+            context={"months": 3, "limit": 8},
+        )
+
+        assert result["ok"] is True
+        assert seen["args"] == ("检索阻生牙文献", 3, 8)
+        assert seen["kwargs"] == {"include_chat_translations": True}
+
+    @pytest.mark.asyncio
+    async def test_literature_handler_extracts_limit_from_message(self, mock_orchestrator):
+        """A request like '前 7 篇' should not be forced back to the default 5."""
+        seen: dict[str, Any] = {}
+
+        async def _lit_mock(*args, **kwargs):
+            seen["args"] = args
+            seen["kwargs"] = kwargs
+            return {
+                "ok": True,
+                "module": "frontier_literature",
+                "query": args[0],
+                "terms": {},
+                "articles": [],
+                "review": "",
+                "sources": [],
+                "errors": [],
+            }
+
+        router = MasterRouter(
+            mock_orchestrator,
+            classifier=_make_classifier("literature", "用户需要查文献"),
+            literature_service=_lit_mock,
+        )
+
+        result = await router.route("帮我检索阻生牙前7篇文献", "demo")
+
+        assert result["ok"] is True
+        assert seen["args"] == ("帮我检索阻生牙前7篇文献", None, 7)
+        assert seen["kwargs"] == {"include_chat_translations": True}
+
+    @pytest.mark.asyncio
     async def test_literature_service_error(self, mock_orchestrator):
         """Literature service failure must be a real error."""
 
@@ -639,6 +782,66 @@ class TestLiteratureIntent:
 
         assert result["ok"] is False
         assert "API timeout" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Deterministic fallback routing
+# ---------------------------------------------------------------------------
+
+
+class TestDeterministicFallbackRouting:
+    @pytest.mark.asyncio
+    async def test_explicit_learning_fallback_without_llm(self, mock_orchestrator):
+        """Obvious learning requests should still start the learning chain."""
+        mock_orchestrator.start_lesson.return_value = {
+            "session": {"id": "sess-caries", "topic": "龋病", "user_id": "demo"},
+            "outline": {"title": "龋病", "nodes": [{"id": "node-1", "title": "概念"}]},
+            "mindmap": {"root": {"name": "龋病", "children": []}},
+            "current_outline_node_id": "node-1",
+        }
+        router = MasterRouter(mock_orchestrator)
+
+        with patch("backend.services.router.master_router.is_llm_configured", return_value=False):
+            result = await router.route("我想学习龋病", "demo")
+
+        assert result["ok"] is True
+        assert result["route"]["intent"] == "learning"
+        assert result["route"]["source"] == "deterministic_learning_route"
+        assert result["next_action"] == "start_session"
+        assert mock_orchestrator.start_lesson.call_args.kwargs["topic"] == "龋病"
+
+    @pytest.mark.asyncio
+    async def test_explicit_learning_fallback_overrides_llm_clarification(self, mock_orchestrator):
+        """Weak LLM clarification must not block a clear learning request."""
+        mock_orchestrator.start_lesson.return_value = {
+            "session": {"id": "sess-caries", "topic": "龋病", "user_id": "demo"},
+            "outline": {"title": "龋病", "nodes": [{"id": "node-1", "title": "概念"}]},
+            "mindmap": {"root": {"name": "龋病", "children": []}},
+            "current_outline_node_id": "node-1",
+        }
+        router = MasterRouter(mock_orchestrator)
+
+        with patch("backend.services.router.master_router.is_llm_configured", return_value=True), patch(
+            "backend.services.router.master_router.chat_completion",
+            return_value='{"intent":"clarification","plan_item_requested":false,"topic":"","reason":"不确定"}',
+        ):
+            result = await router.route("我想学习龋病", "demo")
+
+        assert result["ok"] is True
+        assert result["route"]["intent"] == "learning"
+        assert result["route"]["source"] == "deterministic_learning_route"
+        assert mock_orchestrator.start_lesson.call_args.kwargs["topic"] == "龋病"
+
+    @pytest.mark.asyncio
+    async def test_learning_plan_text_does_not_trigger_learning_fallback(self, mock_orchestrator):
+        router = MasterRouter(mock_orchestrator)
+
+        with patch("backend.services.router.master_router.is_llm_configured", return_value=False):
+            result = await router.route("查看近三个月学习计划", "demo")
+
+        assert result["ok"] is True
+        assert result["route"]["intent"] == "clarification"
+        mock_orchestrator.start_lesson.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

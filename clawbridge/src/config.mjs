@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
 const DEFAULTS = {
   serviceName: "OralSage ClawBridge",
   serviceVersion: "0.1.0",
@@ -19,6 +22,81 @@ const DEFAULTS = {
   maxImageBytes: 5000000,
   maxAttachmentBytes: 15000000
 };
+
+function stripInlineComment(value) {
+  let quote = "";
+  let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "'" || char === "\"") {
+      if (quote === char) {
+        quote = "";
+      } else if (!quote) {
+        quote = char;
+      }
+      continue;
+    }
+    if (char === "#" && !quote && (index === 0 || /\s/.test(value[index - 1]))) {
+      return value.slice(0, index).trimEnd();
+    }
+  }
+  return value.trim();
+}
+
+function normalizeEnvValue(value) {
+  const normalized = stripInlineComment(value.trim());
+  if (
+    normalized.length >= 2 &&
+    normalized[0] === normalized[normalized.length - 1] &&
+    ["'", "\""].includes(normalized[0])
+  ) {
+    return normalized.slice(1, -1);
+  }
+  return normalized;
+}
+
+function readDotEnvFile(filePath) {
+  if (!existsSync(filePath)) {
+    return {};
+  }
+  const loaded = {};
+  for (const rawLine of readFileSync(filePath, "utf-8").replace(/^\uFEFF/, "").split(/\r?\n/)) {
+    let line = rawLine.trim();
+    if (!line || line.startsWith("#") || !line.includes("=")) {
+      continue;
+    }
+    if (line.startsWith("export ")) {
+      line = line.slice(7).trimStart();
+    }
+    const separatorIndex = line.indexOf("=");
+    const key = line.slice(0, separatorIndex).trim();
+    if (!key) {
+      continue;
+    }
+    loaded[key] = normalizeEnvValue(line.slice(separatorIndex + 1));
+  }
+  return loaded;
+}
+
+function loadRuntimeEnv(env) {
+  if (env !== process.env) {
+    return env;
+  }
+  const cwd = process.cwd();
+  return {
+    ...readDotEnvFile(path.resolve(cwd, "..", ".env")),
+    ...readDotEnvFile(path.resolve(cwd, ".env")),
+    ...env
+  };
+}
 
 function parseBoolean(value, fallback) {
   if (value === undefined || value === null || String(value).trim() === "") {
@@ -42,6 +120,7 @@ function normalizeUrl(value, fallback) {
 }
 
 export function loadConfig(env = process.env) {
+  env = loadRuntimeEnv(env);
   const internalSecret = String(
     env.CLAWBRIDGE_INTERNAL_SECRET
       ?? env.AUTH_INTERNAL_OPENCLAW_SECRET

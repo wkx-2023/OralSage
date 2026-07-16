@@ -1,3 +1,5 @@
+import QRCode from "qrcode";
+
 import {
   buildClawbotInstanceId,
   collectInboundImages,
@@ -18,6 +20,22 @@ import {
 import { sendInboundChatMessage } from "./backend-client.mjs";
 
 const TYPING_KEEPALIVE_INTERVAL_MS = 5000;
+
+async function renderQrImageDataUrl(target) {
+  const value = String(target ?? "").trim();
+  if (!value) {
+    throw new ClawBridgeServiceError("Weixin iLink did not return a usable QR code.", 502);
+  }
+  if (value.startsWith("data:image/")) {
+    return value;
+  }
+  return QRCode.toDataURL(value, {
+    errorCorrectionLevel: "M",
+    margin: 2,
+    scale: 8,
+    type: "image/png"
+  });
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -107,17 +125,17 @@ function formatBridgeActionLinesForOralSage(actions) {
 
 function buildWeixinBindIntroTextForOralSage() {
   return [
-    "你好，我是 OralSage 的微信 ClawBot，一个学习计划助手。",
-    "我可以把每日学习计划推送到微信，也可以在微信里帮你完成打卡、修改计划和延期计划。",
-    "你可以直接发送这些指令：",
+    "你好，我是 OralSage 学习计划助手。",
+    "",
+    "以后你可以在微信里查看、添加和调整学习计划。试试发送：",
+    "",
     "今日计划",
     "推荐计划",
     "添加计划 复习牙周病基础",
-    "打卡 1",
-    "修改 1 复习牙髓炎鉴别诊断",
-    "延期 1 到明天",
     "",
-    "语音和图片会先进入消息通道；当前计划功能以文字指令为主。"
+    "打卡计划①",
+    "修改计划①为：复习牙髓炎鉴别诊断",
+    "延期计划①到明天"
   ].join("\n");
 }
 
@@ -227,10 +245,12 @@ export class ClawBridgeService {
       baseUrl: this.config.weixinPluginBaseUrl,
       timeoutMs: this.config.apiTimeoutMs
     });
+    const qrImageDataUrl = await renderQrImageDataUrl(qr.qrDataUrl);
     const session = {
       sessionId,
       qrcode: qr.qrcode,
-      qrDataUrl: qr.qrDataUrl,
+      qrDataUrl: qrImageDataUrl,
+      qrTargetUrl: qr.qrDataUrl,
       status: "waiting",
       pollBaseUrl: this.config.weixinPluginBaseUrl,
       message: "Scan the QR code with Weixin to connect ClawBot.",
@@ -242,7 +262,7 @@ export class ClawBridgeService {
     await this.store.setQrSession(session);
     return {
       sessionId,
-      qrDataUrl: qr.qrDataUrl,
+      qrDataUrl: qrImageDataUrl,
       message: session.message
     };
   }

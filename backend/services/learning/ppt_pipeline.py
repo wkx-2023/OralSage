@@ -759,10 +759,13 @@ def ensure_pin_and_paper_previews(
         cached = current_manifest()
         if cached is not None:
             return cached
-        render_dir = Path(tempfile.mkdtemp(prefix="ppt-preview-", dir=str(session_dir)))
+        # Keep browser scratch files in the system temp directory. Project paths
+        # may contain spaces or '#' characters, which some headless browser
+        # screenshot implementations handle poorly when used as output targets.
+        render_dir = Path(tempfile.mkdtemp(prefix="ppt-preview-"))
         try:
             images = _render_plan_to_pngs(
-                plan_path=plan_path,
+                plan_path=plan_path.resolve(),
                 output_dir=render_dir,
                 slide_count=len(slides),
                 browser_path=browser_path,
@@ -896,11 +899,13 @@ def export_pin_and_paper_pptx(
         "pptx_path": "",
         "error": None,
     })
-    render_dir = Path(tempfile.mkdtemp(prefix="ppt-render-", dir=str(session_dir)))
+    # Match preview generation: render browser screenshots in system temp so
+    # paths containing spaces or '#' do not break headless screenshot output.
+    render_dir = Path(tempfile.mkdtemp(prefix="ppt-render-"))
     candidate_output_path = render_dir / "lesson.pptx"
     try:
         images = _render_plan_to_pngs(
-            plan_path=Path(plan_path),
+            plan_path=Path(plan_path).resolve(),
             output_dir=render_dir,
             slide_count=len(plan.get("slides", [])),
             browser_path=browser_path,
@@ -944,7 +949,10 @@ def export_pin_and_paper_pptx(
         validation = _validate_pptx(candidate_output_path, len(export_slides), expected_notes)
         ok = not export_error and validation.get("ok") is True
         if ok:
-            os.replace(str(candidate_output_path), str(output_path))
+            staged_output_path = session_dir / "lesson.pptx.tmp"
+            staged_output_path.unlink(missing_ok=True)
+            shutil.copy2(candidate_output_path, staged_output_path)
+            os.replace(str(staged_output_path), str(output_path))
         status = {
             **base_status,
             "ok": ok,
@@ -984,7 +992,7 @@ def refresh_ppt_resources(
     export_pptx: bool = True,
     browser_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Refresh formal slides, Pin & Paper plans, and the current PPTX."""
+    """Refresh slides and plans; export a PPTX only once the deck is complete."""
     with _session_lock(session_id):
         slides_result = generate_slides_resource_from_session_cache(
             session_id=session_id,
@@ -1005,7 +1013,7 @@ def refresh_ppt_resources(
             resource_root=resource_root,
             llm_client=llm_client,
         )
-        if export_pptx:
+        if export_pptx and plan.get("status") == "ready":
             pptx = export_pin_and_paper_pptx(
                 session_id=session_id,
                 plan=plan,
@@ -1013,10 +1021,20 @@ def refresh_ppt_resources(
                 resource_root=resource_root,
                 browser_path=browser_path,
             )
+        elif export_pptx:
+            # Rendering screenshots and packaging a PPTX for every partial deck
+            # blocks the next section's preview behind repeated full-deck work.
+            pptx = {
+                "status": "deferred",
+                "ok": False,
+                "reason": "waiting_for_complete_pin_and_paper_plan",
+                "ready_section_count": len(plan.get("ready_node_ids", [])),
+                "expected_section_count": len(plan.get("expected_node_ids", [])),
+            }
         else:
             pptx = {"status": "skipped", "ok": False}
         return {
-            "status": pptx.get("status", plan.get("status", "failed")),
+            "status": plan.get("status", "failed"),
             "slides": slides_result,
             "pin_and_paper_plan": plan,
             "pptx": pptx,

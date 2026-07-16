@@ -301,6 +301,19 @@
     return body;
   }
 
+  async function syncCurrentUser() {
+    try {
+      const body = await apiGet('/api/auth/me');
+      const userId = String(body?.user?.user_id || body?.user?.username || '').trim();
+      if (body?.authenticated && userId) {
+        state.userId = userId;
+        localStorage.setItem('oralsage.learningProfile.userId', userId);
+      }
+    } catch (_err) {
+      // Keep anonymous/demo mode available when the auth module is not active.
+    }
+  }
+
   function slotItems(slot) {
     const slotData = state.data?.learner_memory?.[slot];
     return asArray(slotData?.items).filter((item) => item && typeof item === 'object');
@@ -1653,7 +1666,8 @@
     );
   }
 
-  function boot() {
+  async function boot() {
+    await syncCurrentUser();
     initAssessmentController();
     bindEvents();
     loadProfile();

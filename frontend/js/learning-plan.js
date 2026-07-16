@@ -8,6 +8,29 @@
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;'));
 
+  function removeWeixinTopNavLink() {
+    document
+      .querySelectorAll('#top-nav a.top-nav-link[href="/pages/weixin-account.html"]')
+      .forEach((node) => node.remove());
+  }
+
+  function installTopNavCleanup() {
+    removeWeixinTopNavLink();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', removeWeixinTopNavLink, { once: true });
+    }
+    [0, 100, 500, 1500].forEach((delay) => {
+      window.setTimeout(removeWeixinTopNavLink, delay);
+    });
+    if (window.MutationObserver && document.body) {
+      const observer = new MutationObserver(removeWeixinTopNavLink);
+      observer.observe(document.body, { childList: true, subtree: true });
+      window.setTimeout(() => observer.disconnect(), 2500);
+    }
+  }
+
+  installTopNavCleanup();
+
   const now = new Date();
   const state = {
     userId: new URLSearchParams(window.location.search).get('user_id')
@@ -141,6 +164,19 @@
       throw new Error(body?.result?.error || body?.message || String(body));
     }
     return body;
+  }
+
+  async function syncCurrentUser() {
+    try {
+      const body = await apiGet('/api/auth/me');
+      const userId = String(body?.user?.user_id || body?.user?.username || '').trim();
+      if (body?.authenticated && userId) {
+        state.userId = userId;
+        localStorage.setItem('oralsage.learningProfile.userId', userId);
+      }
+    } catch (_err) {
+      // Anonymous/demo mode is still supported for local smoke tests.
+    }
   }
 
   function setStatus(message, tone = 'muted') {
@@ -836,8 +872,13 @@
     });
   }
 
-  initAssessmentController();
-  bindEvents();
-  loadProfile();
-  loadMonth();
+  async function boot() {
+    await syncCurrentUser();
+    initAssessmentController();
+    bindEvents();
+    loadProfile();
+    loadMonth();
+  }
+
+  boot();
 })();

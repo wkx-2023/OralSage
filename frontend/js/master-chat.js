@@ -2,6 +2,7 @@
   const { byId, escapeHtml, apiPost } = window.oralUi;
   const STORAGE_KEY = 'oralsage.history.master-chat';
   const PENDING_KEY = 'oralsage.pending.master-chat';
+  const DEFAULT_USER_ID = 'demo';
   const jobStreams = new Map();
   const resourceRefreshes = new Map();
   const learningResources = new Map();
@@ -9,15 +10,24 @@
   const audioQueues = new Map();
   const quizQuestions = new Map();
   let activeAudio = null;
+  let activeStorageUserId = DEFAULT_USER_ID;
 
   const state = {
     messages: [],
     sessions: loadSessions(),
     activeSessionId: createId(),
     backendSessionId: null,
-    userId: 'demo',
+    userId: DEFAULT_USER_ID,
     pendingJobs: loadPendingJobs(),
   };
+
+  function normalizeUserId(value) {
+    return String(value || DEFAULT_USER_ID).trim() || DEFAULT_USER_ID;
+  }
+
+  function accountStorageKey(baseKey, userId = activeStorageUserId) {
+    return `${baseKey}.${encodeURIComponent(normalizeUserId(userId))}`;
+  }
 
   function createId() {
     return `s-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -38,20 +48,43 @@
 
   function loadSessions() {
     try {
-      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-      return Array.isArray(parsed) ? parsed : [];
+      const userId = normalizeUserId(activeStorageUserId);
+      const raw = localStorage.getItem(accountStorageKey(STORAGE_KEY, userId))
+        || (userId === DEFAULT_USER_ID ? localStorage.getItem(STORAGE_KEY) : null)
+        || '[]';
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.map(migrateStoredSession) : [];
     } catch (_err) {
       return [];
     }
   }
 
+  function migrateStoredSession(session) {
+    if (!session || typeof session !== 'object') return session;
+    const messages = Array.isArray(session.messages) ? session.messages.map((message) => {
+      if (!message || typeof message !== 'object') return message;
+      if (typeof message.html === 'string' && /<h3>(横向思维导图|轻量树状图)<\/h3>/.test(message.html)) {
+        return {
+          ...message,
+          html: message.html.replace(/<h3>(横向思维导图|轻量树状图)<\/h3>/g, '<h3>思维导图</h3>'),
+        };
+      }
+      return message;
+    }) : [];
+    return { ...session, messages };
+  }
+
   function saveSessions() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.sessions.slice(0, 30)));
+    localStorage.setItem(accountStorageKey(STORAGE_KEY), JSON.stringify(state.sessions.slice(0, 30)));
   }
 
   function loadPendingJobs() {
     try {
-      const parsed = JSON.parse(localStorage.getItem(PENDING_KEY) || '{}');
+      const userId = normalizeUserId(activeStorageUserId);
+      const raw = localStorage.getItem(accountStorageKey(PENDING_KEY, userId))
+        || (userId === DEFAULT_USER_ID ? localStorage.getItem(PENDING_KEY) : null)
+        || '{}';
+      const parsed = JSON.parse(raw);
       return parsed && typeof parsed === 'object' ? parsed : {};
     } catch (_err) {
       return {};
@@ -59,7 +92,7 @@
   }
 
   function savePendingJobs() {
-    localStorage.setItem(PENDING_KEY, JSON.stringify(state.pendingJobs));
+    localStorage.setItem(accountStorageKey(PENDING_KEY), JSON.stringify(state.pendingJobs));
   }
 
   function refreshIcons() {
@@ -496,6 +529,44 @@
     `;
   }
 
+  function mindmapNodeTitle(node) {
+    return String(node?.name || node?.title || node?.label || '').trim();
+  }
+
+  function renderMindmapTree(node, currentNodeId, depth = 0) {
+    if (!node || depth > 3) return '';
+    const title = mindmapNodeTitle(node);
+    const children = Array.isArray(node.children) ? node.children.filter(Boolean) : [];
+    if (!title && !children.length) return '';
+    const nodeId = String(node.id || node.node_id || '');
+    const active = currentNodeId && nodeId === currentNodeId;
+    const classes = [
+      depth === 0 ? 'mindmap-node-root' : '',
+      `mindmap-depth-${depth}`,
+      children.length ? 'has-children' : '',
+      active ? 'active' : '',
+    ].filter(Boolean).join(' ');
+    return `
+      <li class="${classes}">
+        ${title ? `<span>${escapeHtml(title)}</span>` : ''}
+        ${children.length ? `<ol>${children.map((child) => renderMindmapTree(child, currentNodeId, depth + 1)).join('')}</ol>` : ''}
+      </li>
+    `;
+  }
+
+  function renderMindmap(final, currentNodeId) {
+    const root = final?.mindmap?.root || null;
+    if (!root) return '';
+    const tree = renderMindmapTree(root, currentNodeId);
+    if (!tree) return '';
+    return `
+      <section class="mindmap-resource">
+        <div class="resource-heading"><div><span class="mode-label">学习地图</span><h3>思维导图</h3></div><span class="resource-state">已同步</span></div>
+        <ol class="mindmap-tree">${tree}</ol>
+      </section>
+    `;
+  }
+
   function renderLearningResult(routerResult, step) {
     const final = routerResult?.final_result || {};
     const session = final.session || {};
@@ -512,6 +583,7 @@
       return `
         <section class="learning-response">
           <div class="learning-section-head"><div><span class="mode-label">学习模式</span><h2>${escapeHtml(title)}</h2></div></div>
+          ${renderMindmap(final, nodeId)}
           <div class="assistant-markdown">${formatMarkdown(base)}</div>
           ${step?.stage_exam ? renderStageExamHtml(step.stage_exam) : ''}
           ${renderRouteDetails(routerResult)}
@@ -519,6 +591,7 @@
       `;
     }
 
+    const resourceKey = `${sessionId}:${nodeId}`;
     return `
       <section class="learning-response" data-learning-session="${escapeHtml(sessionId)}" data-outline-node="${escapeHtml(nodeId)}">
         <header class="learning-section-head">
@@ -526,25 +599,31 @@
             <span class="mode-label">学习模式</span>
             <h2>${escapeHtml(title)}</h2>
           </div>
-          <button type="button" class="audio-command" data-audio-key="${escapeHtml(`${sessionId}:${nodeId}`)}" data-audio-ready-label="播放本节讲稿" disabled title="本节语音正在准备">
+          <button type="button" class="audio-command" data-section-audio="${escapeHtml(resourceKey)}" data-audio-key="${escapeHtml(resourceKey)}" data-audio-ready-label="播放本节讲稿" disabled title="本节语音正在准备" hidden>
             <i data-lucide="loader-circle"></i><span>语音准备中</span>
           </button>
         </header>
-        ${renderLectureCopy(teachingText, sessionId, nodeId)}
-        <div class="learning-actions">
-          <button type="button" class="learning-action primary" data-chat-prompt="继续">
-            <i data-lucide="arrow-right"></i><span>继续下一节</span>
-          </button>
-          <button type="button" class="learning-action" data-focus-composer>
-            <i data-lucide="message-circle-question"></i><span>针对本节提问</span>
-          </button>
-        </div>
-        ${renderTutorQuestions(step?.questions, sessionId, nodeId)}
-        <section class="slide-resource" data-slide-resource="${escapeHtml(`${sessionId}:${nodeId}`)}">
-          <div class="resource-heading"><div><span class="mode-label">同步演示</span><h3>本节 PPT</h3></div><span class="resource-state">生成中</span></div>
-          <div class="slide-loading"><span></span><p>正在整理本节演示内容</p></div>
+        ${renderMindmap(final, nodeId)}
+        <section class="section-sync-loading" data-section-sync="${escapeHtml(resourceKey)}" aria-live="polite">
+          <span aria-hidden="true"></span><p>正在同步准备本节讲稿与 PPT</p>
         </section>
-        ${step?.stage_exam ? renderStageExamHtml(step.stage_exam) : ''}
+        <div data-learning-content="${escapeHtml(resourceKey)}" hidden>
+          ${renderLectureCopy(teachingText, sessionId, nodeId)}
+          <div class="learning-actions">
+            <button type="button" class="learning-action primary" data-chat-prompt="继续">
+              <i data-lucide="arrow-right"></i><span>继续下一节</span>
+            </button>
+            <button type="button" class="learning-action" data-focus-composer>
+              <i data-lucide="message-circle-question"></i><span>针对本节提问</span>
+            </button>
+          </div>
+          ${renderTutorQuestions(step?.questions, sessionId, nodeId)}
+          <section class="slide-resource" data-slide-resource="${escapeHtml(resourceKey)}">
+            <div class="resource-heading"><div><span class="mode-label">同步演示</span><h3>本节 PPT</h3></div><span class="resource-state">生成中</span></div>
+            <div class="slide-loading"><span></span><p>正在整理本节演示内容</p></div>
+          </section>
+          ${step?.stage_exam ? renderStageExamHtml(step.stage_exam) : ''}
+        </div>
         ${renderRouteDetails(routerResult)}
       </section>
     `;
@@ -839,8 +918,49 @@
   function parseUrlParams(search) {
     const params = new URLSearchParams(search || window.location.search);
     const planItemId = params.get('plan_item_id') || '';
-    const userId = params.get('user_id') || 'demo';
+    const userId = normalizeUserId(params.get('user_id'));
     return { planItemId, userId };
+  }
+
+  function userIdFromAuthBody(body, fallback = DEFAULT_USER_ID) {
+    const user = body?.authenticated ? body.user : null;
+    return normalizeUserId(user?.user_id || user?.username || user?.display_name || fallback);
+  }
+
+  async function resolveCurrentUserId(fallback = DEFAULT_USER_ID) {
+    try {
+      const response = await fetch('/api/auth/me', {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) return normalizeUserId(fallback);
+      return userIdFromAuthBody(await response.json(), fallback);
+    } catch (_err) {
+      return normalizeUserId(fallback);
+    }
+  }
+
+  function switchAccountScope(userId, { resetActive = true } = {}) {
+    const nextUserId = normalizeUserId(userId);
+    const changed = nextUserId !== activeStorageUserId;
+    if (changed) {
+      jobStreams.forEach((stream) => stream.close());
+      jobStreams.clear();
+    }
+    activeStorageUserId = nextUserId;
+    state.userId = nextUserId;
+    state.sessions = loadSessions();
+    state.pendingJobs = loadPendingJobs();
+    if (changed || resetActive) {
+      state.activeSessionId = createId();
+      state.backendSessionId = null;
+      state.messages = [];
+      const log = byId('agent-chat-log');
+      if (log) log.innerHTML = '';
+      setBusy(false);
+    }
+    setEmptyState();
+    renderSessions();
   }
 
   function cleanUrlParams() {
@@ -897,11 +1017,19 @@
         found.session.backendSessionId = event.data.session_id;
       }
     } else if (event.type === 'content_delta') {
-      found.message.streamText = `${found.message.streamText || ''}${event.data?.delta || ''}`;
-      found.message.statusText = event.message || '正在生成本节讲稿';
+      if (event.data?.channel === 'teaching_text') {
+        found.message.statusText = '正在同步准备本节讲稿与 PPT';
+      } else {
+        found.message.streamText = `${found.message.streamText || ''}${event.data?.delta || ''}`;
+        found.message.statusText = event.message || '正在生成正文';
+      }
     } else if (event.type === 'content_replace') {
-      found.message.streamText = String(event.data?.text || '');
-      found.message.statusText = event.message || '正在整理本节讲稿';
+      if (event.data?.channel === 'teaching_text') {
+        found.message.statusText = '正在同步准备本节讲稿与 PPT';
+      } else {
+        found.message.streamText = String(event.data?.text || '');
+        found.message.statusText = event.message || '正在整理正文';
+      }
     } else if (event.type === 'complete') {
       found.message.kind = 'result';
       found.message.payload = event.data || {};
@@ -1066,30 +1194,53 @@
     return response.json();
   }
 
-  function pptStateLabel(payload) {
-    const result = payload?.result || payload || {};
-    const value = result.pptx_status?.status || result.pptx?.status || result.status || 'pending';
-    return String(value || 'pending');
+  function currentSectionSlideIndex(resource, nodeId) {
+    const preview = resource?.preview?.result || {};
+    const slides = Array.isArray(preview.slides) ? preview.slides : [];
+    if (preview.status !== 'ready' || !nodeId) return -1;
+    return slides.findIndex((slide) => slide.source_outline_node_id === nodeId);
+  }
+
+  function currentSectionPreviewReady(key, resource) {
+    const [, nodeId] = key.split(':');
+    return currentSectionSlideIndex(resource, nodeId) >= 0;
+  }
+
+  function setLearningContentVisibility(key, ready) {
+    document.querySelectorAll('[data-learning-content]').forEach((content) => {
+      if (content.dataset.learningContent === key) content.hidden = !ready;
+    });
+    document.querySelectorAll('[data-section-sync]').forEach((loader) => {
+      if (loader.dataset.sectionSync === key) loader.hidden = ready;
+    });
+    document.querySelectorAll('[data-section-audio]').forEach((button) => {
+      if (button.dataset.sectionAudio === key) button.hidden = !ready;
+    });
   }
 
   function renderSlidePreview(key, resource) {
     const [sessionId, nodeId] = key.split(':');
     const preview = resource?.preview?.result || {};
     const slides = Array.isArray(preview.slides) ? preview.slides : [];
-    const pptState = pptStateLabel(resource?.ppt);
-    const readyForDownload = ['partial', 'ready'].includes(pptState);
-    const previewReady = preview.status === 'ready' && slides.length > 0;
+    const pptx = resource?.ppt?.result?.pptx || {};
+    const readyForDownload = pptx.ok === true && pptx.status === 'ready';
+    const sectionIndex = currentSectionSlideIndex(resource, nodeId);
+    const previewReady = sectionIndex >= 0;
     const stateText = previewReady
       ? '真实页面'
       : (preview.status === 'failed' ? '预览生成失败' : '同步生成中');
 
-    if (!pptViewerIndices.has(key) && slides.length) {
-      const sectionIndex = slides.findIndex((slide) => slide.source_outline_node_id === nodeId);
-      pptViewerIndices.set(key, sectionIndex >= 0 ? sectionIndex : 0);
+    const hasViewerIndex = pptViewerIndices.has(key);
+    if (!hasViewerIndex && sectionIndex >= 0) {
+      pptViewerIndices.set(key, sectionIndex);
     }
-    const requestedIndex = Number(pptViewerIndices.get(key) || 0);
+    const requestedIndex = hasViewerIndex
+      ? Number(pptViewerIndices.get(key) || 0)
+      : (sectionIndex >= 0 ? sectionIndex : 0);
     const currentIndex = Math.max(0, Math.min(requestedIndex, Math.max(0, slides.length - 1)));
-    pptViewerIndices.set(key, currentIndex);
+    if (hasViewerIndex || sectionIndex >= 0) {
+      pptViewerIndices.set(key, currentIndex);
+    }
     const current = slides[currentIndex] || null;
 
     const viewerHtml = current ? `
@@ -1158,6 +1309,7 @@
 
   function renderAudioState(key, resource) {
     const [sessionId, nodeId] = key.split(':');
+    const manifestUnavailable = !resource?.audio;
     const manifest = resource?.audio?.result || {};
     const section = (manifest.sections || []).find((item) => item.outline_node_id === nodeId);
     const tutorSlides = (section?.slides || []).filter(isTutorAudioSlide);
@@ -1191,6 +1343,7 @@
       const targetKey = button.dataset.audioKey || '';
       if (targetKey !== key && !targetKey.startsWith(`${key}:`)) return;
       if (activeAudio?.button === button) return;
+      delete button.dataset.audioSpeechFallback;
       const queue = queueForButton(targetKey, button);
       audioQueues.set(targetKey, queue);
       const expectedHash = String(button.dataset.audioTextHash || '');
@@ -1200,7 +1353,21 @@
         && tutorSlides.length > 0
         && tutorSlides.every((slide) => slide.status === 'ready')
         && !sectionQueue.length;
-      if (queue.length) {
+      if (manifestUnavailable) {
+        const canSpeak = targetKey === key && speechTextForKey(key) && 'speechSynthesis' in window;
+        button.dataset.audioPending = 'false';
+        if (canSpeak) {
+          button.disabled = false;
+          button.dataset.audioSpeechFallback = 'true';
+          button.title = '服务器语音状态暂不可用，使用浏览器朗读本节讲稿';
+          button.dataset.audioIdleLabel = '朗读讲稿';
+          setAudioButtonIdle(button);
+        } else {
+          button.disabled = true;
+          button.title = '服务器语音状态暂不可用';
+          button.innerHTML = '<i data-lucide="volume-x"></i><span>语音暂不可用</span>';
+        }
+      } else if (queue.length) {
         button.dataset.audioPending = 'false';
         button.disabled = false;
         button.title = targetKey === key ? '播放本节完整讲稿' : '播放本段讲稿语音';
@@ -1212,10 +1379,19 @@
         button.title = '语音缓存与当前讲稿不一致，正在重新生成';
         button.innerHTML = '<i data-lucide="loader-circle"></i><span>等待语音</span>';
       } else if (['failed', 'skipped'].includes(section?.status)) {
+        const canSpeak = targetKey === key && speechTextForKey(key) && 'speechSynthesis' in window;
         button.dataset.audioPending = 'false';
-        button.disabled = true;
-        button.title = targetKey === key ? '本节语音生成失败，可稍后重试资源生成' : '本段语音暂不可用';
-        button.innerHTML = '<i data-lucide="volume-x"></i><span>语音暂不可用</span>';
+        if (canSpeak) {
+          button.disabled = false;
+          button.dataset.audioSpeechFallback = 'true';
+          button.title = '服务器语音暂不可用，使用浏览器朗读本节讲稿';
+          button.dataset.audioIdleLabel = '朗读讲稿';
+          setAudioButtonIdle(button);
+        } else {
+          button.disabled = true;
+          button.title = targetKey === key ? '本节语音生成失败，可稍后重试资源生成' : '本段语音暂不可用';
+          button.innerHTML = '<i data-lucide="volume-x"></i><span>语音暂不可用</span>';
+        }
       } else {
         button.dataset.audioPending = 'true';
         button.disabled = true;
@@ -1234,6 +1410,7 @@
   }
 
   function renderLearningResource(key, resource) {
+    setLearningContentVisibility(key, currentSectionPreviewReady(key, resource));
     renderSlidePreview(key, resource);
     renderAudioState(key, resource);
     refreshIcons();
@@ -1254,12 +1431,16 @@
     renderLearningResource(key, resource);
 
     const section = (audio?.result?.sections || []).find((item) => key.endsWith(`:${item.outline_node_id}`));
-    const waitingAudio = (!section || !['ready', 'failed', 'skipped'].includes(section.status))
-      || hasPendingAudioButtons(key);
-    const waitingSlides = preview?.result?.status !== 'ready';
-    const waitingPpt = !['ready', 'partial', 'failed'].includes(pptStateLabel(ppt));
-    if ((waitingAudio || waitingSlides || waitingPpt) && attempt < 30) {
-      const timer = setTimeout(() => refreshLearningResource(key, attempt + 1), 2500);
+    const audioUnavailable = !audio;
+    const waitingAudio = !audioUnavailable
+      && (
+        (!section || !['ready', 'failed', 'skipped'].includes(section.status))
+        || hasPendingAudioButtons(key)
+      );
+    const waitingSlides = !currentSectionPreviewReady(key, resource);
+    if ((waitingAudio || waitingSlides) && attempt < 45) {
+      const delay = attempt < 12 ? 1000 : 2500;
+      const timer = setTimeout(() => refreshLearningResource(key, attempt + 1), delay);
       resourceRefreshes.set(key, timer);
     } else {
       resourceRefreshes.delete(key);
@@ -1284,11 +1465,41 @@
 
   function stopActiveAudio() {
     if (!activeAudio) return;
-    activeAudio.audio.pause();
-    activeAudio.audio.src = '';
+    if (activeAudio.speech) {
+      window.speechSynthesis?.cancel();
+    } else if (activeAudio.audio) {
+      activeAudio.audio.pause();
+      activeAudio.audio.src = '';
+    }
     setAudioButtonIdle(activeAudio.button);
     activeAudio = null;
     refreshIcons();
+  }
+
+  function speechTextForKey(key) {
+    const node = Array.from(document.querySelectorAll('[data-lecture-key]')).find((item) => item.dataset.lectureKey === key);
+    return String(node?.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function playSpeechFallback(key, button) {
+    const text = speechTextForKey(key);
+    if (!text || !('speechSynthesis' in window)) return false;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'zh-CN';
+    utterance.rate = 0.95;
+    utterance.onend = () => {
+      if (activeAudio?.utterance === utterance) stopActiveAudio();
+    };
+    utterance.onerror = () => {
+      if (activeAudio?.utterance === utterance) stopActiveAudio();
+    };
+    activeAudio = { key, button, speech: true, utterance };
+    button.classList.add('is-playing');
+    button.innerHTML = '<i data-lucide="square"></i><span>停止</span>';
+    refreshIcons();
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    return true;
   }
 
   function playAudioQueue(key, button) {
@@ -1298,7 +1509,10 @@
     }
     stopActiveAudio();
     const queue = audioQueues.get(key) || [];
-    if (!queue.length) return;
+    if (!queue.length) {
+      playSpeechFallback(key, button);
+      return;
+    }
     let index = 0;
     const audio = new Audio();
     activeAudio = { key, audio, button };
@@ -1437,31 +1651,34 @@
     });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      bindEvents();
-      setEmptyState();
-      renderSessions();
-      refreshIcons();
-      const { planItemId, userId } = parseUrlParams();
-      state.userId = userId;
-      if (planItemId) {
-        autoSubmitPlanItem(planItemId, userId);
-      } else {
-        resumePendingJobs();
-      }
-    });
-  } else {
+  async function bootMasterChat() {
     bindEvents();
-    setEmptyState();
-    renderSessions();
-    refreshIcons();
     const { planItemId, userId } = parseUrlParams();
-    state.userId = userId;
+    const resolvedUserId = await resolveCurrentUserId(userId);
+    switchAccountScope(resolvedUserId, { resetActive: false });
+    refreshIcons();
     if (planItemId) {
-      autoSubmitPlanItem(planItemId, userId);
+      autoSubmitPlanItem(planItemId, state.userId);
     } else {
       resumePendingJobs();
     }
+  }
+
+  window.addEventListener('oralsage:auth-changed', async (event) => {
+    const detailUserId = event.detail?.authenticated
+      ? normalizeUserId(event.detail?.user?.user_id || event.detail?.user?.username || event.detail?.user?.display_name)
+      : '';
+    const nextUserId = detailUserId || await resolveCurrentUserId(DEFAULT_USER_ID);
+    switchAccountScope(nextUserId, { resetActive: true });
+    refreshIcons();
+    resumePendingJobs();
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      void bootMasterChat();
+    });
+  } else {
+    void bootMasterChat();
   }
 })();

@@ -7,10 +7,9 @@
   const NAV_ITEMS = [
     { key: 'home', name: '\u603b\u63a7\u5de5\u4f5c\u53f0', path: '/' },
     { key: 'master-chat', name: '\u667a\u80fd\u95ee\u7b54', path: '/pages/master-chat.html' },
-    { key: 'weixin-account', name: '微信连接', path: '/pages/weixin-account.html' },
     { key: 'learning-plan', name: '学习计划', path: '/pages/learning-plan.html' },
     { key: 'learning-profile', name: '\u5b66\u4e60\u753b\u50cf', path: '/pages/learning-profile.html' },
-    { key: 'evidence', name: '\u77e5\u8bc6\u5e93\u68c0\u7d22', path: '/pages/evidence.html' },
+    { key: 'evidence', name: '\u77e5\u8bc6\u5e93\u67e5\u770b', path: '/pages/evidence.html' },
     { key: 'knowledge-graph', name: '\u77e5\u8bc6\u56fe\u8c31\u67e5\u770b', path: '/pages/knowledge-graph.html' },
   ];
 
@@ -34,7 +33,7 @@
     '/pages/stats.html': { key: 'stats', title: '\u95e8\u8bca\u7edf\u8ba1', subtitle: TEXT.shellSubtitle },
     '/pages/literature.html': { key: 'literature', title: '\u524d\u6cbf\u6587\u732e', subtitle: TEXT.shellSubtitle },
     '/pages/pathology.html': { key: 'pathology', title: '\u75c5\u7406\u95ee\u7b54', subtitle: TEXT.shellSubtitle },
-    '/pages/evidence.html': { key: 'evidence', title: '\u77e5\u8bc6\u5e93\u68c0\u7d22', subtitle: '\u68c0\u7d22\u5f53\u524d\u77e5\u8bc6\u5e93\u4e2d\u7684\u53e3\u8154\u533b\u5b66\u77e5\u8bc6\u7247\u6bb5' },
+    '/pages/evidence.html': { key: 'evidence', title: '\u77e5\u8bc6\u5e93\u67e5\u770b', subtitle: '\u6309\u4e3b\u9898\u548c\u7ef4\u5ea6\u67e5\u770b\u53e3\u8154\u533b\u5b66\u77e5\u8bc6\u70b9\u4e0e\u539f\u6587\u4f9d\u636e' },
     '/pages/knowledge-graph.html': { key: 'knowledge-graph', title: '\u77e5\u8bc6\u56fe\u8c31\u67e5\u770b', subtitle: '\u67e5\u770b\u6559\u6750\u7ae0\u8282\u3001\u6838\u5fc3\u8282\u70b9\u548c\u77e5\u8bc6\u5173\u7cfb' },
   };
 
@@ -71,6 +70,26 @@
     return apiPost(`/api/agents/${encodeURIComponent(agentName)}/invoke`, payload);
   }
 
+  async function apiJson(url, options = {}) {
+    const res = await fetch(url, {
+      credentials: 'same-origin',
+      ...options,
+      headers: {
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.headers || {}),
+      },
+    });
+    const contentType = res.headers.get('content-type') || '';
+    const body = contentType.includes('application/json') ? await res.json() : await res.text();
+    if (!res.ok) {
+      const message = typeof body === 'string'
+        ? body
+        : body?.detail?.message || body?.message || JSON.stringify(body);
+      throw new Error(message || `${res.status} ${res.statusText}`);
+    }
+    return body;
+  }
+
   function ensureTopNav() {
     let nav = byId('top-nav');
     if (nav) return nav;
@@ -89,11 +108,113 @@
     const nav = ensureTopNav();
     if (!nav) return;
 
-    const links = NAV_ITEMS.map((item) => {
+    const links = NAV_ITEMS.filter((item) => item.key !== 'weixin-account').map((item) => {
       const cls = item.key === activeKey ? 'top-nav-link active' : 'top-nav-link';
       return `<a class="${cls}" href="${item.path}">${escapeHtml(item.name)}</a>`;
     }).join('');
     nav.innerHTML = BRAND_HTML + links;
+  }
+
+  function ensureAccountMenu() {
+    let account = byId('top-account');
+    if (account) return account;
+
+    const topbar = document.querySelector('.topbar');
+    if (!topbar) return null;
+
+    account = document.createElement('div');
+    account.id = 'top-account';
+    account.className = 'top-account';
+    account.innerHTML = `
+      <button id="top-account-toggle" class="top-account-toggle" type="button" aria-haspopup="menu" aria-expanded="false">
+        <span id="top-account-avatar" class="top-account-avatar" aria-hidden="true">?</span>
+        <span class="top-account-copy">
+          <span id="top-account-name" class="top-account-name">未登录</span>
+          <span id="top-account-role" class="top-account-role">账号</span>
+        </span>
+      </button>
+      <div id="top-account-menu" class="top-account-menu" role="menu" hidden>
+        <a class="top-account-menu-item" href="/pages/weixin-account.html" role="menuitem" data-account-login>账号与微信</a>
+        <button class="top-account-menu-item danger" type="button" role="menuitem" data-account-logout hidden>退出登录</button>
+      </div>
+    `;
+    topbar.appendChild(account);
+
+    const toggle = account.querySelector('#top-account-toggle');
+    const menu = account.querySelector('#top-account-menu');
+    toggle?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const nextOpen = menu?.hidden;
+      setAccountMenuOpen(Boolean(nextOpen));
+    });
+    account.querySelector('[data-account-logout]')?.addEventListener('click', async () => {
+      await logoutCurrentUser();
+    });
+    document.addEventListener('click', (event) => {
+      if (!account.contains(event.target)) setAccountMenuOpen(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setAccountMenuOpen(false);
+    });
+    return account;
+  }
+
+  function setAccountMenuOpen(open) {
+    const menu = byId('top-account-menu');
+    const toggle = byId('top-account-toggle');
+    if (!menu || !toggle) return;
+    menu.hidden = !open;
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  function renderAccount(user) {
+    ensureAccountMenu();
+    const account = byId('top-account');
+    const name = byId('top-account-name');
+    const role = byId('top-account-role');
+    const avatar = byId('top-account-avatar');
+    const logout = account?.querySelector('[data-account-logout]');
+    const login = account?.querySelector('[data-account-login]');
+    const displayName = String(user?.display_name || user?.username || user?.user_id || '').trim();
+    const roleText = String(user?.role || '').trim();
+    const signedIn = Boolean(user && displayName);
+
+    if (name) name.textContent = signedIn ? displayName : '未登录';
+    if (role) role.textContent = signedIn ? (roleText || 'user') : '去登录/注册';
+    if (avatar) avatar.textContent = signedIn ? displayName.slice(0, 1).toUpperCase() : '?';
+    if (account) account.classList.toggle('is-signed-in', signedIn);
+    if (logout) logout.hidden = !signedIn;
+    if (login) login.textContent = signedIn ? '账号与微信' : '登录/注册';
+  }
+
+  async function refreshAuthStatus() {
+    ensureAccountMenu();
+    try {
+      const body = await apiJson('/api/auth/me');
+      renderAccount(body?.authenticated ? body.user : null);
+      return body;
+    } catch (_err) {
+      renderAccount(null);
+      return { ok: false, authenticated: false, user: null };
+    }
+  }
+
+  async function logoutCurrentUser() {
+    setAccountMenuOpen(false);
+    try {
+      await apiJson('/api/auth/logout', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+    } catch (_err) {
+      // Even if the server session is already gone, clear local account hints.
+    }
+    localStorage.removeItem('oralsage.learningProfile.userId');
+    localStorage.removeItem('oralsage.learning.stageExamSessionId');
+    renderAccount(null);
+    window.dispatchEvent(new CustomEvent('oralsage:auth-changed', {
+      detail: { authenticated: false, user: null },
+    }));
   }
 
   function setHeader(title, subtitle) {
@@ -106,6 +227,8 @@
   function boot(meta = null) {
     const pageMeta = meta || PAGE_META[window.location.pathname] || PAGE_META['/'];
     injectTopNav(pageMeta.key);
+    ensureAccountMenu();
+    void refreshAuthStatus();
     setHeader(pageMeta.title, pageMeta.subtitle);
   }
 
@@ -243,8 +366,11 @@
     byId,
     escapeHtml,
     apiPost,
+    apiJson,
     apiInvokeAgent,
     boot,
+    refreshAuthStatus,
+    logoutCurrentUser,
     createHistoryPanel,
     shortTitle,
   };
