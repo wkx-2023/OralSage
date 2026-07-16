@@ -992,7 +992,7 @@ def refresh_ppt_resources(
     export_pptx: bool = True,
     browser_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Refresh formal slides, Pin & Paper plans, and the current PPTX."""
+    """Refresh slides and plans; export a PPTX only once the deck is complete."""
     with _session_lock(session_id):
         slides_result = generate_slides_resource_from_session_cache(
             session_id=session_id,
@@ -1013,7 +1013,7 @@ def refresh_ppt_resources(
             resource_root=resource_root,
             llm_client=llm_client,
         )
-        if export_pptx:
+        if export_pptx and plan.get("status") == "ready":
             pptx = export_pin_and_paper_pptx(
                 session_id=session_id,
                 plan=plan,
@@ -1021,10 +1021,20 @@ def refresh_ppt_resources(
                 resource_root=resource_root,
                 browser_path=browser_path,
             )
+        elif export_pptx:
+            # Rendering screenshots and packaging a PPTX for every partial deck
+            # blocks the next section's preview behind repeated full-deck work.
+            pptx = {
+                "status": "deferred",
+                "ok": False,
+                "reason": "waiting_for_complete_pin_and_paper_plan",
+                "ready_section_count": len(plan.get("ready_node_ids", [])),
+                "expected_section_count": len(plan.get("expected_node_ids", [])),
+            }
         else:
             pptx = {"status": "skipped", "ok": False}
         return {
-            "status": pptx.get("status", plan.get("status", "failed")),
+            "status": plan.get("status", "failed"),
             "slides": slides_result,
             "pin_and_paper_plan": plan,
             "pptx": pptx,

@@ -7,6 +7,8 @@
 'use strict';
 
 var assert = require('assert');
+var fs = require('fs');
+var path = require('path');
 
 // ============================================================================
 // Test helpers — mirror the core logic from master-chat.js
@@ -69,6 +71,18 @@ function resultAnswer(result) {
   if (final.result && final.result.report) return final.result.report;
   if (typeof final.message === 'string') return final.message;
   return JSON.stringify(final, null, 2);
+}
+
+/**
+ * Mirrors currentSectionSlideIndex() from frontend/js/master-chat.js.
+ */
+function currentSectionSlideIndex(resource, nodeId) {
+  var preview = resource && resource.preview && resource.preview.result || {};
+  var slides = Array.isArray(preview.slides) ? preview.slides : [];
+  if (preview.status !== 'ready' || !nodeId) return -1;
+  return slides.findIndex(function (slide) {
+    return slide.source_outline_node_id === nodeId;
+  });
 }
 
 /**
@@ -1015,6 +1029,62 @@ test('select_plan does not auto-start learning or create session', function () {
   equal(result.backendSessionId, 'existing-sess', 'select_plan must preserve existing session');
   // Must not have start_session next_action
   equal(result.messages[0].routeParts[1], 'select_plan');
+});
+
+// ============================================================================
+// 9. Learning resource synchronization — current section, not whole deck
+// ============================================================================
+
+console.log('\n9. Learning resource synchronization');
+
+test('partial deck is not ready for a current section it does not contain', function () {
+  var resource = {
+    preview: {
+      result: {
+        status: 'ready',
+        slides: [
+          { source_outline_node_id: '' },
+          { source_outline_node_id: 'node_1' },
+        ],
+      },
+    },
+  };
+
+  equal(currentSectionSlideIndex(resource, 'node_2'), -1);
+});
+
+test('current section becomes ready only when its rendered page exists', function () {
+  var resource = {
+    preview: {
+      result: {
+        status: 'ready',
+        slides: [
+          { source_outline_node_id: '' },
+          { source_outline_node_id: 'node_1' },
+          { source_outline_node_id: 'node_2' },
+        ],
+      },
+    },
+  };
+
+  equal(currentSectionSlideIndex(resource, 'node_2'), 2);
+});
+
+test('master chat gates lecture visibility and polling on the current section page', function () {
+  var source = fs.readFileSync(
+    path.join(__dirname, '..', 'frontend', 'js', 'master-chat.js'),
+    'utf8',
+  );
+
+  ok(source.indexOf('data-learning-content') >= 0, 'lecture content must have a synchronization wrapper');
+  ok(source.indexOf("found.message.statusText = '正在同步准备本节讲稿与 PPT';") >= 0,
+    'teaching text stream must remain hidden until the section is synchronized');
+  ok(source.indexOf('const waitingSlides = !currentSectionPreviewReady(key, resource);') >= 0,
+    'polling must wait for the current section, not merely any ready preview');
+  ok(source.indexOf('pptViewerIndices.set(key, sectionIndex);') >= 0,
+    'viewer must start on the current section page');
+  ok(source.indexOf('if (hasViewerIndex || sectionIndex >= 0)') >= 0,
+    'a missing current section must not persist the cover-page index');
 });
 
 // ============================================================================

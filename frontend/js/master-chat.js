@@ -591,6 +591,7 @@
       `;
     }
 
+    const resourceKey = `${sessionId}:${nodeId}`;
     return `
       <section class="learning-response" data-learning-session="${escapeHtml(sessionId)}" data-outline-node="${escapeHtml(nodeId)}">
         <header class="learning-section-head">
@@ -598,26 +599,31 @@
             <span class="mode-label">学习模式</span>
             <h2>${escapeHtml(title)}</h2>
           </div>
-          <button type="button" class="audio-command" data-audio-key="${escapeHtml(`${sessionId}:${nodeId}`)}" data-audio-ready-label="播放本节讲稿" disabled title="本节语音正在准备">
+          <button type="button" class="audio-command" data-section-audio="${escapeHtml(resourceKey)}" data-audio-key="${escapeHtml(resourceKey)}" data-audio-ready-label="播放本节讲稿" disabled title="本节语音正在准备" hidden>
             <i data-lucide="loader-circle"></i><span>语音准备中</span>
           </button>
         </header>
         ${renderMindmap(final, nodeId)}
-        ${renderLectureCopy(teachingText, sessionId, nodeId)}
-        <div class="learning-actions">
-          <button type="button" class="learning-action primary" data-chat-prompt="继续">
-            <i data-lucide="arrow-right"></i><span>继续下一节</span>
-          </button>
-          <button type="button" class="learning-action" data-focus-composer>
-            <i data-lucide="message-circle-question"></i><span>针对本节提问</span>
-          </button>
-        </div>
-        ${renderTutorQuestions(step?.questions, sessionId, nodeId)}
-        <section class="slide-resource" data-slide-resource="${escapeHtml(`${sessionId}:${nodeId}`)}">
-          <div class="resource-heading"><div><span class="mode-label">同步演示</span><h3>本节 PPT</h3></div><span class="resource-state">生成中</span></div>
-          <div class="slide-loading"><span></span><p>正在整理本节演示内容</p></div>
+        <section class="section-sync-loading" data-section-sync="${escapeHtml(resourceKey)}" aria-live="polite">
+          <span aria-hidden="true"></span><p>正在同步准备本节讲稿与 PPT</p>
         </section>
-        ${step?.stage_exam ? renderStageExamHtml(step.stage_exam) : ''}
+        <div data-learning-content="${escapeHtml(resourceKey)}" hidden>
+          ${renderLectureCopy(teachingText, sessionId, nodeId)}
+          <div class="learning-actions">
+            <button type="button" class="learning-action primary" data-chat-prompt="继续">
+              <i data-lucide="arrow-right"></i><span>继续下一节</span>
+            </button>
+            <button type="button" class="learning-action" data-focus-composer>
+              <i data-lucide="message-circle-question"></i><span>针对本节提问</span>
+            </button>
+          </div>
+          ${renderTutorQuestions(step?.questions, sessionId, nodeId)}
+          <section class="slide-resource" data-slide-resource="${escapeHtml(resourceKey)}">
+            <div class="resource-heading"><div><span class="mode-label">同步演示</span><h3>本节 PPT</h3></div><span class="resource-state">生成中</span></div>
+            <div class="slide-loading"><span></span><p>正在整理本节演示内容</p></div>
+          </section>
+          ${step?.stage_exam ? renderStageExamHtml(step.stage_exam) : ''}
+        </div>
         ${renderRouteDetails(routerResult)}
       </section>
     `;
@@ -1011,11 +1017,19 @@
         found.session.backendSessionId = event.data.session_id;
       }
     } else if (event.type === 'content_delta') {
-      found.message.streamText = `${found.message.streamText || ''}${event.data?.delta || ''}`;
-      found.message.statusText = event.message || '正在生成本节讲稿';
+      if (event.data?.channel === 'teaching_text') {
+        found.message.statusText = '正在同步准备本节讲稿与 PPT';
+      } else {
+        found.message.streamText = `${found.message.streamText || ''}${event.data?.delta || ''}`;
+        found.message.statusText = event.message || '正在生成正文';
+      }
     } else if (event.type === 'content_replace') {
-      found.message.streamText = String(event.data?.text || '');
-      found.message.statusText = event.message || '正在整理本节讲稿';
+      if (event.data?.channel === 'teaching_text') {
+        found.message.statusText = '正在同步准备本节讲稿与 PPT';
+      } else {
+        found.message.streamText = String(event.data?.text || '');
+        found.message.statusText = event.message || '正在整理正文';
+      }
     } else if (event.type === 'complete') {
       found.message.kind = 'result';
       found.message.payload = event.data || {};
@@ -1180,30 +1194,53 @@
     return response.json();
   }
 
-  function pptStateLabel(payload) {
-    const result = payload?.result || payload || {};
-    const value = result.pptx_status?.status || result.pptx?.status || result.status || 'pending';
-    return String(value || 'pending');
+  function currentSectionSlideIndex(resource, nodeId) {
+    const preview = resource?.preview?.result || {};
+    const slides = Array.isArray(preview.slides) ? preview.slides : [];
+    if (preview.status !== 'ready' || !nodeId) return -1;
+    return slides.findIndex((slide) => slide.source_outline_node_id === nodeId);
+  }
+
+  function currentSectionPreviewReady(key, resource) {
+    const [, nodeId] = key.split(':');
+    return currentSectionSlideIndex(resource, nodeId) >= 0;
+  }
+
+  function setLearningContentVisibility(key, ready) {
+    document.querySelectorAll('[data-learning-content]').forEach((content) => {
+      if (content.dataset.learningContent === key) content.hidden = !ready;
+    });
+    document.querySelectorAll('[data-section-sync]').forEach((loader) => {
+      if (loader.dataset.sectionSync === key) loader.hidden = ready;
+    });
+    document.querySelectorAll('[data-section-audio]').forEach((button) => {
+      if (button.dataset.sectionAudio === key) button.hidden = !ready;
+    });
   }
 
   function renderSlidePreview(key, resource) {
     const [sessionId, nodeId] = key.split(':');
     const preview = resource?.preview?.result || {};
     const slides = Array.isArray(preview.slides) ? preview.slides : [];
-    const pptState = pptStateLabel(resource?.ppt);
-    const readyForDownload = ['partial', 'ready'].includes(pptState);
-    const previewReady = preview.status === 'ready' && slides.length > 0;
+    const pptx = resource?.ppt?.result?.pptx || {};
+    const readyForDownload = pptx.ok === true && pptx.status === 'ready';
+    const sectionIndex = currentSectionSlideIndex(resource, nodeId);
+    const previewReady = sectionIndex >= 0;
     const stateText = previewReady
       ? '真实页面'
       : (preview.status === 'failed' ? '预览生成失败' : '同步生成中');
 
-    if (!pptViewerIndices.has(key) && slides.length) {
-      const sectionIndex = slides.findIndex((slide) => slide.source_outline_node_id === nodeId);
-      pptViewerIndices.set(key, sectionIndex >= 0 ? sectionIndex : 0);
+    const hasViewerIndex = pptViewerIndices.has(key);
+    if (!hasViewerIndex && sectionIndex >= 0) {
+      pptViewerIndices.set(key, sectionIndex);
     }
-    const requestedIndex = Number(pptViewerIndices.get(key) || 0);
+    const requestedIndex = hasViewerIndex
+      ? Number(pptViewerIndices.get(key) || 0)
+      : (sectionIndex >= 0 ? sectionIndex : 0);
     const currentIndex = Math.max(0, Math.min(requestedIndex, Math.max(0, slides.length - 1)));
-    pptViewerIndices.set(key, currentIndex);
+    if (hasViewerIndex || sectionIndex >= 0) {
+      pptViewerIndices.set(key, currentIndex);
+    }
     const current = slides[currentIndex] || null;
 
     const viewerHtml = current ? `
@@ -1373,6 +1410,7 @@
   }
 
   function renderLearningResource(key, resource) {
+    setLearningContentVisibility(key, currentSectionPreviewReady(key, resource));
     renderSlidePreview(key, resource);
     renderAudioState(key, resource);
     refreshIcons();
@@ -1399,9 +1437,8 @@
         (!section || !['ready', 'failed', 'skipped'].includes(section.status))
         || hasPendingAudioButtons(key)
       );
-    const waitingSlides = preview?.result?.status !== 'ready';
-    const waitingPpt = !['ready', 'partial', 'failed'].includes(pptStateLabel(ppt));
-    if ((waitingAudio || waitingSlides || waitingPpt) && attempt < 45) {
+    const waitingSlides = !currentSectionPreviewReady(key, resource);
+    if ((waitingAudio || waitingSlides) && attempt < 45) {
       const delay = attempt < 12 ? 1000 : 2500;
       const timer = setTimeout(() => refreshLearningResource(key, attempt + 1), delay);
       resourceRefreshes.set(key, timer);

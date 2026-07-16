@@ -1347,6 +1347,29 @@
   line-height: 1.9;
 }
 
+.section-sync-loading {
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--chat-muted);
+  font-size: 13px;
+}
+
+.section-sync-loading span {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 2px solid #d8d2f5;
+  border-top-color: var(--chat-action);
+  border-radius: 50%;
+  animation: iconSpin 0.9s linear infinite;
+}
+
+.section-sync-loading p {
+  margin: 0;
+}
+
 .lecture-segments {
   display: grid;
   gap: 12px;
