@@ -7,7 +7,6 @@
   const NAV_ITEMS = [
     { key: 'home', name: '\u603b\u63a7\u5de5\u4f5c\u53f0', path: '/' },
     { key: 'master-chat', name: '\u667a\u80fd\u95ee\u7b54', path: '/pages/master-chat.html' },
-    { key: 'weixin-account', name: '微信连接', path: '/pages/weixin-account.html' },
     { key: 'learning-plan', name: '学习计划', path: '/pages/learning-plan.html' },
     { key: 'learning-profile', name: '\u5b66\u4e60\u753b\u50cf', path: '/pages/learning-profile.html' },
     { key: 'evidence', name: '\u77e5\u8bc6\u5e93\u67e5\u770b', path: '/pages/evidence.html' },
@@ -109,7 +108,7 @@
     const nav = ensureTopNav();
     if (!nav) return;
 
-    const links = NAV_ITEMS.map((item) => {
+    const links = NAV_ITEMS.filter((item) => item.key !== 'weixin-account').map((item) => {
       const cls = item.key === activeKey ? 'top-nav-link active' : 'top-nav-link';
       return `<a class="${cls}" href="${item.path}">${escapeHtml(item.name)}</a>`;
     }).join('');

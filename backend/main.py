@@ -2567,14 +2567,25 @@ if (FRONTEND_DIR / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIR / "assets")), name="assets")
 
 
+def _frontend_file_response(path: Path) -> FileResponse:
+    return FileResponse(
+        path,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(FRONTEND_DIR / "index.html")
+    return _frontend_file_response(FRONTEND_DIR / "index.html")
 
 
 @app.get("/{full_path:path}")
 def static_fallback(full_path: str) -> FileResponse:
     candidate = FRONTEND_DIR / full_path
     if candidate.exists() and candidate.is_file():
-        return FileResponse(candidate)
-    return FileResponse(FRONTEND_DIR / "index.html")
+        return _frontend_file_response(candidate)
+    return _frontend_file_response(FRONTEND_DIR / "index.html")

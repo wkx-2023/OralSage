@@ -2,6 +2,7 @@
   const { byId, escapeHtml, apiPost } = window.oralUi;
   const STORAGE_KEY = 'oralsage.history.master-chat';
   const PENDING_KEY = 'oralsage.pending.master-chat';
+  const DEFAULT_USER_ID = 'demo';
   const jobStreams = new Map();
   const resourceRefreshes = new Map();
   const learningResources = new Map();
@@ -9,15 +10,24 @@
   const audioQueues = new Map();
   const quizQuestions = new Map();
   let activeAudio = null;
+  let activeStorageUserId = DEFAULT_USER_ID;
 
   const state = {
     messages: [],
     sessions: loadSessions(),
     activeSessionId: createId(),
     backendSessionId: null,
-    userId: 'demo',
+    userId: DEFAULT_USER_ID,
     pendingJobs: loadPendingJobs(),
   };
+
+  function normalizeUserId(value) {
+    return String(value || DEFAULT_USER_ID).trim() || DEFAULT_USER_ID;
+  }
+
+  function accountStorageKey(baseKey, userId = activeStorageUserId) {
+    return `${baseKey}.${encodeURIComponent(normalizeUserId(userId))}`;
+  }
 
   function createId() {
     return `s-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -38,7 +48,11 @@
 
   function loadSessions() {
     try {
-      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      const userId = normalizeUserId(activeStorageUserId);
+      const raw = localStorage.getItem(accountStorageKey(STORAGE_KEY, userId))
+        || (userId === DEFAULT_USER_ID ? localStorage.getItem(STORAGE_KEY) : null)
+        || '[]';
+      const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed.map(migrateStoredSession) : [];
     } catch (_err) {
       return [];
@@ -61,12 +75,16 @@
   }
 
   function saveSessions() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.sessions.slice(0, 30)));
+    localStorage.setItem(accountStorageKey(STORAGE_KEY), JSON.stringify(state.sessions.slice(0, 30)));
   }
 
   function loadPendingJobs() {
     try {
-      const parsed = JSON.parse(localStorage.getItem(PENDING_KEY) || '{}');
+      const userId = normalizeUserId(activeStorageUserId);
+      const raw = localStorage.getItem(accountStorageKey(PENDING_KEY, userId))
+        || (userId === DEFAULT_USER_ID ? localStorage.getItem(PENDING_KEY) : null)
+        || '{}';
+      const parsed = JSON.parse(raw);
       return parsed && typeof parsed === 'object' ? parsed : {};
     } catch (_err) {
       return {};
@@ -74,7 +92,7 @@
   }
 
   function savePendingJobs() {
-    localStorage.setItem(PENDING_KEY, JSON.stringify(state.pendingJobs));
+    localStorage.setItem(accountStorageKey(PENDING_KEY), JSON.stringify(state.pendingJobs));
   }
 
   function refreshIcons() {
@@ -894,8 +912,49 @@
   function parseUrlParams(search) {
     const params = new URLSearchParams(search || window.location.search);
     const planItemId = params.get('plan_item_id') || '';
-    const userId = params.get('user_id') || 'demo';
+    const userId = normalizeUserId(params.get('user_id'));
     return { planItemId, userId };
+  }
+
+  function userIdFromAuthBody(body, fallback = DEFAULT_USER_ID) {
+    const user = body?.authenticated ? body.user : null;
+    return normalizeUserId(user?.user_id || user?.username || user?.display_name || fallback);
+  }
+
+  async function resolveCurrentUserId(fallback = DEFAULT_USER_ID) {
+    try {
+      const response = await fetch('/api/auth/me', {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) return normalizeUserId(fallback);
+      return userIdFromAuthBody(await response.json(), fallback);
+    } catch (_err) {
+      return normalizeUserId(fallback);
+    }
+  }
+
+  function switchAccountScope(userId, { resetActive = true } = {}) {
+    const nextUserId = normalizeUserId(userId);
+    const changed = nextUserId !== activeStorageUserId;
+    if (changed) {
+      jobStreams.forEach((stream) => stream.close());
+      jobStreams.clear();
+    }
+    activeStorageUserId = nextUserId;
+    state.userId = nextUserId;
+    state.sessions = loadSessions();
+    state.pendingJobs = loadPendingJobs();
+    if (changed || resetActive) {
+      state.activeSessionId = createId();
+      state.backendSessionId = null;
+      state.messages = [];
+      const log = byId('agent-chat-log');
+      if (log) log.innerHTML = '';
+      setBusy(false);
+    }
+    setEmptyState();
+    renderSessions();
   }
 
   function cleanUrlParams() {
@@ -1555,31 +1614,34 @@
     });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      bindEvents();
-      setEmptyState();
-      renderSessions();
-      refreshIcons();
-      const { planItemId, userId } = parseUrlParams();
-      state.userId = userId;
-      if (planItemId) {
-        autoSubmitPlanItem(planItemId, userId);
-      } else {
-        resumePendingJobs();
-      }
-    });
-  } else {
+  async function bootMasterChat() {
     bindEvents();
-    setEmptyState();
-    renderSessions();
-    refreshIcons();
     const { planItemId, userId } = parseUrlParams();
-    state.userId = userId;
+    const resolvedUserId = await resolveCurrentUserId(userId);
+    switchAccountScope(resolvedUserId, { resetActive: false });
+    refreshIcons();
     if (planItemId) {
-      autoSubmitPlanItem(planItemId, userId);
+      autoSubmitPlanItem(planItemId, state.userId);
     } else {
       resumePendingJobs();
     }
+  }
+
+  window.addEventListener('oralsage:auth-changed', async (event) => {
+    const detailUserId = event.detail?.authenticated
+      ? normalizeUserId(event.detail?.user?.user_id || event.detail?.user?.username || event.detail?.user?.display_name)
+      : '';
+    const nextUserId = detailUserId || await resolveCurrentUserId(DEFAULT_USER_ID);
+    switchAccountScope(nextUserId, { resetActive: true });
+    refreshIcons();
+    resumePendingJobs();
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      void bootMasterChat();
+    });
+  } else {
+    void bootMasterChat();
   }
 })();
