@@ -1,3 +1,11 @@
+@font-face {
+  font-family: 'OralSage Brand';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('/assets/fonts/rajdhani-latin-700.woff2') format('woff2');
+}
+
 :root {
   --bg: #f8f7ff;
   --line-soft: #e7e4fb;
@@ -165,7 +173,7 @@ body {
   margin-right: 4px;
   text-decoration: none;
   color: #5145b4;
-  font-family: 'Rajdhani', 'Noto Sans SC', sans-serif;
+  font-family: 'OralSage Brand', sans-serif;
   font-size: 24px;
   font-weight: 700;
   line-height: 1;

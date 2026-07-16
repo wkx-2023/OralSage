@@ -504,6 +504,53 @@ class NoEvidenceConservativeAnswerTests(unittest.TestCase):
 
         self.assertIn("evidence_status", result)
         self.assertEqual(result["trace"]["search_result_count"], 0)
+        self.assertGreaterEqual(len(result["trace"]["retrieval_errors"]), 1)
+
+    def test_caries_query_falls_back_to_original_question_and_exposes_evidence(self) -> None:
+        call_count = [0]
+        search_calls: list[str] = []
+
+        def mock_llm(messages, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return _resolution_json(
+                    resolved_question="龋齿是怎么产生的？",
+                    search_queries=[{"query": "over-specific translated query", "purpose": "etiology"}],
+                )
+            return _answer_json(
+                answer="龋齿与菌斑生物膜产酸及牙体脱矿有关。",
+                evidence_status="sufficient",
+                used_evidence=[],
+            )
+
+        evidence = _make_evidence_chunk(
+            "chunk:caries-1",
+            "龋病是菌斑生物膜代谢产酸导致牙体硬组织脱矿的慢性疾病。",
+        )
+
+        def mock_search(query, top_k=5):
+            search_calls.append(query)
+            return [evidence] if query == "龋齿是怎么产生的？" else []
+
+        with patch(
+            "backend.services.qa.direct_qa.chat_completion", side_effect=mock_llm
+        ), patch(
+            "backend.services.retrieval.search_knowledge_base", side_effect=mock_search
+        ), patch(
+            "backend.services.qa.direct_qa.is_llm_configured", return_value=True
+        ):
+            from backend.services.qa.direct_qa import answer_direct_question
+
+            result = answer_direct_question(
+                message="龋齿是怎么产生的？",
+                user_id="user-caries",
+            )
+
+        self.assertEqual(search_calls, ["over-specific translated query", "龋齿是怎么产生的？"])
+        self.assertEqual(result["trace"]["search_result_count"], 1)
+        self.assertTrue(result["trace"]["evidence_fallback_used"])
+        self.assertEqual(result["used_evidence"][0]["chunk_id"], "chunk:caries-1")
+        self.assertIn("脱矿", result["used_evidence"][0]["text_excerpt"])
 
 
 class LLMFailureTests(unittest.TestCase):

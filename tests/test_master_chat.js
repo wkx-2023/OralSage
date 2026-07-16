@@ -1070,21 +1070,36 @@ test('current section becomes ready only when its rendered page exists', functio
   equal(currentSectionSlideIndex(resource, 'node_2'), 2);
 });
 
-test('master chat gates lecture visibility and polling on the current section page', function () {
+test('master chat shows lecture immediately while polling PPT independently', function () {
   var source = fs.readFileSync(
     path.join(__dirname, '..', 'frontend', 'js', 'master-chat.js'),
     'utf8',
   );
 
-  ok(source.indexOf('data-learning-content') >= 0, 'lecture content must have a synchronization wrapper');
-  ok(source.indexOf("found.message.statusText = '正在同步准备本节讲稿与 PPT';") >= 0,
-    'teaching text stream must remain hidden until the section is synchronized');
-  ok(source.indexOf('const waitingSlides = !currentSectionPreviewReady(key, resource);') >= 0,
+  ok(source.indexOf('data-learning-content="${escapeHtml(resourceKey)}">') >= 0,
+    'lecture content must be visible as soon as the learning result is ready');
+  ok(source.indexOf('data-section-sync=') < 0,
+    'lecture must not be covered by a PPT synchronization loader');
+  ok(source.indexOf("const previewFailed = resource?.preview?.result?.status === 'failed';") >= 0,
+    'a failed preview must be terminal');
+  ok(source.indexOf('const waitingSlides = !previewFailed && !currentSectionPreviewReady(key, resource);') >= 0,
     'polling must wait for the current section, not merely any ready preview');
   ok(source.indexOf('pptViewerIndices.set(key, sectionIndex);') >= 0,
     'viewer must start on the current section page');
   ok(source.indexOf('if (hasViewerIndex || sectionIndex >= 0)') >= 0,
     'a missing current section must not persist the cover-page index');
+});
+
+test('boot reconnects pending jobs without restoring their old conversation', function () {
+  var source = fs.readFileSync(
+    path.join(__dirname, '..', 'frontend', 'js', 'master-chat.js'),
+    'utf8',
+  );
+
+  ok(source.indexOf('if (firstSession) restoreSession(firstSession.id);') < 0,
+    'pending jobs must not replace the active smart-QA conversation');
+  ok(source.indexOf('response.status === 404') >= 0,
+    'stale in-memory backend jobs must be removed after a backend restart');
 });
 
 // ============================================================================

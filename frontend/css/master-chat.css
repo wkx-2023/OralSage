@@ -2101,6 +2101,68 @@
   margin: 0;
 }
 
+.qa-evidence {
+  margin-top: 16px;
+  border-top: 1px solid var(--chat-line);
+}
+
+.qa-evidence > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 12px 0 4px;
+  color: var(--chat-action);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.qa-evidence > summary span {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid var(--chat-line);
+  border-radius: 50%;
+  color: var(--chat-muted);
+  font-size: 11px;
+}
+
+.qa-evidence-list {
+  display: grid;
+  gap: 0;
+  padding-top: 6px;
+}
+
+.qa-evidence-list article {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--chat-line);
+}
+
+.qa-evidence-list strong,
+.qa-evidence-list small {
+  display: block;
+}
+
+.qa-evidence-list strong {
+  color: var(--chat-ink);
+  font-size: 13px;
+}
+
+.qa-evidence-list p {
+  margin: 6px 0;
+  color: var(--chat-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.qa-evidence-list small {
+  color: var(--chat-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .literature-chat-result h2,
 .literature-chat-result h3,
 .literature-chat-body h3,

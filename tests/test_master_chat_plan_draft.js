@@ -101,6 +101,8 @@ function loadModule() {
     sendMessage: api.sendMessage,
     resetSession: api.resetSession,
     restoreSession: api.restoreSession,
+    formatMarkdown: api.formatMarkdown,
+    resumePendingJobs: api.resumePendingJobs,
   };
 }
 
@@ -130,6 +132,21 @@ function equal(actual, expected, msg) {
 function ok(value, msg) {
   assert.ok(value, msg);
 }
+
+// ============================================================================
+// 0. Markdown loose ordered lists stay in one list
+// ============================================================================
+
+console.log('\n0. Markdown loose ordered lists');
+
+(function () {
+  var api = loadModule();
+  test('blank lines between ordered items do not restart numbering', function () {
+    var html = api.formatMarkdown('1. First\n\n1. Second\n\n1. Third');
+    equal((html.match(/<ol>/g) || []).length, 1, 'must render one ordered list');
+    equal((html.match(/<li>/g) || []).length, 3, 'must render all three list items');
+  });
+})();
 
 // ============================================================================
 // Helpers

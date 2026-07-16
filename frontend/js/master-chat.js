@@ -206,7 +206,14 @@
       tableLines = [];
     }
 
-    for (const line of lines) {
+    function listTypeForLine(line) {
+      if (/^\s*[-*+•]\s+/.test(line)) return 'ul';
+      if (/^\s*\d+[.)、]\s*/.test(line)) return 'ol';
+      return null;
+    }
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex];
       if (line.trim().startsWith('```')) {
         if (inCode) {
           flushCode();
@@ -259,6 +266,10 @@
         continue;
       }
       if (!line.trim()) {
+        const nextLine = lines.slice(lineIndex + 1).find((candidate) => candidate.trim());
+        if (listType && nextLine && listTypeForLine(nextLine) === listType) {
+          continue;
+        }
         closeList();
         flushTable();
         html.push('');
@@ -440,6 +451,25 @@
     `;
   }
 
+  function renderDirectQaEvidence(finalResult) {
+    const evidence = Array.isArray(finalResult?.used_evidence) ? finalResult.used_evidence : [];
+    if (!evidence.length) return '';
+    return `
+      <details class="qa-evidence">
+        <summary>相关证据 <span>${evidence.length}</span></summary>
+        <div class="qa-evidence-list">
+          ${evidence.map((item) => `
+            <article>
+              <strong>${escapeHtml(item.title || item.source || item.chunk_id || '知识库证据')}</strong>
+              ${item.text_excerpt ? `<p>${escapeHtml(item.text_excerpt)}</p>` : ''}
+              <small>${escapeHtml(item.source || item.chunk_id || '')}</small>
+            </article>
+          `).join('')}
+        </div>
+      </details>
+    `;
+  }
+
   function renderJobProgress(message) {
     const streamText = String(message.streamText || '');
     if (streamText) {
@@ -600,15 +630,12 @@
             <span class="mode-label">学习模式</span>
             <h2>${escapeHtml(title)}</h2>
           </div>
-          <button type="button" class="audio-command" data-section-audio="${escapeHtml(resourceKey)}" data-audio-key="${escapeHtml(resourceKey)}" data-audio-ready-label="播放本节讲稿" disabled title="本节语音正在准备" hidden>
+          <button type="button" class="audio-command" data-section-audio="${escapeHtml(resourceKey)}" data-audio-key="${escapeHtml(resourceKey)}" data-audio-ready-label="播放本节讲稿" disabled title="本节语音正在准备">
             <i data-lucide="loader-circle"></i><span>语音准备中</span>
           </button>
         </header>
         ${renderMindmap(final, nodeId)}
-        <section class="section-sync-loading" data-section-sync="${escapeHtml(resourceKey)}" aria-live="polite">
-          <span aria-hidden="true"></span><p>正在同步准备本节讲稿与 PPT</p>
-        </section>
-        <div data-learning-content="${escapeHtml(resourceKey)}" hidden>
+        <div data-learning-content="${escapeHtml(resourceKey)}">
           ${renderLectureCopy(teachingText, sessionId, nodeId)}
           <div class="learning-actions">
             <button type="button" class="learning-action primary" data-chat-prompt="继续">
@@ -703,7 +730,10 @@
       return literatureResultHtml(routerResult) || `<div class="assistant-markdown">${formatMarkdown(resultAnswer(routerResult))}</div>`;
     }
     if (intent === 'clarification') return renderClarificationResult(routerResult);
-    return `<div class="assistant-markdown">${formatMarkdown(resultAnswer(routerResult))}</div>${renderRouteDetails(routerResult)}`;
+    const directQaEvidence = intent === 'direct_qa'
+      ? renderDirectQaEvidence(routerResult.final_result || {})
+      : '';
+    return `<div class="assistant-markdown">${formatMarkdown(resultAnswer(routerResult))}</div>${directQaEvidence}${renderRouteDetails(routerResult)}`;
   }
 
   function isNearBottom(log) {
@@ -1228,18 +1258,6 @@
     return currentSectionSlideIndex(resource, nodeId) >= 0;
   }
 
-  function setLearningContentVisibility(key, ready) {
-    document.querySelectorAll('[data-learning-content]').forEach((content) => {
-      if (content.dataset.learningContent === key) content.hidden = !ready;
-    });
-    document.querySelectorAll('[data-section-sync]').forEach((loader) => {
-      if (loader.dataset.sectionSync === key) loader.hidden = ready;
-    });
-    document.querySelectorAll('[data-section-audio]').forEach((button) => {
-      if (button.dataset.sectionAudio === key) button.hidden = !ready;
-    });
-  }
-
   function renderSlidePreview(key, resource) {
     const [sessionId, nodeId] = key.split(':');
     const preview = resource?.preview?.result || {};
@@ -1432,7 +1450,6 @@
   }
 
   function renderLearningResource(key, resource) {
-    setLearningContentVisibility(key, currentSectionPreviewReady(key, resource));
     renderSlidePreview(key, resource);
     renderAudioState(key, resource);
     refreshIcons();
@@ -1459,7 +1476,8 @@
         (!section || !['ready', 'failed', 'skipped'].includes(section.status))
         || hasPendingAudioButtons(key)
       );
-    const waitingSlides = !currentSectionPreviewReady(key, resource);
+    const previewFailed = resource?.preview?.result?.status === 'failed';
+    const waitingSlides = !previewFailed && !currentSectionPreviewReady(key, resource);
     if ((waitingAudio || waitingSlides) && attempt < 45) {
       const delay = attempt < 12 ? 1000 : 2500;
       const timer = setTimeout(() => refreshLearningResource(key, attempt + 1), delay);
@@ -1558,14 +1576,57 @@
     playNext();
   }
 
-  function resumePendingJobs() {
+  function expirePendingJob(jobId) {
+    const found = findJobMessage(jobId);
+    if (found.message?.kind === 'job') {
+      found.message.kind = 'error';
+      found.message.content = '此前的生成任务已失效，请重新提交。';
+      delete found.message.streamText;
+    }
+    delete state.pendingJobs[jobId];
+    jobStreams.get(jobId)?.close();
+    jobStreams.delete(jobId);
+    if (found.session) persistJobSession(found.session);
+  }
+
+  async function resumePendingJobs() {
     const entries = Object.entries(state.pendingJobs);
     if (!entries.length) return;
-    const firstSession = state.sessions.find((session) => session.id === entries[0][1].sessionId);
-    if (firstSession) restoreSession(firstSession.id);
-    entries.forEach(([jobId]) => connectJob(jobId));
-    setBusy(true);
-    setConnectionStatus('恢复生成任务', true);
+    await Promise.all(entries.map(async ([jobId, pending]) => {
+      const found = findJobMessage(jobId);
+      if (!found.session || !found.message) {
+        expirePendingJob(jobId);
+        return;
+      }
+      try {
+        let response = await fetch(`/api/router/jobs/${encodeURIComponent(jobId)}?after=${Number(pending.lastEventId || 0)}`, {
+          headers: { Accept: 'application/json' },
+        });
+        if (response.status === 404) {
+          expirePendingJob(jobId);
+          return;
+        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        let snapshot = await response.json();
+        if (snapshot.done && !(snapshot.events || []).length) {
+          response = await fetch(`/api/router/jobs/${encodeURIComponent(jobId)}?after=0`, {
+            headers: { Accept: 'application/json' },
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          snapshot = await response.json();
+          if (state.pendingJobs[jobId] === pending) pending.lastEventId = 0;
+        }
+        if (state.pendingJobs[jobId] !== pending) return;
+        (snapshot.events || []).forEach((event) => handleJobEvent(jobId, event));
+        if (state.pendingJobs[jobId]) connectJob(jobId);
+      } catch (_error) {
+        if (state.pendingJobs[jobId] === pending) connectJob(jobId);
+      }
+    }));
+    savePendingJobs();
+    const activePending = Object.values(state.pendingJobs).some((item) => item.sessionId === state.activeSessionId);
+    setBusy(activePending);
+    setConnectionStatus(activePending ? '恢复生成任务' : '就绪', activePending);
   }
 
   function bindEvents() {
@@ -1682,7 +1743,7 @@
     if (planItemId) {
       autoSubmitPlanItem(planItemId, state.userId);
     } else {
-      resumePendingJobs();
+      void resumePendingJobs();
     }
   }
 
@@ -1693,7 +1754,7 @@
     const nextUserId = detailUserId || await resolveCurrentUserId(DEFAULT_USER_ID);
     switchAccountScope(nextUserId, { resetActive: true });
     refreshIcons();
-    resumePendingJobs();
+    void resumePendingJobs();
   });
 
   if (document.readyState === 'loading') {
@@ -1712,6 +1773,8 @@
       sendMessage: sendMessage,
       resetSession: resetSession,
       restoreSession: restoreSession,
+      formatMarkdown: formatMarkdown,
+      resumePendingJobs: resumePendingJobs,
     };
   }
 })();

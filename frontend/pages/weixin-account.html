@@ -11,8 +11,8 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-screen-webfont@1.7.0/style.css">
-  <link rel="stylesheet" href="/css/base.css?v=20260716-branch-merge">
-  <link rel="stylesheet" href="/css/weixin-account.css?v=20260715-auth-tab-height">
+  <link rel="stylesheet" href="/css/base.css?v=20260716-brand-font-stable">
+  <link rel="stylesheet" href="/css/weixin-account.css?v=20260716-responsive-qr-overlay">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 <body class="weixin-connect-page">
@@ -56,25 +56,18 @@
             </div>
 
             <div class="actions">
-              <button id="logout-btn" class="secondary-action" type="button">退出账号</button>
-              <div class="actions-divider" aria-hidden="true"></div>
-              <button id="qr-btn" class="primary-action icon-action" type="button">
-                <i data-lucide="messages-square"></i><span>扫码绑定微信/解绑</span>
+              <button id="logout-btn" class="secondary-action" type="button" hidden>退出当前账号</button>
+              <div id="account-actions-divider" class="actions-divider" aria-hidden="true" hidden></div>
+              <button id="qr-btn" class="primary-action icon-action" type="button" hidden>
+                <i data-lucide="messages-square"></i><span>绑定微信</span>
               </button>
-              <button id="push-btn" class="secondary-action visual-push-action" type="button">
+              <button id="unbind-btn" class="primary-action icon-action" type="button" hidden>
+                <i data-lucide="unlink"></i><span>解绑微信</span>
+              </button>
+              <button id="push-btn" class="secondary-action visual-push-action" type="button" hidden>
                 <i data-lucide="list-checks"></i><span>推送今日学习计划</span>
               </button>
               <button id="summary-btn" class="secondary-action hidden-action" type="button">推送今日总结</button>
-              <div class="management-actions">
-                <button id="unbind-btn" class="quiet-action" type="button">解绑微信</button>
-              </div>
-            </div>
-
-            <div id="qr-box" class="qr-box" hidden>
-              <a id="qr-link" href="#" target="_blank" rel="noreferrer">
-                <img id="qr-img" alt="微信扫码二维码" hidden>
-              </a>
-              <p id="qr-note">请用微信扫描二维码完成连接。</p>
             </div>
 
             <div class="connection-meta" aria-live="polite">
@@ -88,11 +81,17 @@
             <pre id="output" class="output" hidden></pre>
           </div>
 
-          <div class="assistant-visual" aria-hidden="true">
+          <div class="assistant-visual">
             <img src="/assets/images/weixin-assistant-robot.png" alt="">
-            <button class="visual-push-pill" type="button" data-proxy-click="push-btn">
+            <button class="visual-push-pill" type="button" data-proxy-click="push-btn" hidden>
               <i data-lucide="list-checks"></i><span>推送今日学习计划</span>
             </button>
+            <div id="qr-box" class="qr-box" hidden>
+              <a id="qr-link" href="#" target="_blank" rel="noreferrer">
+                <img id="qr-img" alt="微信扫码二维码" hidden>
+              </a>
+              <p id="qr-note">请用微信扫描二维码完成连接。</p>
+            </div>
           </div>
         </div>
       </section>
@@ -100,6 +99,6 @@
   </div>
 
   <script src="/js/common.js?v=20260716-nav-no-weixin-v2"></script>
-  <script src="/js/weixin-account.js?v=20260715-visual-redesign"></script>
+  <script src="/js/weixin-account.js?v=20260716-errors-only-status"></script>
 </body>
 </html>

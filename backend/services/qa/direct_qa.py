@@ -90,6 +90,22 @@ _ANSWER_SYSTEM = """你是一名口腔医学循证问答助手。
 
 **重要：不要将历史回答当作医学证据来源。只使用本次提供的 evidence 中的内容。**
 
+输出必须包含以下完整结构：
+{
+  "answer": "基于证据的 Markdown 回答",
+  "evidence_status": "sufficient | insufficient | none",
+  "should_reinforce": false,
+  "confusion_kg_node_ids": [],
+  "used_evidence": [
+    {
+      "chunk_id": "必须原样使用 evidence 中的 chunk_id",
+      "source": "证据来源",
+      "why_used": "该证据支持了回答中的什么结论"
+    }
+  ]
+}
+
+只要回答使用了某条 evidence，就必须将它写入 used_evidence；不得编造 evidence 中不存在的 chunk_id。
 输出严格的 JSON 格式，不要包含任何其他文字。"""
 
 # ---------------------------------------------------------------------------
@@ -241,19 +257,27 @@ def answer_direct_question(
     all_search_results: list[dict] = []
     all_chunk_ids: set[str] = set()
     all_core_node_ids: set[str] = set()
+    retrieval_errors: list[dict[str, str]] = []
+    executed_queries: set[str] = set()
 
     # Use resolved_question as a fallback query if no search_queries provided
     queries_to_run = _sanitize_search_queries(search_queries)
     if not queries_to_run:
         queries_to_run = [{"query": resolved_question, "purpose": "核心问题检索"}]
 
-    for sq in queries_to_run[:3]:
+    def _run_search_query(sq: dict[str, str]) -> None:
         query_text = sq.get("query", "").strip()
-        if not query_text:
-            continue
+        normalized_query = query_text.casefold()
+        if not query_text or normalized_query in executed_queries:
+            return
+        executed_queries.add(normalized_query)
         try:
             chunks = search_knowledge_base(query_text, top_k=5)
-        except Exception:
+        except Exception as exc:
+            retrieval_errors.append({
+                "query": query_text,
+                "error": f"{type(exc).__name__}: {exc}"[:300],
+            })
             chunks = []
 
         chunk_dicts: list[dict] = []
@@ -284,6 +308,24 @@ def answer_direct_question(
             "purpose": sq.get("purpose", ""),
             "results": chunk_dicts,
         })
+
+    for sq in queries_to_run[:3]:
+        _run_search_query(sq)
+
+    # LLM-generated queries can occasionally over-specialize or translate a
+    # short Chinese term poorly. Retry the user's resolved/original wording
+    # when the planned searches return no evidence.
+    if not all_chunk_ids:
+        fallback_queries = [resolved_question]
+        if message.casefold() != resolved_question.casefold():
+            fallback_queries.append(message)
+        for fallback_query in fallback_queries:
+            _run_search_query({
+                "query": fallback_query,
+                "purpose": "fallback_original_question",
+            })
+            if all_chunk_ids:
+                break
 
     search_seconds = round(time.time() - t_search_start, 3)
 
@@ -360,6 +402,32 @@ def answer_direct_question(
 
     # Validate used_evidence — only allow chunk_ids from actual KAG results
     used_evidence = _normalize_used_evidence(raw_used_evidence, all_chunk_ids)
+    evidence_by_id = {
+        str(item.get("chunk_id") or ""): item
+        for item in flat_evidence
+        if item.get("chunk_id")
+    }
+    evidence_fallback_used = False
+    if not raw_used_evidence and flat_evidence:
+        evidence_fallback_used = True
+        used_evidence = [
+            {
+                "chunk_id": item["chunk_id"],
+                "source": item.get("source", ""),
+                "why_used": "retrieved_evidence_fallback",
+            }
+            for item in flat_evidence[:3]
+        ]
+    used_evidence = [
+        {
+            **item,
+            "title": evidence_by_id.get(item["chunk_id"], {}).get("title", ""),
+            "source": item.get("source")
+            or evidence_by_id.get(item["chunk_id"], {}).get("source", ""),
+            "text_excerpt": evidence_by_id.get(item["chunk_id"], {}).get("text_excerpt", ""),
+        }
+        for item in used_evidence
+    ]
 
     # Validate confusion_kg_node_ids — must be non-empty strings AND
     # belong to the current round's allowed core_node_ids from evidence chunks.
@@ -398,9 +466,11 @@ def answer_direct_question(
             "search_seconds": search_seconds,
             "answer_seconds": answer_seconds,
             "total_seconds": total_seconds,
-            "search_queries_count": len(queries_to_run),
+            "search_queries_count": len(all_search_results),
             "search_result_count": len(all_chunk_ids),
             "search_result_chunk_ids": sorted(all_chunk_ids),
+            "retrieval_errors": retrieval_errors,
+            "evidence_fallback_used": evidence_fallback_used,
             "history_turns": len(history),
             "history_used": conversation_context_used,
             "user_id": user_id,

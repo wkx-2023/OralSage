@@ -10,6 +10,8 @@
     pollTimer: null,
     pollInFlight: false,
     authMode: 'login',
+    authenticated: false,
+    bindingResolved: false,
     bound: false,
   };
 
@@ -26,13 +28,13 @@
     if (window.lucide) window.lucide.createIcons();
   }
 
-  function log(message, data = null) {
+  function log(message, data = null, { showStatus = true } = {}) {
     const output = $('output');
     const statusMessage = $('status-message');
     const line = data ? `${message}\n${JSON.stringify(data, null, 2)}` : message;
     if (statusMessage) {
-      statusMessage.hidden = false;
-      statusMessage.textContent = message;
+      statusMessage.hidden = !showStatus;
+      if (showStatus) statusMessage.textContent = message;
     }
     output.textContent = `${new Date().toLocaleTimeString()}  ${line}\n\n${output.textContent || ''}`;
   }
@@ -55,8 +57,9 @@
     qrImg.hidden = true;
     qrImg.removeAttribute('src');
     $('qr-link').removeAttribute('href');
+    $('qr-note').hidden = false;
     $('qr-note').textContent = '正在生成微信二维码，请稍等。';
-    qrBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    qrBox.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   }
 
   function showQrError(message) {
@@ -65,6 +68,7 @@
     qrBox.classList.remove('is-loading');
     qrBox.classList.add('is-error');
     $('qr-img').hidden = true;
+    $('qr-note').hidden = false;
     $('qr-note').textContent = message;
   }
 
@@ -107,22 +111,45 @@
 
   async function refreshMe() {
     const me = await request('/api/auth/me');
+    state.authenticated = Boolean(me.authenticated && me.user);
+    state.bindingResolved = false;
     setText('current-user', me.user ? `${me.user.display_name || me.user.username || me.user.user_id}（${me.user.username || me.user.user_id}）` : '未登录');
-    if (me.user) {
+    renderControls();
+    if (state.authenticated) {
       await refreshBindStatus();
     } else {
       state.bound = false;
       setText('bind-state', '未连接');
+      renderControls();
     }
     return me;
+  }
+
+  function renderControls() {
+    const authenticated = state.authenticated;
+    const bindingResolved = authenticated && state.bindingResolved;
+    const bound = bindingResolved && state.bound;
+    $('auth-form').hidden = authenticated;
+    $('login-btn').hidden = authenticated;
+    $('login-tab').closest('.auth-tabs').hidden = authenticated;
+    $('logout-btn').hidden = !authenticated;
+    $('account-actions-divider').hidden = !authenticated;
+    $('qr-btn').hidden = !bindingResolved || bound;
+    $('unbind-btn').hidden = !bound;
+    $('push-btn').hidden = !bound;
+    document.querySelectorAll('[data-proxy-click="push-btn"]').forEach((button) => {
+      button.hidden = !bound;
+    });
   }
 
   async function refreshBindStatus() {
     const status = await request('/api/auth/weixin/bind-status');
     state.bound = Boolean(status.bound);
+    state.bindingResolved = true;
     setText('bind-state', status.bound
       ? `已连接：${status.weixin_user_id_masked || status.clawbot_instance_id || ''}`
       : '未连接');
+    renderControls();
     return status;
   }
 
@@ -154,7 +181,7 @@
       method: 'POST',
       body: JSON.stringify(payload),
     });
-    log(state.authMode === 'register' ? '注册成功，已登录。' : '登录成功。', result);
+    log(state.authMode === 'register' ? '注册成功，已登录。' : '登录成功。', result, { showStatus: false });
     await refreshMe();
     await window.oralUi?.refreshAuthStatus?.();
   }
@@ -180,7 +207,7 @@
     const qrBtn = $('qr-btn');
     qrBtn.disabled = true;
     showQrLoading();
-    log('正在生成微信二维码。');
+    log('正在生成微信二维码。', null, { showStatus: false });
     try {
       await ensureLoggedIn();
       const result = await request('/api/auth/weixin/qr/start', { method: 'POST' });
@@ -189,8 +216,9 @@
       $('qr-img').hidden = false;
       $('qr-link').href = result.qr_data_url;
       $('qr-note').textContent = result.message || '请用微信扫描二维码完成连接。';
+      $('qr-note').hidden = true;
       $('qr-box').classList.remove('is-loading', 'is-error');
-      log('二维码已生成，正在轮询扫码状态。', result);
+      log('二维码已生成，正在轮询扫码状态。', result, { showStatus: false });
       startPolling();
     } finally {
       qrBtn.disabled = false;
@@ -214,11 +242,12 @@
     try {
       const status = await request(`/api/auth/weixin/qr/status?session_id=${encodeURIComponent(state.sessionId)}`);
       $('qr-note').textContent = status.message || '等待扫码确认。';
+      $('qr-note').hidden = !['expired', 'error'].includes(status.status);
       if (status.bound || status.status === 'bound') {
         shouldContinue = false;
         stopPolling({ clearSession: true });
         $('qr-box').hidden = true;
-        log('微信连接成功。', status.binding || status);
+        log('微信连接成功。', status.binding || status, { showStatus: false });
         await refreshBindStatus();
       } else if (status.status === 'expired' || status.status === 'error') {
         shouldContinue = false;
@@ -238,7 +267,7 @@
   async function unbind() {
     await ensureLoggedIn();
     const result = await request('/api/auth/weixin/bind', { method: 'DELETE' });
-    log('已解绑微信。', result);
+    log('已解绑微信。', result, { showStatus: false });
     await refreshBindStatus();
   }
 
@@ -246,10 +275,13 @@
     stopPolling({ clearSession: true });
     $('qr-box').hidden = true;
     const result = await request('/api/auth/logout', { method: 'POST' });
-    log('已退出登录。', result);
+    log('已退出登录。', result, { showStatus: false });
+    state.authenticated = false;
+    state.bindingResolved = false;
     state.bound = false;
     setText('current-user', '未登录');
     setText('bind-state', '未连接');
+    renderControls();
     await window.oralUi?.refreshAuthStatus?.();
   }
 
@@ -259,7 +291,7 @@
       method: 'POST',
       body: JSON.stringify({}),
     });
-    log('今日计划已推送到微信。', result);
+    log('今日计划已推送到微信。', result, { showStatus: false });
   }
 
   async function pushSummary() {
@@ -268,7 +300,7 @@
       method: 'POST',
       body: JSON.stringify({}),
     });
-    log('今日总结已推送到微信。', result);
+    log('今日总结已推送到微信。', result, { showStatus: false });
   }
 
   $('login-tab').addEventListener('click', () => setAuthMode('login'));
@@ -293,9 +325,14 @@
   window.addEventListener('pagehide', () => stopPolling({ clearSession: true }));
 
   refreshMe().catch(() => {
+    state.authenticated = false;
+    state.bindingResolved = false;
+    state.bound = false;
     setText('current-user', '未登录');
     setText('bind-state', '未连接');
+    renderControls();
   });
   setAuthMode('login');
+  renderControls();
   refreshIcons();
 })();
