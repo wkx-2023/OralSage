@@ -103,6 +103,11 @@ class EvidenceSearchRequest(BaseModel):
     allow_web: bool = False
 
 
+class KnowledgeSearchRequest(BaseModel):
+    query: str
+    top_k: int = 24
+
+
 class KnowledgeViewRequest(BaseModel):
     topic_id: str = "impacted_wisdom_tooth"
     dimension_id: str = "all"

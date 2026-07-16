@@ -10,7 +10,7 @@
     { key: 'weixin-account', name: '微信连接', path: '/pages/weixin-account.html' },
     { key: 'learning-plan', name: '学习计划', path: '/pages/learning-plan.html' },
     { key: 'learning-profile', name: '\u5b66\u4e60\u753b\u50cf', path: '/pages/learning-profile.html' },
-    { key: 'evidence', name: '\u77e5\u8bc6\u5e93\u67e5\u770b', path: '/pages/evidence.html' },
+    { key: 'evidence', name: '\u77e5\u8bc6\u5e93\u68c0\u7d22', path: '/pages/evidence.html' },
     { key: 'knowledge-graph', name: '\u77e5\u8bc6\u56fe\u8c31\u67e5\u770b', path: '/pages/knowledge-graph.html' },
   ];
 
@@ -34,7 +34,7 @@
     '/pages/stats.html': { key: 'stats', title: '\u95e8\u8bca\u7edf\u8ba1', subtitle: TEXT.shellSubtitle },
     '/pages/literature.html': { key: 'literature', title: '\u524d\u6cbf\u6587\u732e', subtitle: TEXT.shellSubtitle },
     '/pages/pathology.html': { key: 'pathology', title: '\u75c5\u7406\u95ee\u7b54', subtitle: TEXT.shellSubtitle },
-    '/pages/evidence.html': { key: 'evidence', title: '\u77e5\u8bc6\u5e93\u67e5\u770b', subtitle: '\u6309\u4e3b\u9898\u548c\u7ef4\u5ea6\u67e5\u770b\u53e3\u8154\u533b\u5b66\u77e5\u8bc6\u70b9\u4e0e\u539f\u6587\u4f9d\u636e' },
+    '/pages/evidence.html': { key: 'evidence', title: '\u77e5\u8bc6\u5e93\u68c0\u7d22', subtitle: '\u68c0\u7d22\u5f53\u524d\u77e5\u8bc6\u5e93\u4e2d\u7684\u53e3\u8154\u533b\u5b66\u77e5\u8bc6\u7247\u6bb5' },
     '/pages/knowledge-graph.html': { key: 'knowledge-graph', title: '\u77e5\u8bc6\u56fe\u8c31\u67e5\u770b', subtitle: '\u67e5\u770b\u6559\u6750\u7ae0\u8282\u3001\u6838\u5fc3\u8282\u70b9\u548c\u77e5\u8bc6\u5173\u7cfb' },
   };
 

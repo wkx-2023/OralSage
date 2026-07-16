@@ -724,7 +724,8 @@
 .todo-item {
   position: relative;
   min-width: 0;
-  height: var(--todo-line-height);
+  min-height: var(--todo-line-height);
+  height: auto;
   min-height: var(--todo-line-height);
   border: 0;
   border-radius: 0;
@@ -737,10 +738,10 @@
 
 .todo-line {
   min-width: 0;
-  height: 100%;
+  min-height: var(--todo-line-height);
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: 24px minmax(0, 1fr) auto auto;
+  gap: 10px;
   align-items: center;
 }
 
@@ -772,6 +773,7 @@
 
 .todo-copy {
   min-width: 0;
+  overflow: hidden;
 }
 
 .todo-title {
@@ -781,7 +783,9 @@
   font-family: 'LXGW WenKai Screen', 'Noto Sans SC', sans-serif;
   font-weight: 400;
   line-height: 1.45;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .todo-item.completed .todo-title {
@@ -790,20 +794,8 @@
   text-decoration-thickness: 2px;
 }
 
-.todo-state {
-  display: inline-block;
-  margin-left: 5px;
-  color: var(--plan-teal);
-  font-size: 11px;
-  font-weight: 900;
-}
-
 .todo-meta {
-  margin-top: 4px;
-  color: rgba(95, 76, 173, 0.62);
-  font-size: 11px;
-  font-weight: 700;
-  overflow-wrap: anywhere;
+  display: none;
 }
 
 .todo-tools {
@@ -833,6 +825,14 @@
 .todo-tool.danger:hover {
   border-color: transparent;
   color: var(--plan-purple-dark);
+}
+
+.todo-actions-inline {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
 }
 
 .link-editor {

@@ -1,18 +1,19 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>知识库查看 - OralSage</title>
+  <title>知识库检索 - OralSage</title>
   <link rel="icon" href="/assets/images/oralsage-logo.jpg">
   <link rel="preload" href="/assets/fonts/rajdhani-latin-700.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <link rel="stylesheet" href="/css/base.css?v=20260715-brand-font">
-  <link rel="stylesheet" href="/css/evidence-page.css?v=20260502f">
+  <link rel="stylesheet" href="/css/evidence-page.css?v=20260716-kb-search-v4">
 </head>
-<body class="knowledge-page">
+<body class="knowledge-search-page">
   <div class="app-shell">
     <aside class="rail">
       <nav id="module-nav" class="module-nav"></nav>
@@ -24,61 +25,124 @@
           <h1 id="page-title" class="page-title"></h1>
           <p id="page-subtitle" class="page-subtitle"></p>
         </div>
-        
       </header>
 
-      <main class="workspace evidence-workspace">
-        <section class="knowledge-toolbar">
-          <div class="knowledge-title-block">
-            <h2>口腔问题知识查看</h2>
-          </div>
-          <div class="knowledge-controls">
-            <select id="knowledge-dimension" class="knowledge-select">
-              <option value="all">全部知识维度</option>
-            </select>
-            <select id="knowledge-source" class="knowledge-select">
-              <option value="all">全部来源</option>
-            </select>
-          </div>
+      <main class="workspace knowledge-search-workspace">
+        <section class="kb-query-row" aria-label="知识库检索">
+          <form id="kb-search-form" class="kb-query-form" role="search">
+            <i data-lucide="search" aria-hidden="true"></i>
+            <label class="sr-only" for="kb-query">检索内容</label>
+            <input
+              id="kb-query"
+              name="query"
+              type="search"
+              maxlength="160"
+              autocomplete="off"
+              placeholder="搜索疾病、症状、检查或治疗内容"
+            >
+            <button id="kb-search-submit" type="submit" class="kb-search-submit">
+              <span>检索</span>
+              <i data-lucide="search" aria-hidden="true"></i>
+            </button>
+          </form>
+          <button
+            id="kb-history-toggle"
+            type="button"
+            class="kb-icon-control"
+            title="检索记录"
+            aria-label="检索记录"
+            aria-expanded="false"
+          >
+            <i data-lucide="history" aria-hidden="true"></i>
+          </button>
         </section>
 
-        <section class="knowledge-layout">
-          <aside class="topic-panel">
-            <div class="panel-head">
-              <h3>口腔问题</h3>
-              <span id="topic-count">0 类</span>
-            </div>
-            <div id="topic-list" class="topic-list"></div>
-          </aside>
+        <section id="kb-history" class="kb-history-popover" hidden>
+          <header>
+            <strong>检索记录</strong>
+            <button id="kb-history-clear" type="button" title="清除记录" aria-label="清除记录">
+              <i data-lucide="trash-2" aria-hidden="true"></i>
+            </button>
+          </header>
+          <div id="kb-history-list" class="kb-history-list"></div>
+        </section>
 
-          <section class="knowledge-center">
-            <div class="path-strip" aria-label="临床路径视图">
-              <button type="button" class="path-step active" data-dimension="clinical_feature">识别问题</button>
-              <button type="button" class="path-step" data-dimension="exam">关键检查</button>
-              <button type="button" class="path-step" data-dimension="diagnosis">诊断判断</button>
-              <button type="button" class="path-step" data-dimension="differential">鉴别风险</button>
-              <button type="button" class="path-step" data-dimension="treatment">治疗原则</button>
-              <button type="button" class="path-step" data-dimension="education">随访宣教</button>
-            </div>
-
-            <div class="topic-summary">
+        <section id="kb-search-shell" class="kb-search-shell">
+          <section class="kb-results-pane" aria-labelledby="kb-results-title">
+            <header class="kb-pane-head">
               <div>
-                <p class="eyebrow">当前主题</p>
-                <h2 id="active-topic-name">加载中...</h2>
+                <h2 id="kb-results-title">检索结果</h2>
+                <span id="kb-result-count"></span>
               </div>
-              <div id="knowledge-count" class="knowledge-count">正在读取知识库</div>
+              <label class="kb-subject-filter">
+                <span class="sr-only">按学科筛选</span>
+                <select id="kb-subject-filter" disabled>
+                  <option value="all">全部学科</option>
+                </select>
+                <i data-lucide="chevron-down" aria-hidden="true"></i>
+              </label>
+            </header>
+            <div id="kb-results" class="kb-results" aria-live="polite">
+              <div class="kb-empty-state">
+                <i data-lucide="search" aria-hidden="true"></i>
+                <span>暂无检索结果</span>
+              </div>
             </div>
-
-            <div id="knowledge-groups" class="knowledge-groups"></div>
+            <nav id="kb-pagination" class="kb-pagination" aria-label="检索结果分页" hidden>
+              <button
+                id="kb-page-prev"
+                type="button"
+                class="kb-page-nav"
+                title="上一页"
+                aria-label="上一页"
+                data-page-step="-1"
+              >
+                <i data-lucide="chevron-left" aria-hidden="true"></i>
+              </button>
+              <div id="kb-page-numbers" class="kb-page-numbers"></div>
+              <button
+                id="kb-page-next"
+                type="button"
+                class="kb-page-nav"
+                title="下一页"
+                aria-label="下一页"
+                data-page-step="1"
+              >
+                <i data-lucide="chevron-right" aria-hidden="true"></i>
+              </button>
+            </nav>
           </section>
 
-          <aside class="evidence-detail">
-            <div class="panel-head">
-              <h3>依据详情</h3>
-              <button id="copy-evidence" type="button" class="btn ghost mini-btn">复制</button>
-            </div>
-            <div id="evidence-detail-body" class="detail-body empty">
-              选择一个知识点后，这里会显示原文摘录、来源类型、页码和相关性说明。
+          <aside class="kb-detail-pane" aria-labelledby="kb-detail-title">
+            <header class="kb-pane-head">
+              <div class="kb-detail-heading">
+                <button
+                  id="kb-detail-back"
+                  type="button"
+                  class="kb-mobile-back"
+                  title="返回检索结果"
+                  aria-label="返回检索结果"
+                >
+                  <i data-lucide="arrow-left" aria-hidden="true"></i>
+                </button>
+                <h2 id="kb-detail-title">片段详情</h2>
+              </div>
+              <button
+                id="kb-copy-snippet"
+                type="button"
+                class="kb-copy-button"
+                title="复制片段"
+                aria-label="复制片段"
+                disabled
+              >
+                <i data-lucide="copy" aria-hidden="true"></i>
+              </button>
+            </header>
+            <div id="kb-detail" class="kb-detail">
+              <div class="kb-empty-state">
+                <i data-lucide="file-search" aria-hidden="true"></i>
+                <span>尚未选择知识片段</span>
+              </div>
             </div>
           </aside>
         </section>
@@ -86,12 +150,7 @@
     </section>
   </div>
 
-  <script src="/js/common.js?v=20260702-learning-shell"></script>
-  <script src="/js/evidence.js?v=20260502f"></script>
+  <script src="/js/common.js?v=20260715-knowledge-search"></script>
+  <script src="/js/evidence.js?v=20260716-kb-search-v4"></script>
 </body>
 </html>
-
-
-
-
-

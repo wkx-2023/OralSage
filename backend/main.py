@@ -27,6 +27,7 @@ from .schemas import (
     GenericAgentResponse,
     ImageRequest,
     KnowledgeGraphNeighborhoodRequest,
+    KnowledgeSearchRequest,
     KnowledgeViewRequest,
     LearningContinueRequest,
     LearnerAssessmentSubmitRequest,
@@ -59,6 +60,7 @@ from .services.decision import run_decision_assist, run_evidence_search
 from .services.image import run_image_analysis
 from .services.image.agent import image_size_limit_bytes
 from .services.knowledge import get_knowledge_topics, run_knowledge_view
+from .services.knowledge_search import run_knowledge_search
 from .services.knowledge_graph import (
     get_graph_neighborhood,
     get_graph_node,
@@ -327,6 +329,12 @@ async def decision_assist(req: DecisionRequest) -> JSONResponse:
 @app.post("/api/evidence/search")
 async def evidence_search(req: EvidenceSearchRequest) -> JSONResponse:
     result = run_evidence_search(req.query, req.top_k)
+    return JSONResponse(result)
+
+
+@app.post("/api/knowledge/search")
+async def knowledge_search(req: KnowledgeSearchRequest) -> JSONResponse:
+    result = await asyncio.to_thread(run_knowledge_search, req.query, req.top_k)
     return JSONResponse(result)
 
 
