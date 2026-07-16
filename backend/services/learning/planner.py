@@ -2627,6 +2627,7 @@ def plan_lesson(
     topic: str,
     user_profile: dict[str, Any] | None = None,
     max_nodes: int = 6,
+    learning_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate a lesson outline and mindmap for *topic*.
 
@@ -2637,16 +2638,120 @@ def plan_lesson(
     outline/evidence for the first section to start teaching immediately. The
     orchestrator completes the remaining evidence-backed outline in the
     background while the first section is being taught.
+
+    When *learning_scope* is provided it constrains KG node selection and
+    evidence chunk retrieval to the specified document/chapter/KG nodes.
+    If the scope yields zero usable resources, ``ok=False`` is returned
+    with a clear ``scope_error`` — the caller must NOT fall back to global
+    (unscoped) planning.
     """
     topic = topic.strip() or "口腔医学主题"
     user_profile = user_profile or {}
 
+    # --- pre: resolve scope constraints -----------------------------------
+    scope_kg_node_ids: set[str] | None = None
+    scope_document_id: str | None = None
+    scope_chapter: str | None = None
+    if learning_scope and isinstance(learning_scope, dict) and learning_scope:
+        raw_ids = learning_scope.get("kg_node_ids")
+        if raw_ids and isinstance(raw_ids, list):
+            scope_kg_node_ids = {str(sid).strip() for sid in raw_ids if str(sid).strip()}
+            if not scope_kg_node_ids:
+                scope_kg_node_ids = None
+        did = str(learning_scope.get("document_id", "")).strip()
+        if did:
+            scope_document_id = did
+        ch = str(learning_scope.get("chapter_key", "") or learning_scope.get("chapter_title", "")).strip()
+        if ch:
+            scope_chapter = ch
+
     # --- 1. contextual retrieval -----------------------------------------
     planning_context = collect_planning_context(topic, top_k=16)
+
+    # --- 1a. apply scope document_id / chapter filter to evidence chunks --
+    if scope_document_id or scope_chapter:
+        filtered_chunks: list[dict[str, Any]] = []
+        for ch in planning_context.get("chunks", []):
+            if scope_document_id:
+                ch_doc_id = str(ch.get("path", "") or ch.get("metadata", {}).get("document_id", ""))
+                if ch_doc_id != scope_document_id:
+                    continue
+            if scope_chapter:
+                ch_chapter = str(ch.get("metadata", {}).get("chapter", ""))
+                if scope_chapter not in ch_chapter and ch_chapter not in scope_chapter:
+                    continue
+            filtered_chunks.append(ch)
+        planning_context["chunks"] = filtered_chunks
+        planning_context["scope_filtered"] = True
+        planning_context["scope_document_id"] = scope_document_id
+        planning_context["scope_chapter"] = scope_chapter
 
     # --- 2. find & dedupe KG nodes ---------------------------------------
     raw_nodes = find_relevant_nodes(topic, max_nodes=max_nodes * 2)
     relevant_nodes = dedupe_nodes(raw_nodes, topic, max_nodes=max_nodes)
+
+    # --- 2a. apply scope kg_node_ids filter -------------------------------
+    if scope_kg_node_ids is not None:
+        relevant_nodes = [
+            n for n in relevant_nodes
+            if n.get("node_id", "") in scope_kg_node_ids
+        ]
+
+    # --- 2b. scope error: zero resources after filtering ------------------
+    if learning_scope and isinstance(learning_scope, dict) and learning_scope:
+        chunks_empty = (
+            bool(scope_document_id or scope_chapter)
+            and not planning_context.get("chunks")
+        )
+        if not relevant_nodes or chunks_empty:
+            if not relevant_nodes and chunks_empty:
+                scope_error_msg = (
+                    "The learning scope has no usable KG nodes and no matching "
+                    "evidence chunks in the knowledge base — planning cannot "
+                    "proceed. The caller must NOT fall back to global "
+                    "(unscoped) planning."
+                )
+            elif not relevant_nodes:
+                scope_error_msg = (
+                    "The learning scope has no usable KG nodes in the "
+                    "knowledge base — planning cannot proceed. The caller "
+                    "must NOT fall back to global (unscoped) planning."
+                )
+            else:
+                doc_info = f"document_id={scope_document_id!r}" if scope_document_id else ""
+                ch_info = f"chapter={scope_chapter!r}" if scope_chapter else ""
+                filter_desc = " / ".join(p for p in (doc_info, ch_info) if p)
+                scope_error_msg = (
+                    f"The learning scope has no matching evidence chunks "
+                    f"for the specified filters ({filter_desc}) — planning "
+                    f"cannot proceed. The caller must NOT fall back to "
+                    f"global (unscoped) planning."
+                )
+            return {
+                "ok": False,
+                "topic": topic,
+                "error": "scope_no_resources",
+                "scope_error": scope_error_msg,
+                "learning_scope": learning_scope,
+                "outline": {"nodes": []},
+                "mindmap": {},
+                "matched_nodes": [],
+                "related_edges": [],
+                "linked_questions": [],
+                "evidence_pool": {"counts": {}},
+                "outline_evidence_map": {},
+                "planning_context": planning_context,
+                "progressive_planning": {"enabled": False, "completion_required": False},
+                "planning_trace": {"strategy": "scope_filtered_no_match"},
+                "source_trace": {
+                    "strategy": "scope_filtered_no_match",
+                    "planning_context_source": planning_context.get("source", ""),
+                    "planning_context_ok": planning_context.get("ok", False),
+                    "evidence_chunk_count": len(planning_context.get("chunks", [])),
+                    "matched_node_count": 0,
+                    "progressive_planning": {"enabled": False, "completion_required": False},
+                },
+            }
 
     # --- 3. edges & questions (always based on relevant_nodes) -----------
     if relevant_nodes:

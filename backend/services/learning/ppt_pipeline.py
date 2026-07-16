@@ -535,9 +535,11 @@ def _browser_command(
     screenshot_path: Path | None = None,
     dump_dom: bool = False,
 ) -> list[str]:
+    profile_dir = profile_dir.resolve()
+    profile_dir.mkdir(parents=True, exist_ok=True)
     command = [
         str(browser),
-        "--headless=new",
+        "--headless",
         "--disable-gpu",
         "--hide-scrollbars",
         "--no-first-run",
@@ -549,6 +551,7 @@ def _browser_command(
     if dump_dom:
         command.append("--dump-dom")
     if screenshot_path is not None:
+        screenshot_path = screenshot_path.resolve()
         command.append(f"--screenshot={screenshot_path}")
     command.append(url)
     return command
@@ -594,30 +597,6 @@ def _render_plan_to_pngs(
     try:
         port = server.server_address[1]
         base_url = f"http://127.0.0.1:{port}/preview.html"
-        dom_profile = output_dir / "browser-dom-profile"
-        dom_query = urlencode({"plan": "/runtime-plan.json", "page": 1})
-        dom_result = subprocess.run(
-            _browser_command(
-                browser,
-                profile_dir=dom_profile,
-                url=f"{base_url}?{dom_query}",
-                dump_dom=True,
-            ),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
-            check=False,
-        )
-        if dom_result.returncode != 0:
-            raise RuntimeError(f"ppt_browser_dom_failed: {dom_result.stderr[-500:]}")
-        rendered_count = len(re.findall(r"<section\b[^>]*class=\"[^\"]*\bslide\b", dom_result.stdout))
-        if rendered_count < slide_count:
-            raise RuntimeError(
-                f"pin_and_paper_render_incomplete: {rendered_count}/{slide_count}"
-            )
-
         images: list[Path] = []
         for index in range(slide_count):
             image_path = output_dir / f"slide_{index + 1:03d}.png"

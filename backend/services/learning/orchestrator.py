@@ -200,8 +200,17 @@ class LearningOrchestrator:
         topic: str,
         display_name: str | None = None,
         profile_input: dict[str, Any] | None = None,
+        learning_scope: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Begin a new learning session.
+
+        *learning_scope* is an optional internal context from a formal plan
+        item (e.g. ``{book_title, document_id, chapter_key, chapter_title,
+        kg_node_ids}``).  When non-empty it constrains the planner's KG node
+        selection to only resources within that scope.  When the scope yields
+        zero usable resources, a :exc:`RuntimeError` is raised with a clear
+        ``scope_no_resources`` message — the caller must NOT fall back to
+        global (unscoped) planning.
 
         1. Get or create the user profile, merging *profile_input* if given.
         2. Create a session row.
@@ -232,8 +241,18 @@ class LearningOrchestrator:
             role="planner",
             context={"topic": topic},
         )
-        plan_result = plan_lesson(topic, user_profile=planner_profile)
+        plan_result = plan_lesson(
+            topic,
+            user_profile=planner_profile,
+            learning_scope=learning_scope,
+        )
         if not plan_result.get("ok"):
+            scope_error = plan_result.get("scope_error", "")
+            if scope_error:
+                raise RuntimeError(
+                    f"plan_lesson scope_no_resources for topic {topic!r}: "
+                    f"{scope_error}"
+                )
             raise RuntimeError(
                 f"plan_lesson failed for topic {topic!r}"
             )
@@ -271,18 +290,21 @@ class LearningOrchestrator:
         )
 
         # --- record event ---------------------------------------------------
+        event_payload: dict[str, Any] = {
+            "surface": "planning",
+            "topic": topic,
+            "strategy": source_trace.get("strategy"),
+            "node_count": len(nodes),
+            "resource_count": len(resources),
+        }
+        if learning_scope:
+            event_payload["learning_scope"] = learning_scope
         lesson_started_event_id = self.memory.record_event(
             session_id=session_id,
             user_id=user_id,
             event_type="lesson_started",
             outline_node_id=first_node_id,
-            payload={
-                "surface": "planning",
-                "topic": topic,
-                "strategy": source_trace.get("strategy"),
-                "node_count": len(nodes),
-                "resource_count": len(resources),
-            },
+            payload=event_payload,
         )
         lesson_memory_update = self._update_learner_memory_for_event(
             user_id=user_id,
@@ -347,6 +369,7 @@ class LearningOrchestrator:
             ),
             "outline_completion_started": outline_completion_started,
             "learner_memory_update": lesson_memory_update,
+            "learning_scope": learning_scope,
         }
 
     def _start_outline_completion_background(

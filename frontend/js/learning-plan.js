@@ -32,10 +32,13 @@
   installTopNavCleanup();
 
   const now = new Date();
+  const urlParams = new URLSearchParams(window.location.search);
   const state = {
-    userId: new URLSearchParams(window.location.search).get('user_id')
+    userId: urlParams.get('user_id')
       || localStorage.getItem('oralsage.learningProfile.userId')
       || 'demo',
+    planDraftId: urlParams.get('plan_draft_id') || '',
+    _draftLoaded: false,
     viewYear: now.getFullYear(),
     viewMonth: now.getMonth() + 1,
     selectedDate: dateKey(now.getFullYear(), now.getMonth() + 1, now.getDate()),
@@ -130,6 +133,53 @@
   function clearRecommendations() {
     state.recommendations = [];
     state.recommendationDate = '';
+  }
+
+  function mapDraftItemsToRecommendations(draftId, items) {
+    return items.map((item, i) => {
+      const scope = item.learning_scope || {};
+      return {
+        recommendation_id: `${draftId}:${i}`,
+        title: item.learning_target || item.title || '',
+        task_type: item.task_type || 'topic_learning',
+        learning_target: item.learning_target || '',
+        reason: item.reason || '',
+        estimated_minutes: item.estimated_minutes || 0,
+        kg_node_ids: Array.isArray(scope.kg_node_ids) ? scope.kg_node_ids : [],
+        learning_scope: item.learning_scope || null,
+        linked_course_title: scope.book_title || scope.chapter_title || null,
+        linked_course_id: scope.document_id || null,
+        category: item.task_type || 'recommend',
+        evidence_source: item.evidence_source || null,
+      };
+    });
+  }
+
+  async function loadPlanDraft(draftId) {
+    if (!draftId) return;
+    try {
+      setStatus('正在加载计划草案...');
+      const body = await apiGet(
+        `/api/learning/plan/drafts/${encodeURIComponent(draftId)}?user_id=${encodeURIComponent(state.userId)}`,
+      );
+      const draft = body.result || {};
+      const payload = draft.payload || {};
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      if (items.length) {
+        state.recommendations = mapDraftItemsToRecommendations(draftId, items);
+        state.recommendationDate = state.selectedDate;
+        state._draftLoaded = true;
+        renderRecommendations();
+        setStatus('');
+        showPlanToast('已加载聊天生成的计划草案');
+      } else {
+        state._draftLoaded = true;
+        setStatus('计划草案中没有任务', 'muted');
+      }
+    } catch (err) {
+      setStatus(err.message || '计划草案加载失败', 'error');
+      showPlanToast('这份计划已过期或不可用，请重新生成');
+    }
   }
 
   async function apiGet(url) {
@@ -365,6 +415,11 @@
     const acceptAllButton = byId('recommend-accept-all');
     if (!panel || !list) return;
 
+    const heading = panel.querySelector('.recommend-head h3');
+    if (heading) {
+      heading.textContent = state._draftLoaded ? '聊天计划草案' : '系统推荐';
+    }
+
     const visible = hasActiveRecommendations();
     const editable = canEditSelectedDate();
     panel.hidden = !visible;
@@ -504,8 +559,9 @@
       planForm.classList.toggle('disabled', !editable);
     }
     if (recommendButton) {
-      recommendButton.disabled = !editable || state.recommendationLoading;
-      recommendButton.textContent = state.recommendationLoading ? '推荐中...' : '系统推荐';
+      const draftBlocked = Boolean(state.planDraftId);
+      recommendButton.disabled = draftBlocked || !editable || state.recommendationLoading;
+      recommendButton.textContent = state.recommendationLoading ? '推荐中...' : (draftBlocked ? '已加载聊天草案' : '系统推荐');
     }
 
     const list = byId('todo-list');
@@ -578,7 +634,7 @@
   }
 
   function recommendationPayload(item) {
-    return {
+    const payload = {
       user_id: state.userId,
       plan_date: state.selectedDate,
       title: String(item.title || '').trim(),
@@ -589,11 +645,22 @@
       learning_target: item.learning_target || null,
       kg_node_ids: Array.isArray(item.kg_node_ids) ? item.kg_node_ids : [],
     };
+    if (item.learning_scope) {
+      payload.learning_scope = item.learning_scope;
+    }
+    if (item.reason) {
+      payload.reason = item.reason;
+    }
+    return payload;
   }
 
   async function requestRecommendations() {
     if (!canEditSelectedDate()) {
       setStatus('过去的日期只支持查看', 'error');
+      return;
+    }
+    if (state.planDraftId) {
+      showPlanToast('当前页面已加载聊天计划草案，如需系统推荐请重新打开计划页');
       return;
     }
     if (!state.profile) {
@@ -877,8 +944,11 @@
     initAssessmentController();
     bindEvents();
     loadProfile();
-    loadMonth();
+    await loadMonth();
+    if (state.planDraftId) {
+      await loadPlanDraft(state.planDraftId);
+    }
   }
 
-  boot();
+  void boot();
 })();

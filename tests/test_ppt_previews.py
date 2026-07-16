@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.services.learning.ppt_pipeline import (
+    _browser_command,
     _upgrade_legacy_cover_plan,
     build_and_save_pin_and_paper_plan,
     ensure_pin_and_paper_previews,
@@ -14,6 +15,27 @@ from backend.services.learning.ppt_pipeline import (
 
 
 class PptPreviewTests(unittest.TestCase):
+    def test_browser_command_uses_an_existing_absolute_profile_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            profile_dir = Path(temp) / "relative-profile"
+            command = _browser_command(
+                Path("browser.exe"),
+                profile_dir=profile_dir,
+                url="http://127.0.0.1/preview.html",
+                screenshot_path=Path(temp) / "slide.png",
+            )
+
+            profile_argument = next(
+                argument for argument in command if argument.startswith("--user-data-dir=")
+            )
+            configured_profile = Path(profile_argument.removeprefix("--user-data-dir="))
+            self.assertTrue(configured_profile.is_absolute())
+            self.assertTrue(configured_profile.is_dir())
+            screenshot_argument = next(
+                argument for argument in command if argument.startswith("--screenshot=")
+            )
+            self.assertTrue(Path(screenshot_argument.removeprefix("--screenshot=")).is_absolute())
+
     def test_legacy_preview_plan_upgrades_cover_from_saved_deck(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             session_dir = Path(temp) / "lesson-legacy"

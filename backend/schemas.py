@@ -229,6 +229,7 @@ class LearningPlanCreateRequest(BaseModel):
     task_type: str = "topic_learning"
     learning_target: str | None = None
     kg_node_ids: list[str] = Field(default_factory=list)
+    learning_scope: dict[str, Any] | None = None
 
 
 class LearningPlanUpdateRequest(BaseModel):
@@ -241,6 +242,7 @@ class LearningPlanUpdateRequest(BaseModel):
     task_type: str | None = None
     learning_target: str | None = None
     kg_node_ids: list[str] | None = None
+    learning_scope: dict[str, Any] | None = None
 
 
 class LearningPlanCompleteRequest(BaseModel):
@@ -257,3 +259,4 @@ class LearningPlanRecommendRequest(BaseModel):
     user_id: str = "demo"
     plan_date: str
     max_items: int = 4
+    request_text: str | None = None

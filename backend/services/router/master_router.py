@@ -433,7 +433,7 @@ class MasterRouter:
         elif route["intent"] == "direct_qa":
             return await self._handle_direct_qa(message, user_id, route, history)
         elif route["intent"] == "study_plan":
-            return await self._handle_study_plan(user_id, message, route)
+            return await self._handle_study_plan(user_id, message, route, ctx)
         elif route["intent"] == "literature":
             return await self._handle_literature(message, route, ctx)
         else:
@@ -616,13 +616,49 @@ class MasterRouter:
         linked_course_id = str(item.get("linked_course_id") or "").strip()
 
         if task_type == "continue_lesson" and linked_course_id:
-            response = await self._handle_session_continue(user_id, linked_course_id)
-            response["route"] = {
-                **(response.get("route") or {}),
-                "reason": f"根据计划任务「{title or linked_course_title}」继续原课程。",
+            # "开始学习" for a continue_lesson plan item must restore the
+            # *current* section lecture WITHOUT advancing to the next
+            # section.  We call next_step() instead of
+            # continue_to_next_section() so the user sees the node they
+            # left off at — not the one after it.  Regular session
+            # "continue" (context.session_id + continue message) still
+            # goes through _handle_session_continue and advances.
+            route = {
+                "intent": "learning",
+                "target": INTENT_TO_TARGET["learning"],
                 "source": source,
+                "reason": f"根据计划任务「{title or linked_course_title}」恢复当前课程讲稿。",
             }
-            return response
+            try:
+                step_result = await asyncio.to_thread(
+                    self.learning_orchestrator.next_step,
+                    linked_course_id,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "next_step failed for session=%s (continue_lesson plan item)",
+                    linked_course_id,
+                )
+                return {
+                    "ok": False,
+                    "route": {
+                        **route,
+                        "reason": f"根据计划任务「{title or linked_course_title}」恢复课程讲稿失败。",
+                    },
+                    "final_result": None,
+                    "next_action": None,
+                    "error": f"继续课程失败：{exc}",
+                }
+            return {
+                "ok": True,
+                "route": route,
+                "final_result": {
+                    "session": {"id": linked_course_id},
+                    "tutor_step": step_result,
+                    "lesson_completed": False,
+                },
+                "next_action": "continue_session",
+            }
 
         focused_types = {"review_weakness", "review_mastery", "review_summary", "practice"}
         if task_type in focused_types and learning_target:
@@ -631,6 +667,14 @@ class MasterRouter:
                 topic = f"{linked_course_title}：{learning_target}"
         else:
             topic = learning_target or linked_course_title or _normalize_learning_topic(title)
+
+        # --- formal learning_scope from item (empty dict → not passed) ---
+        learning_scope_raw = item.get("learning_scope")
+        learning_scope: dict[str, Any] | None = (
+            learning_scope_raw
+            if isinstance(learning_scope_raw, dict) and learning_scope_raw
+            else None
+        )
 
         route = {
             "intent": "learning",
@@ -647,7 +691,7 @@ class MasterRouter:
                 "next_action": None,
                 "error": "Plan item has no resolvable topic.",
             }
-        return await self._start_learning(user_id, topic, route)
+        return await self._start_learning(user_id, topic, route, learning_scope=learning_scope)
 
     async def _handle_learning(
         self, user_id: str, message: str, route: dict[str, Any]
@@ -688,16 +732,30 @@ class MasterRouter:
         return self._respond_select_plan(open_items, route)
 
     async def _handle_study_plan(
-        self, user_id: str, message: str, route: dict[str, Any]
+        self, user_id: str, message: str, route: dict[str, Any], context: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Recommend study plans based on user's current learning progress."""
+        """Recommend study plans based on user's current learning progress.
+
+        When *context* carries a ``parent_plan_draft_id`` it is forwarded
+        to the study-plan service so that the new draft records lineage.
+        """
+        ctx = context or {}
+        parent_plan_draft_id: str | None = (
+            str(ctx["parent_plan_draft_id"]).strip()
+            if isinstance(ctx.get("parent_plan_draft_id"), str)
+            and ctx["parent_plan_draft_id"].strip()
+            else None
+        )
         try:
-            result = await asyncio.to_thread(
-                self._study_plan_service,
-                self.learning_orchestrator.memory,
+            kwargs: dict[str, Any] = dict(
+                memory=self.learning_orchestrator.memory,
                 user_id=user_id,
                 plan_date=date.today().isoformat(),
+                request_text=message,
             )
+            if parent_plan_draft_id is not None:
+                kwargs["parent_plan_draft_id"] = parent_plan_draft_id
+            result = await asyncio.to_thread(self._study_plan_service, **kwargs)
         except Exception as exc:
             logger.exception("study_plan_service failed")
             return {
@@ -895,14 +953,27 @@ class MasterRouter:
     # ------------------------------------------------------------------
 
     async def _start_learning(
-        self, user_id: str, topic: str, route: dict[str, Any]
+        self,
+        user_id: str,
+        topic: str,
+        route: dict[str, Any],
+        *,
+        learning_scope: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Call the existing ``start_lesson`` and wrap the result."""
+        """Call the existing ``start_lesson`` and wrap the result.
+
+        When *learning_scope* is a non-empty dict (from a formal plan item),
+        it is forwarded to ``start_lesson`` as optional internal context.
+        An empty / missing scope is never passed so the old topic path is
+        preserved.
+        """
+        start_kwargs: dict[str, Any] = {"user_id": user_id, "topic": topic}
+        if learning_scope:
+            start_kwargs["learning_scope"] = learning_scope
         try:
             result = await asyncio.to_thread(
                 self.learning_orchestrator.start_lesson,
-                user_id=user_id,
-                topic=topic,
+                **start_kwargs,
             )
         except Exception as exc:
             logger.exception("start_lesson failed for topic=%s", topic)
