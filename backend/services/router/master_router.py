@@ -20,6 +20,7 @@ the literature tool remains usable without a classifier LLM.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import re
@@ -780,12 +781,31 @@ class MasterRouter:
         query = message.strip()
         options = _literature_options_from_context(query, context)
         try:
-            result = await self._literature_service(
-                query,
-                options["months"],
-                options["limit"],
-                include_chat_translations=True,
+            parameters = inspect.signature(self._literature_service).parameters.values()
+            accepts_args = any(param.kind is inspect.Parameter.VAR_POSITIONAL for param in parameters)
+            accepts_kwargs = any(param.kind is inspect.Parameter.VAR_KEYWORD for param in parameters)
+            positional_count = sum(
+                param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                for param in parameters
             )
+            supports_translations = accepts_kwargs or any(
+                param.name == "include_chat_translations" for param in parameters
+            )
+            if supports_translations:
+                result = await self._literature_service(
+                    query,
+                    options["months"],
+                    options["limit"],
+                    include_chat_translations=True,
+                )
+            elif accepts_args or positional_count >= 3:
+                result = await self._literature_service(
+                    query,
+                    options["months"],
+                    options["limit"],
+                )
+            else:
+                result = await self._literature_service(query)
         except Exception as exc:
             logger.exception("Literature search failed")
             return {
