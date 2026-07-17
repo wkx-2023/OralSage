@@ -633,6 +633,20 @@ class MasterRouter:
                 stream_callback=stream_callback,
             )
 
+        # A resource request with an explicit topic is always standalone.
+        # This guard prevents a partially structured classifier response from
+        # turning "generate <topic> handout" into a full learning course.
+        if conversational_agent in STANDALONE_BOOTSTRAP_AGENTS:
+            standalone_topic = _extract_standalone_topic(message, conversational_agent)
+            if standalone_topic:
+                return await self.dispatch_agent(
+                    conversational_agent,
+                    message=message,
+                    user_id=user_id,
+                    history=history,
+                    context={**ctx, "session_id": "", "topic": standalone_topic},
+                )
+
         # --- LLM classification ----------------------------------------------
         route = await self._classify(message, history, ctx)
 

@@ -1089,6 +1089,73 @@ class LearningOrchestrator:
         section = cache.get("handout_section") if self._is_ready_handout_cache(cache) else None
         return section if isinstance(section, dict) else None
 
+    def stream_handout_sections_for_interaction(
+        self,
+        session_id: str,
+        emit: Callable[[dict[str, Any]], None],
+        *,
+        timeout_seconds: float = 120.0,
+    ) -> dict[str, Any]:
+        """Emit ready handout sections as semantic blocks while prefetch completes."""
+        outline_record = _require_outline(self.memory, session_id)
+        outline = outline_record.get("outline") or {}
+        nodes = [node for node in outline.get("nodes", []) if isinstance(node, dict)]
+        emit({
+            "type": "handout_outline",
+            "title": str(outline.get("title") or ""),
+            "sections": [
+                {"id": str(node.get("id") or ""), "title": str(node.get("title") or "")}
+                for node in nodes
+            ],
+        })
+
+        emitted: set[str] = set()
+        failed: set[str] = set()
+        sections: list[dict[str, Any]] = []
+        deadline = time.monotonic() + max(1.0, timeout_seconds)
+        while len(emitted) + len(failed) < len(nodes) and time.monotonic() < deadline:
+            for node in nodes:
+                node_id = str(node.get("id") or "")
+                if not node_id or node_id in emitted or node_id in failed:
+                    continue
+                cache = get_handout_cache(session_id, node_id, resource_root=self.resource_root)
+                if self._is_ready_handout_cache(cache):
+                    section = cache.get("handout_section")
+                    if not isinstance(section, dict):
+                        failed.add(node_id)
+                        emit({"type": "handout_section_failed", "section_id": node_id})
+                        continue
+                    emitted.add(node_id)
+                    sections.append(section)
+                    emit({
+                        "type": "handout_section_started",
+                        "section_id": node_id,
+                        "title": str(section.get("title") or node.get("title") or ""),
+                    })
+                    for chunk in _handout_stream_chunks(section):
+                        emit({
+                            "type": "handout_chunk",
+                            "section_id": node_id,
+                            "text": chunk,
+                        })
+                    emit({"type": "handout_section_completed", "section_id": node_id})
+                elif cache.get("status") == "failed":
+                    failed.add(node_id)
+                    emit({"type": "handout_section_failed", "section_id": node_id})
+            if len(emitted) + len(failed) < len(nodes):
+                time.sleep(0.25)
+
+        for node in nodes:
+            node_id = str(node.get("id") or "")
+            if node_id and node_id not in emitted and node_id not in failed:
+                emit({"type": "handout_section_failed", "section_id": node_id, "reason": "generation_timed_out"})
+        return {
+            "sections": sections,
+            "completed_section_count": len(emitted),
+            "failed_section_count": len(nodes) - len(emitted),
+            "complete": len(emitted) == len(nodes),
+        }
+
     def _prepare_first_handout_section_sync(
         self,
         session_id: str,
@@ -3330,6 +3397,28 @@ def decide_next_action(
 # ============================================================================
 # Internal helpers
 # ============================================================================
+
+
+def _handout_stream_chunks(section: dict[str, Any]) -> list[str]:
+    """Split a validated handout section into display-safe semantic blocks."""
+    content = section.get("content") if isinstance(section, dict) else {}
+    content = content if isinstance(content, dict) else {}
+    chunks: list[str] = []
+    overview = str(content.get("overview") or "").strip()
+    if overview:
+        chunks.append(overview)
+    for point in content.get("key_points", []) or []:
+        if not isinstance(point, dict):
+            continue
+        heading = str(point.get("heading") or "").strip()
+        explanation = str(point.get("explanation") or "").strip()
+        block = "\n\n".join(part for part in (heading, explanation) if part)
+        if block:
+            chunks.append(block)
+    summary = str(content.get("summary") or content.get("takeaway") or "").strip()
+    if summary:
+        chunks.append(summary)
+    return chunks
 
 
 def _require_outline(memory: LearningMemory, session_id: str) -> dict[str, Any]:

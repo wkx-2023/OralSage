@@ -537,7 +537,23 @@
     `;
   }
 
+  function renderHandoutStream(stream) {
+    const sections = Array.isArray(stream?.sections) ? stream.sections : [];
+    return `
+      <section class="handout-stream" aria-live="polite">
+        <div class="job-stream-status"><span class="job-spinner" aria-hidden="true"></span><strong>${escapeHtml(stream?.title || '\u8bb2\u4e49\u751f\u6210\u4e2d')}</strong></div>
+        ${sections.map((section) => `
+          <article class="handout-stream-section ${escapeHtml(section.status || 'pending')}">
+            <h3>${escapeHtml(section.title || '\u672a\u547d\u540d\u5c0f\u8282')}</h3>
+            <div class="assistant-markdown">${formatMarkdown((section.chunks || []).join('\n\n'))}${section.status === 'streaming' ? '<span class="stream-caret" aria-hidden="true"></span>' : ''}</div>
+          </article>
+        `).join('')}
+      </section>
+    `;
+  }
+
   function renderJobProgress(message) {
+    if (message.handoutStream) return renderHandoutStream(message.handoutStream);
     const streamText = String(message.streamText || '');
     if (streamText) {
       return `
@@ -744,6 +760,14 @@
       (pointHtml ? '<ul>' + pointHtml + '</ul>' : '') + '</section>';
   }
 
+  function renderStandaloneHandoutSections(sections, fallbackSection) {
+    const readySections = Array.isArray(sections) ? sections.filter((section) => section && typeof section === 'object') : [];
+    if (readySections.length) {
+      return '<div class="standalone-handout-list">' + readySections.map(renderStandaloneHandout).join('') + '</div>';
+    }
+    return renderStandaloneHandout(fallbackSection);
+  }
+
   function renderStandaloneGenerationResult(routerResult) {
     const final = routerResult?.final_result || {};
     const route = routerResult?.route || {};
@@ -765,6 +789,7 @@
       : '';
     const quiz = final.stage_exam || (target === 'quiz' ? operation : null);
     const handout = final.handout_section || operation.handout_section;
+    const handoutSections = final.handout_sections || operation.handout_sections;
 
     return `
       <section class="learning-response standalone-generation-response">
@@ -773,7 +798,7 @@
         </div>
         <div class="assistant-markdown">${formatMarkdown(resultAnswer(routerResult))}</div>
         ${statusLink ? `<div class="learning-actions">${statusLink}</div>` : ''}
-        ${target === 'handout' ? renderStandaloneHandout(handout) : ''}
+        ${target === 'handout' ? renderStandaloneHandoutSections(handoutSections, handout) : ''}
         ${quiz ? renderStageExamHtml(quiz) : ''}
         ${renderRouteDetails(routerResult)}
       </section>
@@ -1178,6 +1203,30 @@
       if (event.data?.session_id) {
         found.session.backendSessionId = event.data.session_id;
       }
+    } else if (event.type === 'handout_outline') {
+      found.message.handoutStream = {
+        title: event.data?.title || '\u8bb2\u4e49',
+        sections: (event.data?.sections || []).map((section) => ({
+          id: String(section.id || ''),
+          title: String(section.title || ''),
+          chunks: [],
+          status: 'pending',
+        })),
+      };
+      found.message.statusText = '\u6b63\u5728\u751f\u6210\u8bb2\u4e49';
+    } else if (event.type === 'handout_section_started') {
+      const section = found.message.handoutStream?.sections?.find((item) => item.id === event.data?.section_id);
+      if (section) section.status = 'streaming';
+      found.message.statusText = '\u6b63\u5728\u64b0\u5199\u8bb2\u4e49\u5c0f\u8282';
+    } else if (event.type === 'handout_chunk') {
+      const section = found.message.handoutStream?.sections?.find((item) => item.id === event.data?.section_id);
+      if (section && event.data?.text) section.chunks.push(String(event.data.text));
+    } else if (event.type === 'handout_section_completed') {
+      const section = found.message.handoutStream?.sections?.find((item) => item.id === event.data?.section_id);
+      if (section) section.status = 'completed';
+    } else if (event.type === 'handout_section_failed') {
+      const section = found.message.handoutStream?.sections?.find((item) => item.id === event.data?.section_id);
+      if (section) section.status = 'failed';
     } else if (event.type === 'content_delta') {
       if (event.data?.channel === 'teaching_text') {
         found.message.statusText = '正在同步准备本节讲稿与 PPT';
@@ -1198,6 +1247,7 @@
       found.message.content = resultAnswer(event.data?.router_result || {});
       found.message.statusText = '已完成';
       delete found.message.streamText;
+      delete found.message.handoutStream;
       const backendId = event.data?.router_result?.final_result?.session?.id;
       const standaloneGeneration = Boolean(event.data?.router_result?.final_result?.standalone_generation);
       if (backendId && !standaloneGeneration) found.session.backendSessionId = backendId;

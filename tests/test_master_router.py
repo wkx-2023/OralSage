@@ -115,6 +115,22 @@ class TestStandaloneQuizParsing:
         assert kwargs["context"]["session_id"] == ""
         assert kwargs["context"]["topic"] == "\u7259\u5468\u708e"
 
+    @pytest.mark.asyncio
+    async def test_explicit_topic_resource_bypasses_llm_course_classification(self, mock_orchestrator):
+        router = MasterRouter(
+            mock_orchestrator,
+            classifier=_make_classifier("learning", "generic course classification"),
+        )
+        router.dispatch_agent = AsyncMock(return_value={"ok": True})
+
+        await router.route("\u751f\u6210\u7259\u5468\u708e\u8bb2\u4e49", "demo")
+
+        args = router.dispatch_agent.await_args.args
+        kwargs = router.dispatch_agent.await_args.kwargs
+        assert args[0] == "handout"
+        assert kwargs["context"]["session_id"] == ""
+        assert kwargs["context"]["topic"] == "\u7259\u5468\u708e"
+
 
 class TestValidateRoute:
     """Server-side enum validation."""

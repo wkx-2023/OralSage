@@ -213,9 +213,47 @@ class RouterJobManager:
                 },
             )
 
+            if (
+                route_result.get("ok")
+                and standalone_generation
+                and str(route.get("target") or "") == "handout"
+                and session_id
+            ):
+                def emit_handout_event(event: dict[str, Any]) -> None:
+                    self._emit(
+                        job_id,
+                        str(event.get("type") or "handout_progress"),
+                        "正在生成讲义内容。",
+                        event,
+                    )
+
+                handout_stream = await asyncio.to_thread(
+                    self.learning_orchestrator.stream_handout_sections_for_interaction,
+                    session_id,
+                    emit_handout_event,
+                )
+                operation = dict(final_result.get("operation") or {})
+                operation["handout_sections"] = handout_stream.get("sections", [])
+                final_result = {
+                    **final_result,
+                    "operation": operation,
+                    "handout_sections": handout_stream.get("sections", []),
+                    "handout_stream": {
+                        "complete": handout_stream.get("complete", False),
+                        "completed_section_count": handout_stream.get("completed_section_count", 0),
+                        "failed_section_count": handout_stream.get("failed_section_count", 0),
+                    },
+                }
+                route_result["final_result"] = final_result
+
             learning_step: dict[str, Any] | None = None
             resource_status: dict[str, Any] | None = None
-            if route_result.get("ok") and route.get("intent") == "learning" and session_id:
+            if (
+                route_result.get("ok")
+                and route.get("intent") == "learning"
+                and session_id
+                and not standalone_generation
+            ):
                 already_advanced = route_result.get("next_action") in {
                     "continue_session",
                     "show_stage_exam",

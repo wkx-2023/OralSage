@@ -730,6 +730,35 @@
   margin: 3px 0 0;
 }
 
+.standalone-handout-list,
+.handout-stream {
+  display: grid;
+  gap: 14px;
+}
+
+.handout-stream-section {
+  border-left: 3px solid rgba(96, 82, 181, 0.2);
+  padding: 4px 0 4px 12px;
+}
+
+.handout-stream-section.streaming {
+  border-left-color: #6258ad;
+}
+
+.handout-stream-section.completed {
+  border-left-color: #238b68;
+}
+
+.handout-stream-section.failed {
+  border-left-color: #b9534a;
+}
+
+.handout-stream-section h3 {
+  margin: 0 0 6px;
+  color: #423895;
+  font-size: 14px;
+}
+
 .source-list {
   display: grid;
 }
