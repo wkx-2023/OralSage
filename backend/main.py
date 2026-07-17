@@ -1317,6 +1317,9 @@ async def learning_plan_create_item(req: LearningPlanCreateRequest) -> JSONRespo
             learning_target=req.learning_target,
             kg_node_ids=req.kg_node_ids,
             learning_scope=req.learning_scope,
+            dependency=req.dependency,
+            practice_level=req.practice_level,
+            session_id=req.session_id,
         )
     except ValueError as exc:
         return _learning_plan_error("study_plan_create_item", exc, 400)
@@ -2376,5 +2379,7 @@ def index() -> FileResponse:
 def static_fallback(full_path: str) -> FileResponse:
     candidate = FRONTEND_DIR / full_path
     if candidate.exists() and candidate.is_file():
+        if candidate.suffix.lower() == ".html":
+            return FileResponse(candidate, headers={"Cache-Control": "no-cache"})
         return FileResponse(candidate)
     return FileResponse(FRONTEND_DIR / "index.html")

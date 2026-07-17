@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from backend.services.env_loader import load_project_env
+
+logger = logging.getLogger(__name__)
 
 
 load_project_env()
@@ -21,7 +24,78 @@ class LLMConfigurationError(RuntimeError):
 
 
 class LLMRequestError(RuntimeError):
-    pass
+    """Raised when an LLM request fails at the transport level.
+
+    The original exception is chained via ``__cause__`` so that callers
+    can inspect the underlying error class (e.g. :class:`TimeoutError`,
+    :class:`urllib.error.HTTPError`) for fine-grained retry decisions.
+    """
+
+
+def classify_llm_error(exc: Exception) -> str:
+    """Classify an exception from an LLM transport failure into a stable category.
+
+    Inspects the chained ``__cause__`` when *exc* is an
+    :class:`LLMRequestError`, otherwise inspects *exc* directly.
+
+    Returns one of these category strings:
+
+    * ``"timeout"`` — the request exceeded its time limit
+    * ``"auth"`` — HTTP 401 or 403 (do **not** blindly retry)
+    * ``"unsupported"`` — HTTP 4xx whose response body mentions
+      ``response_format`` / ``json_object`` (JSON mode is explicitly
+      not supported by this provider)
+    * ``"http_client_error"`` — HTTP 4xx without an explicit
+      unsupported-format signal
+    * ``"http_server_error"`` — HTTP 5xx
+    * ``"network"`` — DNS / connection / reset error
+    * ``"unknown"`` — fallback for anything else
+    """
+    from urllib.error import HTTPError, URLError
+
+    # Unwrap LLMRequestError to inspect the transport-level cause
+    cause = exc.__cause__ if isinstance(exc, LLMRequestError) else exc
+
+    # -- timeout -----------------------------------------------------------
+    if isinstance(cause, TimeoutError):
+        return "timeout"
+
+    # -- HTTP-level errors -------------------------------------------------
+    if isinstance(cause, HTTPError):
+        code = getattr(cause, "code", 0)
+        if code in (401, 403):
+            return "auth"
+
+        # Inspect response body for explicit unsupported-format signals
+        if 400 <= code < 500:
+            try:
+                body_bytes = cause.read()
+                body = body_bytes.decode("utf-8", errors="replace").lower()
+            except Exception:
+                body = ""
+            if any(
+                kw in body
+                for kw in (
+                    "response_format",
+                    "json_object",
+                    "not supported",
+                    "unsupported",
+                    "invalid parameter",
+                )
+            ):
+                return "unsupported"
+            return "http_client_error"
+
+        if 500 <= code < 600:
+            return "http_server_error"
+
+        return "unknown"
+
+    # -- network-level errors -----------------------------------------------
+    if isinstance(cause, URLError):
+        return "network"
+
+    return "unknown"
 
 
 def _env(*names: str) -> str | None:
@@ -42,6 +116,26 @@ def _timeout_seconds() -> int:
         return 180
 
 
+def _json_probe_timeout_seconds() -> int:
+    """Short timeout for JSON-mode compatibility probes.
+
+    When a provider does not support ``response_format``, the request
+    may hang until the full transport timeout.  A probe timeout that is
+    much shorter than the default avoids minutes-long stalls while still
+    giving the provider enough time to respond to a simple request.
+
+    Configurable via ``LLM_JSON_PROBE_TIMEOUT_SECONDS`` (default 15 s,
+    clamped to [5, 60]).
+    """
+    value = _env("LLM_JSON_PROBE_TIMEOUT_SECONDS")
+    if not value:
+        return 15
+    try:
+        return max(5, min(int(value), 60))
+    except ValueError:
+        return 15
+
+
 def is_llm_configured(*api_key_names: str) -> bool:
     names = api_key_names or ("DECISION_LLM_API_KEY", "QWEN_API_KEY", "DASHSCOPE_API_KEY")
     return bool(_env(*names))
@@ -57,6 +151,7 @@ def chat_completion(
     model_names: tuple[str, ...] = ("DECISION_LLM_MODEL", "QWEN_MODEL", "DASHSCOPE_MODEL"),
     response_format: dict[str, Any] | None = None,
     stream_callback: Callable[[str], None] | None = None,
+    timeout: int | None = None,
 ) -> str:
     api_key = _env(*api_key_names)
     if not api_key:
@@ -85,8 +180,9 @@ def chat_completion(
         },
         method="POST",
     )
+    effective_timeout = timeout if timeout is not None else _timeout_seconds()
     try:
-        with urlopen(request, timeout=_timeout_seconds()) as response:
+        with urlopen(request, timeout=effective_timeout) as response:
             if stream_callback is not None and _is_event_stream(response):
                 return _read_streaming_content(response, stream_callback)
             data = json.loads(response.read().decode("utf-8", errors="replace"))
@@ -94,11 +190,44 @@ def chat_completion(
         raise LLMRequestError(str(exc)) from exc
 
     try:
-        content = data["choices"][0]["message"]["content"].strip()
+        choice0 = data["choices"][0]
+        msg = choice0["message"]
+        content = msg.get("content")
+        finish_reason = choice0.get("finish_reason") or msg.get("finish_reason")
+        if content is None:
+            logger.warning(
+                "LLM response content is None. finish_reason=%s, "
+                "model=%s, response_keys=%s, msg_keys=%s",
+                finish_reason,
+                model,
+                sorted(data.keys()) if isinstance(data, dict) else type(data).__name__,
+                sorted(msg.keys()) if isinstance(msg, dict) else type(msg).__name__,
+            )
+            return ""
+        if not isinstance(content, str):
+            logger.warning(
+                "LLM response content is not a string: type=%s, value=%r",
+                type(content).__name__,
+                content,
+            )
+            content = str(content)
+        content = content.strip()
+        if not content:
+            logger.warning(
+                "LLM response content is empty string. finish_reason=%s, "
+                "model=%s, choice_keys=%s",
+                finish_reason,
+                model,
+                sorted(choice0.keys()) if isinstance(choice0, dict) else type(choice0).__name__,
+            )
         if stream_callback is not None and content:
             stream_callback(content)
         return content
     except (KeyError, IndexError, TypeError) as exc:
+        logger.warning(
+            "Unexpected LLM response shape: %s",
+            json.dumps(data, ensure_ascii=False, default=str)[:1000],
+        )
         raise LLMRequestError(f"Unexpected LLM response shape: {data}") from exc
 
 

@@ -2619,6 +2619,606 @@ def complete_progressive_lesson_plan(
 
 
 # ---------------------------------------------------------------------------
+# Scope resource preflight (shared by planner and study-plan persistence)
+# ---------------------------------------------------------------------------
+
+
+# Stable reason codes returned by :func:`preflight_scope_resources`.
+_PREFLIGHT_OK = "ok"
+_PREFLIGHT_NO_KG_NODES = "no_kg_nodes_usable"
+_PREFLIGHT_NO_EVIDENCE_CHUNKS = "no_evidence_chunks_for_scope"
+_PREFLIGHT_NO_KG_AND_NO_CHUNKS = "no_kg_nodes_and_no_evidence_chunks"
+_PREFLIGHT_EMPTY_SCOPE = "empty_scope"
+_PREFLIGHT_UNAVAILABLE = "resource_check_unavailable"
+_PREFLIGHT_NOT_VERIFIED = "not_verified"
+
+
+def _resolve_stable_core_to_raw_nodes(
+    kg_node_ids: list[str],
+    *,
+    document_id: str | None = None,
+    chapter_title: str | None = None,
+    book_title: str | None = None,
+) -> dict[str, Any]:
+    """Map stable ``core:*`` IDs to raw ``kg://`` node records.
+
+    Uses the **same** identity rule as the KG producer
+    (:func:`backend.services.knowledge_graph.agent._core_id`):
+    ``core:<sha1(book_title\\0node_type\\0canonical_name)[:16]>``.
+
+    When *document_id*, *chapter_title*, or *book_title* constraints are
+    provided, only raw nodes matching all constraints are returned.  This
+    prevents a stable core that appears in multiple chapters from pulling
+    in cross-chapter nodes.
+
+    Raw ``kg://`` IDs (those not starting with ``core:``) are passed
+    through directly — they are looked up in the KG by their literal
+    ``node_id`` and returned when found (subject to the same
+    document/chapter filters).
+
+    Parameters
+    ----------
+    kg_node_ids:
+        The list of node IDs to resolve — typically a mix of stable
+        ``core:<hex>`` IDs and possibly raw ``kg://...`` IDs.
+    document_id:
+        Optional document ID constraint.  When provided, only raw nodes
+        whose ``metadata.document_id`` matches are included.
+    chapter_title:
+        Optional chapter title constraint.  When provided, only raw nodes
+        with a matching ``chapter`` field are included.  Matching is
+        bidirectional: *chapter_title* contains the node's chapter OR
+        vice-versa.
+    book_title:
+        Optional book title constraint.  When provided, only raw nodes
+        whose ``book_title`` field matches are included.
+
+    Returns
+    -------
+    dict
+        Keys:
+
+        * ``by_stable`` — ``{stable_id: [raw_node_dict, ...]}``
+        * ``raw_node_ids`` — deduplicated list of resolved raw ``node_id``
+          strings (both mapped from stable IDs and pass-through raw IDs)
+        * ``raw_nodes`` — deduplicated list of resolved raw node dicts
+        * ``stable_ids_checked`` — the ``core:*`` subset of *kg_node_ids*
+        * ``raw_ids_checked`` — the raw ``kg://`` subset of *kg_node_ids*
+        * ``stable_id_matches`` — ``{stable_id: [raw_node_id, ...]}``
+    """
+    from backend.services.knowledge_graph.agent import (  # noqa: PLC0415
+        canonical_book_title,
+        stable_core_identity,
+    )
+
+    # ------------------------------------------------------------------
+    # 1. Separate stable vs raw IDs — reject unknown formats
+    # ------------------------------------------------------------------
+    stable_ids: list[str] = []
+    raw_ids: list[str] = []
+    for nid in kg_node_ids:
+        nid = str(nid).strip()
+        if not nid:
+            continue
+        if nid.startswith("core:"):
+            stable_ids.append(nid)
+        elif nid.startswith("kg://"):
+            raw_ids.append(nid)
+        # Unknown formats are silently dropped — they cannot map to
+        # anything because only core:* and kg:// are valid identifiers.
+
+    # Fast-path: no IDs at all
+    if not stable_ids and not raw_ids:
+        return {
+            "by_stable": {},
+            "raw_node_ids": [],
+            "raw_nodes": [],
+            "stable_ids_checked": [],
+            "raw_ids_checked": [],
+            "stable_id_matches": {},
+        }
+
+    # ------------------------------------------------------------------
+    # 2. Load KG and index
+    # ------------------------------------------------------------------
+    try:
+        all_nodes = load_kg_nodes()
+    except Exception:
+        all_nodes = []
+
+    raw_id_index: dict[str, dict[str, Any]] = {}
+    for n in all_nodes:
+        nid = str(n.get("node_id", "")).strip()
+        if nid:
+            raw_id_index[nid] = n
+
+    # ------------------------------------------------------------------
+    # 3. Build stable→raw mapping using KG producer identity rule
+    # ------------------------------------------------------------------
+    stable_to_raw: dict[str, list[dict[str, Any]]] = {}
+    stable_id_matches: dict[str, list[str]] = {}
+
+    for node in all_nodes:
+        bt_raw = str(node.get("book_title", "")).strip()
+        nt = str(node.get("node_type", "")).strip()
+        cn = str(node.get("canonical_name", "")).strip()
+        node_raw_id = str(node.get("node_id", "")).strip()
+
+        if not bt_raw or not nt or not cn or not node_raw_id:
+            continue
+
+        # ── Resolve canonical book title via KG producer helper ──
+        #     The overview computes stable core IDs from the canonical
+        #     short title (e.g. "牙周病学").  Raw nodes may carry a
+        #     long-form title (e.g. "牙周病学（孟焕新主编，第5版，
+        #     人民卫生出版社）").  We MUST normalise through the same
+        #     producer-owned helper so the hashes match.
+        meta = node.get("metadata")
+        node_doc = (
+            str(meta.get("document_id", "")).strip()
+            if isinstance(meta, dict) else ""
+        )
+        doc_for_canonical = document_id or node_doc
+        bt_canonical = canonical_book_title(doc_for_canonical, bt_raw)
+
+        # ── Document constraint ────────────────────────────────────
+        if document_id:
+            if node_doc and node_doc != document_id:
+                continue
+
+        # ── Chapter constraint (bidirectional) ─────────────────────
+        if chapter_title:
+            node_ch = str(node.get("chapter", "")).strip()
+            if node_ch and chapter_title and (
+                chapter_title not in node_ch and node_ch not in chapter_title
+            ):
+                continue
+
+        # ── Book title constraint (canonical → canonical) ──────────
+        if book_title:
+            if bt_canonical != book_title:
+                continue
+
+        # ── Compute stable ID via KG producer identity ───────────
+        #     Use the CANONICAL title so the hash matches the
+        #     overview's stable core IDs.
+        stable_id = stable_core_identity(bt_canonical, nt, cn)
+
+        stable_to_raw.setdefault(stable_id, []).append(node)
+        stable_id_matches.setdefault(stable_id, []).append(node_raw_id)
+
+    # ------------------------------------------------------------------
+    # 4. Resolve and collect
+    # ------------------------------------------------------------------
+    raw_nodes: list[dict[str, Any]] = []
+    raw_node_ids_result: list[str] = []
+    seen_raw_ids: set[str] = set()
+
+    for sid in stable_ids:
+        for node in stable_to_raw.get(sid, []):
+            nid = str(node.get("node_id", "")).strip()
+            if nid and nid not in seen_raw_ids:
+                seen_raw_ids.add(nid)
+                raw_nodes.append(node)
+                raw_node_ids_result.append(nid)
+
+    for rid in raw_ids:
+        node = raw_id_index.get(rid)
+        if node and rid not in seen_raw_ids:
+            # ── Apply document/chapter/book constraints to raw IDs too ──
+            if document_id:
+                meta = node.get("metadata")
+                if isinstance(meta, dict):
+                    node_doc = str(meta.get("document_id", "")).strip()
+                    if node_doc and node_doc != document_id:
+                        continue
+            if chapter_title:
+                node_ch = str(node.get("chapter", "")).strip()
+                if node_ch and chapter_title and (
+                    chapter_title not in node_ch and node_ch not in chapter_title
+                ):
+                    continue
+            if book_title:
+                # Normalise through the same producer helper so the
+                # constraint compares canonical→canonical.
+                node_bt_raw = str(node.get("book_title", "")).strip()
+                if node_bt_raw:
+                    node_meta = node.get("metadata")
+                    node_doc_raw = (
+                        str(node_meta.get("document_id", "")).strip()
+                        if isinstance(node_meta, dict) else ""
+                    )
+                    node_bt_canonical = canonical_book_title(
+                        document_id or node_doc_raw, node_bt_raw,
+                    )
+                    if node_bt_canonical != book_title:
+                        continue
+            seen_raw_ids.add(rid)
+            raw_nodes.append(node)
+            raw_node_ids_result.append(rid)
+
+    return {
+        "by_stable": stable_to_raw,
+        "raw_node_ids": raw_node_ids_result,
+        "raw_nodes": raw_nodes,
+        "stable_ids_checked": stable_ids,
+        "raw_ids_checked": raw_ids,
+        "stable_id_matches": stable_id_matches,
+    }
+
+
+def preflight_scope_resources(
+    learning_scope: dict[str, Any],
+    *,
+    check_kg_nodes: bool = True,
+    check_evidence_chunks: bool = True,
+    evidence_chunks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Check whether *learning_scope* has usable resources — pure, no LLM.
+
+    Uses the **same** KG node availability and document/chapter evidence
+    chunk filtering rules as :func:`plan_lesson`.  Does **not** start a
+    lesson, create a session, or call any LLM.
+
+    Parameters
+    ----------
+    learning_scope:
+        The formal ``learning_scope`` dict as persisted on a plan draft
+        item.  Must carry at least one of ``kg_node_ids``,
+        ``document_id``, or ``chapter_key``.
+    check_kg_nodes:
+        When ``True`` (default), loads ``kg_nodes.jsonl`` and verifies that
+        at least one ``kg_node_id`` in *learning_scope* exists as a real
+        KG node.
+    check_evidence_chunks:
+        When ``True`` (default), checks whether the scope's
+        ``document_id`` / ``chapter_key`` can produce at least one
+        evidence chunk.  When *evidence_chunks* is provided, filters
+        it in-process; otherwise calls ``collect_planning_context``
+        (which hits the retrieval service — this is NOT an LLM call).
+    evidence_chunks:
+        Optional pre-retrieved list of evidence chunk dicts (the
+        ``"chunks"`` value from :func:`collect_planning_context`).
+        When provided AND *check_evidence_chunks* is ``True``, the
+        function filters these inline and skips the retrieval call.
+
+    Returns
+    -------
+    dict
+        A structured result with keys:
+
+        * ``usable`` — ``True`` when at least one real resource exists
+        * ``reason_code`` — stable machine-readable code (see module-level
+          ``_PREFLIGHT_*`` constants)
+        * ``kg_node_hit_count`` — how many scope KG node IDs exist in the
+          real KG
+        * ``kg_node_ids_checked`` — the canonical list of KG node IDs
+          checked (from *learning_scope*)
+        * ``kg_node_ids_usable`` — the subset that actually exist in the KG
+        * ``evidence_chunk_count`` — number of matching evidence chunks
+          (0 when *check_evidence_chunks* is ``False``)
+        * ``scope_diagnostics`` — dict with ``has_kg_node_ids``,
+          ``has_document_id``, ``has_chapter_key``, ``title``,
+          ``book_title``, ``document_id``, ``chapter_key``,
+          ``checks_performed``
+        * ``error_message`` — human-readable explanation when
+          ``usable`` is ``False``; ``None`` otherwise
+    """
+    # ------------------------------------------------------------------
+    # 1. Parse scope fields (same rules as plan_lesson lines 2652-2666)
+    # ------------------------------------------------------------------
+    scope_kg_node_ids: list[str] = []
+    scope_document_id: str | None = None
+    scope_chapter: str | None = None
+    scope_title: str = ""
+    scope_book_title: str = ""
+
+    if learning_scope and isinstance(learning_scope, dict):
+        raw_ids = learning_scope.get("kg_node_ids")
+        if raw_ids and isinstance(raw_ids, list):
+            scope_kg_node_ids = [
+                str(sid).strip() for sid in raw_ids if str(sid).strip()
+            ]
+        did = str(learning_scope.get("document_id", "")).strip()
+        if did:
+            scope_document_id = did
+        ch = str(
+            learning_scope.get("chapter_key", "")
+            or learning_scope.get("chapter_title", "")
+        ).strip()
+        if ch:
+            scope_chapter = ch
+        scope_title = str(learning_scope.get("chapter_title", "")).strip()
+        scope_book_title = str(learning_scope.get("book_title", "")).strip()
+
+    # ------------------------------------------------------------------
+    # 2. Empty scope short-circuit
+    # ------------------------------------------------------------------
+    has_kg_ids = bool(scope_kg_node_ids)
+    has_doc = bool(scope_document_id)
+    has_ch = bool(scope_chapter)
+
+    if not has_kg_ids and not has_doc and not has_ch:
+        return {
+            "usable": False,
+            "reason_code": _PREFLIGHT_EMPTY_SCOPE,
+            "kg_node_hit_count": 0,
+            "kg_node_ids_checked": [],
+            "kg_node_ids_usable": [],
+            "evidence_chunk_count": 0,
+            "scope_diagnostics": {
+                "has_kg_node_ids": False,
+                "has_document_id": False,
+                "has_chapter_key": False,
+                "title": scope_title,
+                "book_title": scope_book_title,
+                "document_id": scope_document_id or "",
+                "chapter_key": scope_chapter or "",
+                "checks_performed": [],
+            },
+            "error_message": (
+                "The learning scope is empty — it has no kg_node_ids, "
+                "document_id, or chapter_key.  A usable scope must carry "
+                "at least one resource identifier."
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    # 3. KG node availability check (reads kg_nodes.jsonl)
+    # ------------------------------------------------------------------
+    kg_node_hit_count = 0
+    kg_node_ids_usable: list[str] = []
+    checks_performed: list[str] = []
+    # Track whether each check was *conclusive* or ran in a degraded
+    # environment (empty KG, retrieval unavailable, etc.).
+    kg_check_conclusive: bool = False
+    evidence_check_conclusive: bool = False
+
+    if check_kg_nodes and has_kg_ids:
+        checks_performed.append("kg_nodes")
+        try:
+            mapping = _resolve_stable_core_to_raw_nodes(
+                scope_kg_node_ids,
+                document_id=scope_document_id,
+                chapter_title=scope_title or scope_chapter,
+                book_title=scope_book_title,
+            )
+            if mapping["raw_node_ids"]:
+                kg_check_conclusive = True
+                kg_node_hit_count = len(mapping["raw_node_ids"])
+                # Return the original requested IDs that resolved successfully
+                # — preserving stable core:* format (not replacing with kg://).
+                kg_node_ids_usable = [
+                    sid for sid in scope_kg_node_ids
+                    if sid in mapping["stable_id_matches"]
+                ]
+                # Also include any raw pass-through IDs that resolved
+                for rid in mapping["raw_ids_checked"]:
+                    if rid not in kg_node_ids_usable:
+                        kg_node_ids_usable.append(rid)
+            elif load_kg_nodes():
+                # KG file exists and was readable, but no match
+                kg_check_conclusive = True
+                # kg_node_hit_count stays 0, usable stays empty
+        except Exception:
+            # File missing / unreadable → check is inconclusive
+            pass
+
+    # ------------------------------------------------------------------
+    # 4. Evidence chunk check
+    # ------------------------------------------------------------------
+    evidence_chunk_count = 0
+    evidence_retrieval_ok: bool | None = None
+
+    if check_evidence_chunks and (has_doc or has_ch):
+        checks_performed.append("evidence_chunks")
+        if evidence_chunks is not None:
+            # Filter pre-supplied chunks inline (same rules as plan_lesson
+            # lines 2672-2687).  Pre-supplied chunks are always conclusive
+            # — either they match or they don't.
+            evidence_check_conclusive = True
+            chunks_to_check = list(evidence_chunks)
+        else:
+            # Call retrieval — this is NOT an LLM call; it hits the
+            # search_knowledge_base vector index.  Use the chapter title
+            # or book title as the search topic.
+            _topic = scope_title or scope_book_title or "口腔医学"
+            _ctx = collect_planning_context(_topic, top_k=8)
+            evidence_retrieval_ok = _ctx.get("ok", False)
+            chunks_to_check = list(_ctx.get("chunks", []))
+            # The check is conclusive only when retrieval succeeded.
+            # If retrieval failed / returned zero chunks because the
+            # service is unavailable, we cannot verify evidence chunks.
+            evidence_check_conclusive = bool(evidence_retrieval_ok)
+
+        for ch in chunks_to_check:
+            if has_doc:
+                ch_doc_id = str(
+                    ch.get("path", "")
+                    or ch.get("metadata", {}).get("document_id", "")
+                )
+                if scope_document_id and ch_doc_id != scope_document_id:
+                    continue
+            if has_ch:
+                ch_chapter = str(ch.get("metadata", {}).get("chapter", ""))
+                if scope_chapter and (
+                    scope_chapter not in ch_chapter
+                    and ch_chapter not in scope_chapter
+                ):
+                    continue
+            evidence_chunk_count += 1
+
+    # ------------------------------------------------------------------
+    # 5. Usability determination (FAIL-CLOSED)
+    # ------------------------------------------------------------------
+    # A scope is usable ONLY when at least one conclusive check PASSED.
+    # When ALL checks are inconclusive (degraded environment — KG file
+    # missing/empty, retrieval unavailable, all checks disabled) the
+    # scope is NOT usable.  "Cannot prove valid" ≠ valid.
+    has_kg = kg_node_hit_count > 0
+    has_evidence = evidence_chunk_count > 0
+    kg_failed_conclusively = kg_check_conclusive and not has_kg
+    evidence_failed_conclusively = evidence_check_conclusive and not has_evidence
+    any_conclusive_pass = (
+        (kg_check_conclusive and has_kg)
+        or (evidence_check_conclusive and has_evidence)
+    )
+    all_inconclusive = not kg_check_conclusive and not evidence_check_conclusive
+
+    if any_conclusive_pass:
+        return {
+            "usable": True,
+            "reason_code": _PREFLIGHT_OK,
+            "kg_node_hit_count": kg_node_hit_count,
+            "kg_node_ids_checked": scope_kg_node_ids,
+            "kg_node_ids_usable": kg_node_ids_usable,
+            "evidence_chunk_count": evidence_chunk_count,
+            "scope_diagnostics": {
+                "has_kg_node_ids": has_kg_ids,
+                "has_document_id": has_doc,
+                "has_chapter_key": has_ch,
+                "title": scope_title,
+                "book_title": scope_book_title,
+                "document_id": scope_document_id or "",
+                "chapter_key": scope_chapter or "",
+                "checks_performed": checks_performed,
+            },
+            "error_message": None,
+        }
+
+    # --- NOT usable — build a specific error message. -------------------
+    # 5a. No checks were enabled at all — FAIL-CLOSED.
+    #     A scope that has NOT been verified by ANY resource check is NOT
+    #     usable.  The upstream scope-resolution pipeline may have validated
+    #     chapter records, but that is a different gate than execution-time
+    #     resource availability.  Every persistence path must prove that KG
+    #     nodes and/or evidence chunks are actually usable NOW.
+    if not checks_performed:
+        return {
+            "usable": False,
+            "reason_code": _PREFLIGHT_NOT_VERIFIED,
+            "kg_node_hit_count": 0,
+            "kg_node_ids_checked": scope_kg_node_ids,
+            "kg_node_ids_usable": [],
+            "evidence_chunk_count": 0,
+            "scope_diagnostics": {
+                "has_kg_node_ids": has_kg_ids,
+                "has_document_id": has_doc,
+                "has_chapter_key": has_ch,
+                "title": scope_title,
+                "book_title": scope_book_title,
+                "document_id": scope_document_id or "",
+                "chapter_key": scope_chapter or "",
+                "checks_performed": checks_performed,
+                "note": (
+                    "No resource checks were performed — scope cannot be "
+                    "verified as usable."
+                ),
+            },
+            "error_message": (
+                f"Learning scope \"{scope_title or scope_book_title}\" "
+                f"was not verified — no resource checks were performed.  "
+                f"The scope cannot be executed until resources are verified."
+            ),
+        }
+
+    # 5b. All checks inconclusive → resource check unavailable
+    if all_inconclusive:
+        unavailable_details: list[str] = []
+        if check_kg_nodes and has_kg_ids and not kg_check_conclusive:
+            unavailable_details.append(
+                "KG nodes could not be verified (KG file missing, empty, "
+                "or unreadable)"
+            )
+        if check_evidence_chunks and (has_doc or has_ch) and not evidence_check_conclusive:
+            unavailable_details.append(
+                "evidence chunks could not be verified (retrieval "
+                "service unavailable or returned no data)"
+            )
+        if not unavailable_details and not checks_performed:
+            unavailable_details.append(
+                "no resource checks were performed (all checks disabled)"
+            )
+        detail = "; ".join(unavailable_details) if unavailable_details else (
+            "resource verification could not be completed"
+        )
+        return {
+            "usable": False,
+            "reason_code": _PREFLIGHT_UNAVAILABLE,
+            "kg_node_hit_count": 0,
+            "kg_node_ids_checked": scope_kg_node_ids,
+            "kg_node_ids_usable": [],
+            "evidence_chunk_count": 0,
+            "scope_diagnostics": {
+                "has_kg_node_ids": has_kg_ids,
+                "has_document_id": has_doc,
+                "has_chapter_key": has_ch,
+                "title": scope_title,
+                "book_title": scope_book_title,
+                "document_id": scope_document_id or "",
+                "chapter_key": scope_chapter or "",
+                "checks_performed": checks_performed,
+                "note": f"Resource check unavailable: {detail}",
+            },
+            "error_message": (
+                f"Learning scope \"{scope_title or scope_book_title}\" "
+                f"could not be verified — {detail}.  "
+                f"The scope cannot be executed until resources are available."
+            ),
+        }
+
+    # 5c. At least one conclusive check FAILED → specific reason
+    if kg_failed_conclusively and evidence_failed_conclusively:
+        reason = _PREFLIGHT_NO_KG_AND_NO_CHUNKS
+        doc_info = f"document_id={scope_document_id!r}" if has_doc else ""
+        ch_info = f"chapter={scope_chapter!r}" if has_ch else ""
+        filter_desc = " / ".join(p for p in (doc_info, ch_info) if p)
+        msg = (
+            f"Learning scope \"{scope_title or scope_book_title}\" has "
+            f"no usable KG nodes and no matching evidence chunks for "
+            f"the specified filters ({filter_desc}).  The scope cannot "
+            f"be executed."
+        )
+    elif kg_failed_conclusively:
+        reason = _PREFLIGHT_NO_KG_NODES
+        msg = (
+            f"Learning scope \"{scope_title or scope_book_title}\" has "
+            f"{len(scope_kg_node_ids)} KG node ID(s) but none exist in "
+            f"the knowledge graph.  The scope cannot be executed."
+        )
+    else:
+        reason = _PREFLIGHT_NO_EVIDENCE_CHUNKS
+        doc_info = f"document_id={scope_document_id!r}" if has_doc else ""
+        ch_info = f"chapter={scope_chapter!r}" if has_ch else ""
+        filter_desc = " / ".join(p for p in (doc_info, ch_info) if p)
+        msg = (
+            f"Learning scope \"{scope_title or scope_book_title}\" has "
+            f"no matching evidence chunks for the specified filters "
+            f"({filter_desc})."
+        )
+
+    return {
+        "usable": False,
+        "reason_code": reason,
+        "kg_node_hit_count": kg_node_hit_count,
+        "kg_node_ids_checked": scope_kg_node_ids,
+        "kg_node_ids_usable": kg_node_ids_usable,
+        "evidence_chunk_count": evidence_chunk_count,
+        "scope_diagnostics": {
+            "has_kg_node_ids": has_kg_ids,
+            "has_document_id": has_doc,
+            "has_chapter_key": has_ch,
+            "title": scope_title,
+            "book_title": scope_book_title,
+            "document_id": scope_document_id or "",
+            "chapter_key": scope_chapter or "",
+            "checks_performed": checks_performed,
+        },
+        "error_message": msg,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -2690,48 +3290,28 @@ def plan_lesson(
     raw_nodes = find_relevant_nodes(topic, max_nodes=max_nodes * 2)
     relevant_nodes = dedupe_nodes(raw_nodes, topic, max_nodes=max_nodes)
 
-    # --- 2a. apply scope kg_node_ids filter -------------------------------
-    if scope_kg_node_ids is not None:
-        relevant_nodes = [
-            n for n in relevant_nodes
-            if n.get("node_id", "") in scope_kg_node_ids
-        ]
-
-    # --- 2b. scope error: zero resources after filtering ------------------
+    # --- 2b. scope preflight: unified resource check with preflight_scope_resources
+    #     plan_lesson and the plan-draft preflight MUST consume the SAME
+    #     preflight result — no dual-rule (existence vs topic top-N).
     if learning_scope and isinstance(learning_scope, dict) and learning_scope:
-        chunks_empty = (
-            bool(scope_document_id or scope_chapter)
-            and not planning_context.get("chunks")
+        scope_preflight = preflight_scope_resources(
+            learning_scope,
+            check_kg_nodes=True,     # use the SAME KG existence check
+            check_evidence_chunks=True,
+            evidence_chunks=planning_context.get("chunks", []),
         )
-        if not relevant_nodes or chunks_empty:
-            if not relevant_nodes and chunks_empty:
-                scope_error_msg = (
-                    "The learning scope has no usable KG nodes and no matching "
-                    "evidence chunks in the knowledge base — planning cannot "
-                    "proceed. The caller must NOT fall back to global "
-                    "(unscoped) planning."
-                )
-            elif not relevant_nodes:
-                scope_error_msg = (
-                    "The learning scope has no usable KG nodes in the "
-                    "knowledge base — planning cannot proceed. The caller "
-                    "must NOT fall back to global (unscoped) planning."
-                )
-            else:
-                doc_info = f"document_id={scope_document_id!r}" if scope_document_id else ""
-                ch_info = f"chapter={scope_chapter!r}" if scope_chapter else ""
-                filter_desc = " / ".join(p for p in (doc_info, ch_info) if p)
-                scope_error_msg = (
-                    f"The learning scope has no matching evidence chunks "
-                    f"for the specified filters ({filter_desc}) — planning "
-                    f"cannot proceed. The caller must NOT fall back to "
-                    f"global (unscoped) planning."
-                )
+
+        if not scope_preflight["usable"]:
             return {
                 "ok": False,
                 "topic": topic,
                 "error": "scope_no_resources",
-                "scope_error": scope_error_msg,
+                "scope_error": scope_preflight["error_message"] or (
+                    "The learning scope has no usable resources — planning "
+                    "cannot proceed. The caller must NOT fall back to global "
+                    "(unscoped) planning."
+                ),
+                "scope_preflight": scope_preflight,
                 "learning_scope": learning_scope,
                 "outline": {"nodes": []},
                 "mindmap": {},
@@ -2742,9 +3322,9 @@ def plan_lesson(
                 "outline_evidence_map": {},
                 "planning_context": planning_context,
                 "progressive_planning": {"enabled": False, "completion_required": False},
-                "planning_trace": {"strategy": "scope_filtered_no_match"},
+                "planning_trace": {"strategy": "scope_preflight_failed"},
                 "source_trace": {
-                    "strategy": "scope_filtered_no_match",
+                    "strategy": "scope_preflight_failed",
                     "planning_context_source": planning_context.get("source", ""),
                     "planning_context_ok": planning_context.get("ok", False),
                     "evidence_chunk_count": len(planning_context.get("chunks", [])),
@@ -2752,6 +3332,46 @@ def plan_lesson(
                     "progressive_planning": {"enabled": False, "completion_required": False},
                 },
             }
+
+        # --- 2a. apply scope kg_node_ids using preflight's verified IDs ----
+        #     Ensure every scope KG node that exists in the real KG is
+        #     included in relevant_nodes — not just topic-scored top-N.
+        #     Uses the SAME mapping helper as preflight to resolve stable
+        #     core:* IDs to raw kg:// nodes.
+        scope_usable_kg_ids: set[str] = set(scope_preflight["kg_node_ids_usable"])
+        if scope_kg_node_ids is not None:
+            try:
+                _scope_chapter_title = (
+                    str(learning_scope.get("chapter_title", "")).strip()
+                    if isinstance(learning_scope, dict) else ""
+                )
+                _scope_book_title = (
+                    str(learning_scope.get("book_title", "")).strip()
+                    if isinstance(learning_scope, dict) else ""
+                )
+                mapping = _resolve_stable_core_to_raw_nodes(
+                    list(scope_kg_node_ids),
+                    document_id=scope_document_id,
+                    chapter_title=_scope_chapter_title or scope_chapter,
+                    book_title=_scope_book_title,
+                )
+                scope_direct_nodes = list(mapping["raw_nodes"])
+                # Merge: scope-direct nodes first, then topic-scored nodes
+                # that also fall within the scope (by raw node_id match).
+                existing_ids = {n.get("node_id") for n in scope_direct_nodes}
+                resolved_raw_ids = set(mapping["raw_node_ids"])
+                for n in relevant_nodes:
+                    if n.get("node_id", "") in resolved_raw_ids and n.get("node_id") not in existing_ids:
+                        scope_direct_nodes.append(n)
+                        existing_ids.add(n.get("node_id"))
+                relevant_nodes = scope_direct_nodes
+            except Exception:
+                # KG unavailable — scope_preflight already caught this above.
+                # Fall back to topic-scored filter as best-effort.
+                relevant_nodes = [
+                    n for n in relevant_nodes
+                    if n.get("node_id", "") in scope_kg_node_ids
+                ]
 
     # --- 3. edges & questions (always based on relevant_nodes) -----------
     if relevant_nodes:

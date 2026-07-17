@@ -11,6 +11,9 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DRAFT_DIRS = [
     PROJECT_ROOT / "data" / "core" / "knowledge-graph" / "manual-kg-drafts",
+    # The bundled data archive keeps its data root under ``data/data``.
+    # Keep the canonical location first while supporting that layout directly.
+    PROJECT_ROOT / "data" / "data" / "core" / "knowledge-graph" / "manual-kg-drafts",
 ]
 SOURCE_FORMAT = "oralpath-manual-kg-draft-v1"
 
@@ -280,8 +283,41 @@ def _support_key(node_type: str, canonical_name: str) -> str:
     return f"{node_type}\0{canonical_name.strip()}"
 
 
-def _core_id(book_title: str, node_type: str, canonical_name: str) -> str:
+def stable_core_identity(book_title: str, node_type: str, canonical_name: str) -> str:
+    """Public, side-effect-free stable core identity helper.
+
+    Returns a stable ``core:<hex>`` identifier derived from the canonical
+    ``(book_title, node_type, canonical_name)`` tuple.  This is the single
+    source of truth for stable core ID computation — every consumer that
+    needs to map a stable ``core:*`` ID to raw KG nodes MUST use this
+    function (or a caller that itself calls this function).
+
+    The returned ID is a prefix of the SHA-1 hex digest, truncated to 16
+    characters, of ``book_title\\0node_type\\0canonical_name``.
+    """
     return f"core:{_digest(_node_key(book_title, node_type, canonical_name))}"
+
+
+def canonical_book_title(document_id: str, raw_title: str) -> str:
+    """Return the canonical book title for a given (*document_id*, *raw_title*).
+
+    This is the **single source of truth** for canonical book identity — the
+    same ``_book_style`` logic that the overview uses to produce its
+    ``book_title`` fields on every chapter / textbook record.
+
+    Consumers that need to map raw KG nodes (whose ``book_title`` may carry
+    long-form text with editors / editions / publishers) to stable
+    ``core:*`` IDs MUST call this helper to normalise the raw title before
+    computing :func:`stable_core_identity`.  Duplicating the normalisation
+    rule in a downstream module is forbidden — this function is the sole
+    owner of the canonical title derivation.
+    """
+    return _book_style(document_id, raw_title)["title"]
+
+
+def _core_id(book_title: str, node_type: str, canonical_name: str) -> str:
+    """Private compatibility alias for :func:`stable_core_identity`."""
+    return stable_core_identity(book_title, node_type, canonical_name)
 
 
 def _support_id(node_type: str, canonical_name: str) -> str:
