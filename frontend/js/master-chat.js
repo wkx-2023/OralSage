@@ -553,10 +553,11 @@
   }
 
   function renderJobProgress(message) {
-    if (message.handoutStream) return renderHandoutStream(message.handoutStream);
+    const handoutHtml = message.handoutStream ? renderHandoutStream(message.handoutStream) : '';
     const streamText = String(message.streamText || '');
     if (streamText) {
       return `
+        ${handoutHtml}
         <section class="job-stream" data-job-id="${escapeHtml(message.jobId || '')}" aria-live="polite">
           <div class="job-stream-status">
             <span class="job-spinner" aria-hidden="true"></span>
@@ -566,6 +567,7 @@
         </section>
       `;
     }
+    if (handoutHtml) return handoutHtml;
     const steps = Array.isArray(message.steps) ? message.steps.slice(-4) : [];
     return `
       <section class="job-progress" data-job-id="${escapeHtml(message.jobId || '')}">
@@ -716,28 +718,26 @@
             <span class="mode-label">学习模式</span>
             <h2>${escapeHtml(title)}</h2>
           </div>
-          <button type="button" class="audio-command" data-section-audio="${escapeHtml(resourceKey)}" data-audio-key="${escapeHtml(resourceKey)}" data-audio-ready-label="播放本节讲稿" disabled title="本节语音正在准备">
+          <button type="button" class="audio-command" data-audio-key="${escapeHtml(resourceKey)}" data-audio-ready-label="播放本节讲稿" disabled title="本节语音正在准备">
             <i data-lucide="loader-circle"></i><span>语音准备中</span>
           </button>
         </header>
         ${renderMindmap(final, nodeId)}
-        <div data-learning-content="${escapeHtml(resourceKey)}">
-          ${renderLectureCopy(teachingText, sessionId, nodeId)}
-          <div class="learning-actions">
-            <button type="button" class="learning-action primary" data-chat-prompt="继续">
-              <i data-lucide="arrow-right"></i><span>继续下一节</span>
-            </button>
-            <button type="button" class="learning-action" data-focus-composer>
-              <i data-lucide="message-circle-question"></i><span>针对本节提问</span>
-            </button>
-          </div>
-          ${renderTutorQuestions(step?.questions, sessionId, nodeId)}
-          <section class="slide-resource" data-slide-resource="${escapeHtml(resourceKey)}">
-            <div class="resource-heading"><div><span class="mode-label">同步演示</span><h3>本节 PPT</h3></div><span class="resource-state">生成中</span></div>
-            <div class="slide-loading"><span></span><p>正在整理本节演示内容</p></div>
-          </section>
-          ${step?.stage_exam ? renderStageExamHtml(step.stage_exam) : ''}
+        ${renderLectureCopy(teachingText, sessionId, nodeId)}
+        <div class="learning-actions">
+          <button type="button" class="learning-action primary" data-chat-prompt="继续">
+            <i data-lucide="arrow-right"></i><span>继续下一节</span>
+          </button>
+          <button type="button" class="learning-action" data-focus-composer>
+            <i data-lucide="message-circle-question"></i><span>针对本节提问</span>
+          </button>
         </div>
+        ${renderTutorQuestions(step?.questions, sessionId, nodeId)}
+        <section class="slide-resource" data-slide-resource="${escapeHtml(resourceKey)}">
+          <div class="resource-heading"><div><span class="mode-label">同步演示</span><h3>本节 PPT</h3></div><span class="resource-state">生成中</span></div>
+          <div class="slide-loading"><span></span><p>正在整理本节演示内容</p></div>
+        </section>
+        ${step?.stage_exam ? renderStageExamHtml(step.stage_exam) : ''}
         ${renderRouteDetails(routerResult)}
       </section>
     `;
@@ -1228,19 +1228,11 @@
       const section = found.message.handoutStream?.sections?.find((item) => item.id === event.data?.section_id);
       if (section) section.status = 'failed';
     } else if (event.type === 'content_delta') {
-      if (event.data?.channel === 'teaching_text') {
-        found.message.statusText = '正在同步准备本节讲稿与 PPT';
-      } else {
-        found.message.streamText = `${found.message.streamText || ''}${event.data?.delta || ''}`;
-        found.message.statusText = event.message || '正在生成正文';
-      }
+      found.message.streamText = `${found.message.streamText || ''}${event.data?.delta || ''}`;
+      found.message.statusText = event.message || '正在生成本节讲稿';
     } else if (event.type === 'content_replace') {
-      if (event.data?.channel === 'teaching_text') {
-        found.message.statusText = '正在同步准备本节讲稿与 PPT';
-      } else {
-        found.message.streamText = String(event.data?.text || '');
-        found.message.statusText = event.message || '正在整理正文';
-      }
+      found.message.streamText = String(event.data?.text || '');
+      found.message.statusText = event.message || '正在整理本节讲稿';
     } else if (event.type === 'complete') {
       found.message.kind = 'result';
       found.message.payload = event.data || {};

@@ -1076,10 +1076,10 @@ test('master chat shows lecture immediately while polling PPT independently', fu
     'utf8',
   );
 
-  ok(source.indexOf('data-learning-content="${escapeHtml(resourceKey)}">') >= 0,
-    'lecture content must be visible as soon as the learning result is ready');
-  ok(source.indexOf('data-section-sync=') < 0,
-    'lecture must not be covered by a PPT synchronization loader');
+  ok(source.indexOf("found.message.streamText = `${found.message.streamText || ''}${event.data?.delta || ''}`;") >= 0,
+    'Tutor teaching text must be appended to the visible stream immediately');
+  ok(source.indexOf("found.message.statusText = '正在同步准备本节讲稿与 PPT';") < 0,
+    'PPT readiness must not suppress the lecture stream');
   ok(source.indexOf("const previewFailed = resource?.preview?.result?.status === 'failed';") >= 0,
     'a failed preview must be terminal');
   ok(source.indexOf('const waitingSlides = !previewFailed && !currentSectionPreviewReady(key, resource);') >= 0,
@@ -1088,6 +1088,22 @@ test('master chat shows lecture immediately while polling PPT independently', fu
     'viewer must start on the current section page');
   ok(source.indexOf('if (hasViewerIndex || sectionIndex >= 0)') >= 0,
     'a missing current section must not persist the cover-page index');
+});
+
+test('handout and lecture streams render together during generation', function () {
+  var source = fs.readFileSync(
+    path.join(__dirname, '..', 'frontend', 'js', 'master-chat.js'),
+    'utf8',
+  );
+
+  ok(source.indexOf('if (message.handoutStream) return renderHandoutStream(message.handoutStream);') < 0,
+    'the handout stream must not hide the lecture stream');
+  ok(source.indexOf("const handoutHtml = message.handoutStream ? renderHandoutStream(message.handoutStream) : '';") >= 0,
+    'the handout stream must be retained while rendering the lecture');
+  ok(source.indexOf('${handoutHtml}\n        <section class="job-stream"') >= 0,
+    'lecture markup must include the handout markup when both streams exist');
+  ok(source.indexOf('if (handoutHtml) return handoutHtml;') >= 0,
+    'the handout remains visible before the lecture stream starts');
 });
 
 test('boot reconnects pending jobs without restoring their old conversation', function () {
