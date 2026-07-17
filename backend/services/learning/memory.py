@@ -155,6 +155,9 @@ CREATE TABLE IF NOT EXISTS study_plan_items (
     learning_target     TEXT,
     kg_node_ids_json    TEXT NOT NULL,
     learning_scope_json TEXT NOT NULL DEFAULT '{}',
+    dependency          TEXT,
+    practice_level      TEXT,
+    session_id          TEXT,
     sort_order          INTEGER NOT NULL DEFAULT 0,
     deferred_count      INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL,
@@ -334,6 +337,16 @@ class LearningMemory:
             )
         except sqlite3.OperationalError:
             pass  # column already exists
+        # Migration: add dependency / practice_level / session_id for task semantics
+        for statement in (
+            "ALTER TABLE study_plan_items ADD COLUMN dependency TEXT",
+            "ALTER TABLE study_plan_items ADD COLUMN practice_level TEXT",
+            "ALTER TABLE study_plan_items ADD COLUMN session_id TEXT",
+        ):
+            try:
+                self._conn.execute(statement)
+            except sqlite3.OperationalError:
+                pass  # column already exists
         self._conn.commit()
 
     def _row_to_dict(self, row: sqlite3.Row | None) -> dict | None:
@@ -592,6 +605,9 @@ class LearningMemory:
         learning_target: str | None = None,
         kg_node_ids: list[str] | None = None,
         learning_scope: dict[str, Any] | None = None,
+        dependency: str | None = None,
+        practice_level: str | None = None,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         """Create a study-plan to-do item."""
         self.ensure_user(user_id)
@@ -606,8 +622,11 @@ class LearningMemory:
             """INSERT INTO study_plan_items
                (id, user_id, plan_date, title, notes, status,
                 linked_course_id, linked_course_title, task_type, learning_target,
-                kg_node_ids_json, learning_scope_json, sort_order, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                kg_node_ids_json, learning_scope_json,
+                dependency, practice_level, session_id,
+                sort_order, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?,
+                       ?, ?, ?, ?, ?, ?)""",
             (
                 item_id,
                 user_id,
@@ -620,6 +639,9 @@ class LearningMemory:
                 str(learning_target or "").strip()[:180] or None,
                 json.dumps(_json_list(kg_node_ids or []), ensure_ascii=False),
                 json.dumps(scope, ensure_ascii=False),
+                str(dependency or "").strip() or None,
+                str(practice_level or "").strip()[:32] or None,
+                str(session_id or "").strip() or None,
                 self._next_study_plan_sort_order(user_id, day),
                 now,
                 now,
@@ -665,6 +687,12 @@ class LearningMemory:
             if not isinstance(scope, dict):
                 raise ValueError("learning_scope must be a dict or null")
             allowed["learning_scope_json"] = json.dumps(scope, ensure_ascii=False)
+        if "dependency" in updates:
+            allowed["dependency"] = str(updates.get("dependency") or "").strip() or None
+        if "practice_level" in updates:
+            allowed["practice_level"] = str(updates.get("practice_level") or "").strip()[:32] or None
+        if "session_id" in updates:
+            allowed["session_id"] = str(updates.get("session_id") or "").strip() or None
         if not allowed:
             return self.get_study_plan_item(item_id, user_id=user_id)
 

@@ -1391,6 +1391,9 @@ async def learning_plan_create_item(req: LearningPlanCreateRequest, request: Req
             learning_target=req.learning_target,
             kg_node_ids=req.kg_node_ids,
             learning_scope=req.learning_scope,
+            dependency=req.dependency,
+            practice_level=req.practice_level,
+            session_id=req.session_id,
         )
     except ValueError as exc:
         return _learning_plan_error("study_plan_create_item", exc, 400)

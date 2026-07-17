@@ -805,14 +805,104 @@
     `;
   }
 
+  function renderWeaknessOverview(overview, routerResult) {
+    if (!overview || !overview.has_evidence) {
+      var reason = (overview && overview.evidence_unavailable_reason)
+        ? overview.evidence_unavailable_reason
+        : '系统尚未积累足够的学习数据来形成可靠的薄弱点判断。完成更多学习和练习后，系统将自动识别您的薄弱环节。';
+      return (
+        '<section class="weakness-overview-response">' +
+          '<header class="result-heading">' +
+            '<div><span class="mode-label">学习画像</span><h2>薄弱点分析</h2></div>' +
+          '</header>' +
+          '<div class="assistant-markdown">' +
+            '<p>' + escapeHtml(reason) + '</p>' +
+          '</div>' +
+        '</section>'
+      );
+    }
+
+    var weaknesses = Array.isArray(overview.weaknesses) ? overview.weaknesses : [];
+    var lowMastery = Array.isArray(overview.low_mastery) ? overview.low_mastery : [];
+
+    var weaknessItems = '';
+    if (weaknesses.length) {
+      weaknessItems += '<h3>已识别的薄弱点</h3><ul class="weakness-list">';
+      weaknesses.forEach(function (w) {
+        var sourceLabel = w.evidence_source === 'learner_memory_weakness'
+          ? '来自学习记录' : '来自学习画像';
+        weaknessItems += (
+          '<li>' +
+            '<strong>' + escapeHtml(w.label || '未命名薄弱点') + '</strong>' +
+            '<span class="weakness-source">' + escapeHtml(sourceLabel) + '</span>' +
+          '</li>'
+        );
+      });
+      weaknessItems += '</ul>';
+    }
+
+    if (lowMastery.length) {
+      weaknessItems += '<h3>掌握度较低的知识点</h3><ul class="weakness-list">';
+      lowMastery.forEach(function (m) {
+        var pct = Math.round((m.mastery_score || 0) * 100);
+        weaknessItems += (
+          '<li>' +
+            '<strong>' + escapeHtml(m.label || '未命名知识点') + '</strong>' +
+            '<span class="weakness-source">掌握度约 ' + pct + '%</span>' +
+          '</li>'
+        );
+      });
+      weaknessItems += '</ul>';
+    }
+
+    var summaryText = '系统根据您的学习记录和测验表现，分析出以下薄弱环节：';
+    return (
+      '<section class="weakness-overview-response">' +
+        '<header class="result-heading">' +
+          '<div><span class="mode-label">学习画像</span><h2>薄弱点分析</h2></div>' +
+        '</header>' +
+        '<div class="assistant-markdown">' +
+          '<p>' + escapeHtml(summaryText) + '</p>' +
+          weaknessItems +
+        '</div>' +
+        '<div class="clarification-actions">' +
+          '<button type="button" data-chat-prompt="针对我的薄弱点制定复习计划">按薄弱点制定计划</button>' +
+          '<button type="button" data-chat-prompt="我想系统学习一个口腔医学主题">学习主题</button>' +
+        '</div>' +
+      '</section>'
+    );
+  }
+
   function renderStudyPlanResult(routerResult) {
     const final = routerResult?.final_result || {};
+
+    // Weakness overview — show structured evidence from real learner memory
+    if (final.weakness_overview) {
+      return renderWeaknessOverview(final.weakness_overview, routerResult);
+    }
+
+    // Explicit clarification from LLM orchestration — show the question,
+    // not a false-success plan card or empty route details.
+    if (final.clarification_needed === true) {
+      const clarificationMsg = String(final.clarification_message || '').trim();
+      return `
+        <section class="clarification-response">
+          <div class="assistant-markdown">${formatMarkdown(clarificationMsg || '请告诉我您想学习的教材章节或主题，也可以直接说"薄弱点"，我会根据您的学习情况安排复习。目前支持《牙周病学》《口腔颌面外科学》等口腔医学教材。')}</div>
+          <div class="clarification-actions">
+            <button type="button" data-chat-prompt="我想系统学习一个口腔医学主题">学习主题</button>
+            <button type="button" data-chat-prompt="请推荐今天的学习计划">学习计划</button>
+            <button type="button" data-chat-prompt="我想检索一个口腔医学主题的最新文献">文献检索</button>
+          </div>
+        </section>
+      `;
+    }
+
     const items = Array.isArray(final.recommendations) ? final.recommendations : [];
     if (!items.length) return `<div class="assistant-markdown">${formatMarkdown(resultAnswer(routerResult))}</div>${renderRouteDetails(routerResult)}`;
     const totalMinutes = items.reduce((sum, item) => sum + Number(item.estimated_minutes || 0), 0);
     const draftId = final.plan_draft_id || '';
     const planPageHref = draftId
-      ? `/pages/learning-plan.html?plan_draft_id=${encodeURIComponent(draftId)}`
+      ? `/pages/learning-plan.html?plan_draft_id=${encodeURIComponent(draftId)}&user_id=${encodeURIComponent(state.userId || 'demo')}`
       : '/pages/learning-plan.html';
     return `
       <section class="plan-response">
@@ -1038,6 +1128,7 @@
       existing.time = sessionTime();
       existing.messages = state.messages;
       existing.backendSessionId = state.backendSessionId;
+      existing.currentPlanDraftId = state.currentPlanDraftId;
     } else {
       state.sessions.unshift({
         id: state.activeSessionId,
@@ -1946,6 +2037,8 @@
       restoreSession: restoreSession,
       formatMarkdown: formatMarkdown,
       resumePendingJobs: resumePendingJobs,
+      renderStudyPlanResult: renderStudyPlanResult,
+      resultAnswer: resultAnswer,
     };
   }
 })();

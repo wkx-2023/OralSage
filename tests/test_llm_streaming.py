@@ -8,7 +8,11 @@ from urllib.error import HTTPError
 from unittest.mock import patch
 
 from backend.services.learning.tutor import _TeachingTextStreamParser
-from backend.services.llm_client import chat_completion
+from backend.services.llm_client import (
+    LLMRequestError,
+    chat_completion,
+    classify_llm_error,
+)
 
 
 class _StreamingResponse:
@@ -95,6 +99,49 @@ class LlmStreamingTests(unittest.TestCase):
         self.assertEqual(result, "{\"ok\": true}")
         self.assertIn("response_format", calls[0])
         self.assertNotIn("response_format", calls[1])
+
+    def test_http_error_body_remains_available_for_classification(self) -> None:
+        def fake_urlopen(request, timeout):
+            raise HTTPError(
+                request.full_url,
+                422,
+                "Unprocessable Entity",
+                hdrs=None,
+                fp=BytesIO(b"response_format is not supported"),
+            )
+
+        with (
+            patch.dict(os.environ, {"QWEN_API_KEY": "test-key"}),
+            patch("backend.services.llm_client.urlopen", side_effect=fake_urlopen),
+            self.assertRaises(LLMRequestError) as raised,
+        ):
+            chat_completion(
+                [{"role": "user", "content": "test"}],
+                response_format={"type": "json_object"},
+            )
+
+        self.assertEqual(classify_llm_error(raised.exception), "unsupported")
+
+    def test_chat_completion_uses_explicit_timeout(self) -> None:
+        observed_timeouts = []
+
+        def fake_urlopen(_request, timeout):
+            observed_timeouts.append(timeout)
+            return _JsonResponse({
+                "choices": [{"message": {"content": "ok"}}],
+            })
+
+        with (
+            patch.dict(os.environ, {"QWEN_API_KEY": "test-key"}),
+            patch("backend.services.llm_client.urlopen", side_effect=fake_urlopen),
+        ):
+            result = chat_completion(
+                [{"role": "user", "content": "test"}],
+                timeout=7,
+            )
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(observed_timeouts, [7])
 
     def test_tutor_parser_only_emits_teaching_text(self) -> None:
         chunks = []

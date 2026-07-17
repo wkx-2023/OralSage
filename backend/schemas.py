@@ -230,6 +230,9 @@ class LearningPlanCreateRequest(BaseModel):
     learning_target: str | None = None
     kg_node_ids: list[str] = Field(default_factory=list)
     learning_scope: dict[str, Any] | None = None
+    dependency: str | None = None
+    practice_level: str | None = None
+    session_id: str | None = None
 
 
 class LearningPlanUpdateRequest(BaseModel):

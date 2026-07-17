@@ -52,6 +52,8 @@
     recommendationLoading: false,
     assessmentPrompted: false,
     toastTimer: 0,
+    draftBaseDate: '',
+    _draftIdToFormalId: {},
   };
 
   function pad(value) {
@@ -123,7 +125,7 @@
   }
 
   function buildStartLearningUrl(itemId) {
-    return `/pages/master-chat.html?plan_item_id=${encodeURIComponent(itemId)}`;
+    return `/pages/master-chat.html?plan_item_id=${encodeURIComponent(itemId)}&user_id=${encodeURIComponent(state.userId || 'demo')}`;
   }
 
   function hasActiveRecommendations() {
@@ -138,8 +140,9 @@
   function mapDraftItemsToRecommendations(draftId, items) {
     return items.map((item, i) => {
       const scope = item.learning_scope || {};
-      return {
+      const rec = {
         recommendation_id: `${draftId}:${i}`,
+        _draft_index: i,
         title: item.learning_target || item.title || '',
         task_type: item.task_type || 'topic_learning',
         learning_target: item.learning_target || '',
@@ -148,10 +151,15 @@
         kg_node_ids: Array.isArray(scope.kg_node_ids) ? scope.kg_node_ids : [],
         learning_scope: item.learning_scope || null,
         linked_course_title: scope.book_title || scope.chapter_title || null,
-        linked_course_id: scope.document_id || null,
+        linked_course_id: item.linked_course_id || item.session_id || null,
         category: item.task_type || 'recommend',
         evidence_source: item.evidence_source || null,
+        day_offset: typeof item.day_offset === 'number' ? item.day_offset : undefined,
+        dependency: item.dependency != null ? item.dependency : null,
+        practice_level: item.practice_level || null,
+        session_id: item.session_id || null,
       };
+      return rec;
     });
   }
 
@@ -166,6 +174,8 @@
       const payload = draft.payload || {};
       const items = Array.isArray(payload.items) ? payload.items : [];
       if (items.length) {
+        state.draftBaseDate = state.selectedDate;
+        state._draftIdToFormalId = {};
         state.recommendations = mapDraftItemsToRecommendations(draftId, items);
         state.recommendationDate = state.selectedDate;
         state._draftLoaded = true;
@@ -634,9 +644,12 @@
   }
 
   function recommendationPayload(item) {
+    const planDate = (item.day_offset != null && state.draftBaseDate)
+      ? addDays(state.draftBaseDate, item.day_offset)
+      : state.selectedDate;
     const payload = {
       user_id: state.userId,
-      plan_date: state.selectedDate,
+      plan_date: planDate,
       title: String(item.title || '').trim(),
       notes: item.notes || item.reason || null,
       linked_course_id: item.linked_course_id || null,
@@ -648,10 +661,115 @@
     if (item.learning_scope) {
       payload.learning_scope = item.learning_scope;
     }
-    if (item.reason) {
-      payload.reason = item.reason;
+    const formalDep = _resolveFormalDependency(item);
+    if (formalDep) {
+      payload.dependency = formalDep;
+    }
+    if (item.practice_level) {
+      payload.practice_level = item.practice_level;
+    }
+    if (item.session_id) {
+      payload.session_id = item.session_id;
     }
     return payload;
+  }
+
+  function _resolveFormalDependency(item) {
+    if (item.dependency == null) return null;
+    const depIdx = typeof item.dependency === 'number' ? item.dependency : parseInt(String(item.dependency), 10);
+    if (!Number.isFinite(depIdx)) return null;
+    const depRecommendationId = `${state.planDraftId}:${depIdx}`;
+    const mapped = state._draftIdToFormalId[depRecommendationId];
+    if (mapped) return mapped;
+    return null;
+  }
+
+  // ── Injectable apiPost for Node test harness ─────────────────────
+  let _apiPostOverride = null;
+
+  // ── Dependency graph validator (fail-closed) ────────────────────
+  function _validateDraftDependencyGraph(items) {
+    const errors = [];
+    const byIndex = new Map();
+    for (const entry of items) {
+      const idx = entry._draft_index;
+      if (idx != null) {
+        if (!Number.isInteger(idx) || idx < 0) {
+          errors.push(`_draft_index 无效: ${JSON.stringify(idx)}`);
+        } else if (byIndex.has(idx)) {
+          errors.push(`_draft_index 重复: ${idx}`);
+        } else {
+          byIndex.set(idx, entry);
+        }
+      }
+    }
+    for (const entry of items) {
+      const idx = entry._draft_index;
+      if (idx == null || !Number.isInteger(idx) || idx < 0) continue;
+      const dep = entry.dependency;
+      if (dep == null) continue;
+      const depIdx = typeof dep === 'number' ? dep : parseInt(String(dep), 10);
+      if (!Number.isInteger(depIdx)) {
+        errors.push(`item ${idx} dependency 不是整数: ${JSON.stringify(dep)}`);
+        continue;
+      }
+      if (depIdx < 0) {
+        errors.push(`item ${idx} dependency 为负数: ${depIdx}`);
+        continue;
+      }
+      if (depIdx === idx) {
+        errors.push(`item ${idx} 自依赖`);
+        continue;
+      }
+      if (depIdx > idx) {
+        errors.push(`item ${idx} 前向依赖 item ${depIdx}`);
+        continue;
+      }
+      if (!byIndex.has(depIdx)) {
+        errors.push(`item ${idx} 依赖缺失索引 ${depIdx}`);
+        continue;
+      }
+    }
+    // Cycle detection (DFS tricolor)
+    if (errors.length === 0) {
+      const WHITE = 0; const GRAY = 1; const BLACK = 2;
+      const color = new Map();
+      for (const idx of byIndex.keys()) color.set(idx, WHITE);
+      function dfs(v) {
+        color.set(v, GRAY);
+        const entry = byIndex.get(v);
+        if (entry && entry.dependency != null) {
+          const dIdx = typeof entry.dependency === 'number' ? entry.dependency : parseInt(String(entry.dependency), 10);
+          if (Number.isInteger(dIdx) && byIndex.has(dIdx)) {
+            const dc = color.get(dIdx);
+            if (dc === GRAY) {
+              errors.push(`检测到循环依赖，涉及 item ${v}`);
+              return;
+            }
+            if (dc === WHITE) dfs(dIdx);
+          }
+        }
+        color.set(v, BLACK);
+      }
+      for (const idx of byIndex.keys()) {
+        if (color.get(idx) === WHITE) dfs(idx);
+        if (errors.length > 0) break;
+      }
+    }
+    return errors;
+  }
+
+  // ── Unified draft adoption helper ────────────────────────────────
+  async function _adoptDraftItem(item) {
+    const recId = item.recommendation_id;
+    if (state._draftIdToFormalId[recId]) return state._draftIdToFormalId[recId];
+    const body = await (_apiPostOverride || apiPost)('/api/learning/plan/items', recommendationPayload(item));
+    const createdId = body?.result?.item?.id || body?.result?.id || null;
+    if (!createdId) {
+      throw new Error('API 未返回有效的计划项 ID，后续任务无法创建');
+    }
+    state._draftIdToFormalId[recId] = createdId;
+    return createdId;
   }
 
   async function requestRecommendations() {
@@ -696,28 +814,164 @@
   }
 
   async function acceptRecommendation(recommendationId) {
-    const item = state.recommendations.find((entry) => entry.recommendation_id === recommendationId);
-    if (!item) return;
-    await apiPost('/api/learning/plan/items', recommendationPayload(item));
-    state.recommendations = state.recommendations.filter((entry) => entry.recommendation_id !== recommendationId);
+    const target = state.recommendations.find((entry) => entry.recommendation_id === recommendationId);
+    if (!target) return;
+
+    // ── Non-draft: simple single-item adoption ──────────────────
+    if (target._draft_index == null) {
+      try {
+        await (_apiPostOverride || apiPost)('/api/learning/plan/items', recommendationPayload(target));
+      } catch (err) {
+        setStatus(err.message || '采纳失败', 'error');
+        return;
+      }
+      state.recommendations = state.recommendations.filter((entry) => entry.recommendation_id !== recommendationId);
+      if (!state.recommendations.length) clearRecommendations();
+      setStatus('');
+      showPlanToast('已采纳一条推荐计划');
+      await loadMonth({ silent: true });
+      renderRecommendations();
+      return;
+    }
+
+    // ── Draft: validate transitive dependency chain first ──────
+    const subgraph = [];
+    const seen = new Set();
+    const errors = [];
+    function collect(entry) {
+      const idx = entry._draft_index;
+      if (idx == null || seen.has(idx)) return;
+      if (entry.dependency != null) {
+        const dIdx = typeof entry.dependency === 'number' ? entry.dependency : parseInt(String(entry.dependency), 10);
+        if (!Number.isInteger(dIdx) || dIdx < 0) {
+          errors.push(`item ${idx} dependency 无效: ${JSON.stringify(entry.dependency)}`);
+          return;
+        }
+        if (dIdx >= idx) {
+          errors.push(`item ${idx} 前向/自依赖 item ${dIdx}`);
+          return;
+        }
+        const depRecId = `${state.planDraftId}:${dIdx}`;
+        if (!state._draftIdToFormalId[depRecId]) {
+          const depEntry = state.recommendations.find((e) => e.recommendation_id === depRecId);
+          if (!depEntry) {
+            errors.push(`item ${idx} 依赖缺失索引 ${dIdx}`);
+            return;
+          }
+          collect(depEntry);
+        }
+      }
+      seen.add(idx);
+      subgraph.push(entry);
+    }
+    collect(target);
+
+    if (errors.length) {
+      setStatus(`依赖校验失败：${errors[0]}`, 'error');
+      return;
+    }
+
+    // Adopt in topological order via the unified helper
+    const ordered = _topologicalOrder(subgraph);
+    for (const entry of ordered) {
+      const recId = entry.recommendation_id;
+      if (state._draftIdToFormalId[recId]) continue;
+      try {
+        await _adoptDraftItem(entry);
+      } catch (err) {
+        setStatus(err.message || '采纳失败', 'error');
+        return;
+      }
+    }
+
+    // Remove adopted items from recommendations
+    const adoptedIds = new Set(ordered.map((e) => e.recommendation_id));
+    state.recommendations = state.recommendations.filter((entry) => !adoptedIds.has(entry.recommendation_id));
     if (!state.recommendations.length) clearRecommendations();
     setStatus('');
-    showPlanToast('已采纳一条推荐计划');
+    showPlanToast('已采纳推荐计划');
     await loadMonth({ silent: true });
     renderRecommendations();
   }
 
   async function acceptAllRecommendations() {
-    const pending = state.recommendations.slice();
-    if (!pending.length) return;
-    for (const item of pending) {
-      await apiPost('/api/learning/plan/items', recommendationPayload(item));
+    const items = state.recommendations.slice();
+    if (!items.length) return;
+
+    // ── Non-draft: simple sequential adoption ───────────────────
+    if (!items.some((entry) => entry._draft_index != null)) {
+      for (const entry of items) {
+        try {
+          await (_apiPostOverride || apiPost)('/api/learning/plan/items', recommendationPayload(entry));
+        } catch (err) {
+          setStatus(err.message || '批量采纳失败', 'error');
+          return;
+        }
+      }
+      clearRecommendations();
+      setStatus('');
+      showPlanToast('已采纳全部推荐计划');
+      await loadMonth({ silent: true });
+      renderRecommendations();
+      return;
+    }
+
+    // ── Draft: validate complete dependency graph first ────────
+    const validationErrors = _validateDraftDependencyGraph(items);
+    if (validationErrors.length) {
+      setStatus(`依赖校验失败：${validationErrors[0]}`, 'error');
+      return;
+    }
+
+    const ordered = _topologicalOrder(items);
+    for (const entry of ordered) {
+      const recId = entry.recommendation_id;
+      if (state._draftIdToFormalId[recId]) continue;
+      try {
+        await _adoptDraftItem(entry);
+      } catch (err) {
+        setStatus(err.message || '批量采纳失败', 'error');
+        return;
+      }
     }
     clearRecommendations();
     setStatus('');
     showPlanToast('已采纳全部推荐计划');
     await loadMonth({ silent: true });
     renderRecommendations();
+  }
+
+  function _topologicalOrder(items) {
+    const byIndex = new Map();
+    for (const entry of items) {
+      const idx = entry._draft_index;
+      if (idx != null) byIndex.set(idx, entry);
+    }
+    const ordered = [];
+    const WHITE = 0; const GRAY = 1; const BLACK = 2;
+    const color = new Map();
+    for (const idx of byIndex.keys()) color.set(idx, WHITE);
+
+    function visit(idx) {
+      const c = color.get(idx);
+      if (c === BLACK) return;
+      if (c === GRAY) throw new Error(`检测到循环依赖，涉及 item ${idx}`);
+      color.set(idx, GRAY);
+      const entry = byIndex.get(idx);
+      if (entry && entry.dependency != null) {
+        const depIdx = typeof entry.dependency === 'number' ? entry.dependency : parseInt(String(entry.dependency), 10);
+        if (Number.isFinite(depIdx) && byIndex.has(depIdx)) {
+          visit(depIdx);
+        }
+      }
+      color.set(idx, BLACK);
+      ordered.push(entry);
+    }
+
+    for (const idx of [...byIndex.keys()].sort((a, b) => a - b)) {
+      visit(idx);
+    }
+    return ordered;
   }
 
   function dismissRecommendation(recommendationId) {
@@ -951,4 +1205,22 @@
   }
 
   void boot();
+
+  // ── Test harness (Node tests only — not used in browser) ─────────
+  window.oralUi = oralUi;
+  oralUi.learningPlanInternals = {
+    buildStartLearningUrl,
+    mapDraftItemsToRecommendations,
+    recommendationPayload,
+    acceptRecommendation,
+    acceptAllRecommendations,
+    _topologicalOrder,
+    _resolveFormalDependency,
+    _validateDraftDependencyGraph,
+    _adoptDraftItem,
+    addDays,
+    dateKey,
+    getState: () => state,
+    setApiPost: (fn) => { _apiPostOverride = fn; },
+  };
 })();

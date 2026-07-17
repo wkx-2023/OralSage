@@ -104,7 +104,10 @@ class LearningSkillsTests(unittest.TestCase):
     def test_session_conversation_can_request_numbered_quiz(self) -> None:
         orchestrator = MagicMock()
         orchestrator.memory.get_session.return_value = {"user_id": "user-1"}
-        orchestrator.ensure_stage_exam_for_interaction.return_value = {"questions": []}
+        orchestrator.ensure_stage_exam_for_interaction.return_value = {
+            "status": "ready",
+            "questions": [{"stem": "Question 1"}],
+        }
         router = MasterRouter(orchestrator)
 
         result = asyncio.run(

@@ -11,6 +11,8 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
+import unittest.mock
+
 from fastapi.testclient import TestClient
 
 from backend.main import app
@@ -18,6 +20,35 @@ from backend.services.learning.study_plan import (
     PlanDraftStore,
     recommend_study_plan,
 )
+
+
+def _passing_preflight_patch():
+    """Return a mock.patch that replaces _preflight_draft_items with a
+    version that always passes (ok=True).  API tests verify the HTTP
+    contract — resource verification is tested separately."""
+    def _fake_pass(draft_items, *, resource_inspector=None):
+        passed = sum(1 for item in draft_items if isinstance(item, dict))
+        return {"ok": True, "failures": [], "passed": passed, "failed": 0}
+    return unittest.mock.patch(
+        "backend.services.learning.study_plan._preflight_draft_items",
+        side_effect=_fake_pass,
+    )
+
+
+_preflight_module_patcher = None
+
+
+def setUpModule():
+    global _preflight_module_patcher
+    _preflight_module_patcher = _passing_preflight_patch()
+    _preflight_module_patcher.start()
+
+
+def tearDownModule():
+    global _preflight_module_patcher
+    if _preflight_module_patcher is not None:
+        _preflight_module_patcher.stop()
+        _preflight_module_patcher = None
 
 
 def _make_chapter(**overrides: object) -> dict[str, Any]:
@@ -43,13 +74,57 @@ def _make_chapter(**overrides: object) -> dict[str, Any]:
 
 
 def _fake_llm_learn_ch3(prompt: str) -> str:
-    """Return a deterministic learn_chapter intent for 牙周病学第三章."""
+    """Return a deterministic response based on the orchestration stage.
+
+    Stage detection uses the stable prompt-intro markers produced by the
+    production prompt builders — no modification to production code is needed.
+
+    * First call (parse stage):  the existing intent JSON.
+    * Second call (orchestration stage): a valid plan with 3 non-template
+      ``learn_chapter`` / ``basic_practice`` items that satisfy the current
+      orchestration contract (scope_ref, day_offset, minutes, reason,
+      dependency).
+    """
+    if "study plan parser" in prompt or "study scope selector" in prompt:
+        # ── Stage 1: unified scope selector (replaces old intent parser) ─
+        import json as _json
+        return _json.dumps({
+            "target_type": "chapter",
+            "mention": "牙周病学第三章",
+            "operation": "single",
+            "ordinals": [3],
+            "titles": [],
+            "scope_ids": ["chapter:perio-ch3"],
+            "range_start": None,
+            "range_end": None,
+            "exclude_ordinals": [],
+            "parent_book_title": "牙周病学",
+            "context_dependent": False,
+            "intent": "learn_chapter",
+            "days": 3,
+            "daily_minutes": 30,
+            "focus_text": None,
+        }, ensure_ascii=False)
+
+    # ── Stage 2: LLM orchestration — valid, non-template plan ─────────
     return (
-        '{"intent": "learn_chapter", "days": 3, "daily_minutes": 30, '
-        '"focus_text": null, '
-        '"book_title": "牙周病学", '
-        '"document_id": "document.d766e8629232a2f6", '
-        '"chapter_key": "chapter:perio-ch3"}'
+        '{"clarification_needed": false, "items": ['
+        '{"task_type": "learn_chapter", '
+        '"scope_ref": "chapter:perio-ch3", '
+        '"day_offset": 0, "minutes": 30, '
+        '"reason": "系统学习牙周病学第三章牙周病的发病机制基础知识", '
+        '"dependency": null},'
+        '{"task_type": "learn_chapter", '
+        '"scope_ref": "chapter:perio-ch3", '
+        '"day_offset": 1, "minutes": 25, '
+        '"reason": "巩固牙周病的发病机制核心概念和宿主免疫反应", '
+        '"dependency": 0},'
+        '{"task_type": "basic_practice", '
+        '"scope_ref": "chapter:perio-ch3", '
+        '"day_offset": 2, "minutes": 20, '
+        '"reason": "练习牙周病发病机制相关的临床应用题目", '
+        '"dependency": 1}'
+        ']}'
     )
 
 
@@ -120,6 +195,24 @@ class PlanDraftReadApiTests(unittest.TestCase):
         self.assertEqual(
             item0["learning_scope"]["book_title"], "牙周病学"
         )
+        # day_offset must be preserved through _map_orchestration_items_to_draft_items
+        # For a single chapter deterministic plan:
+        #   [0] learn_chapter  (day 0, no dep)
+        #   [1] review_chapter (day 0, dep=0)
+        #   [2] basic_practice (day 1, dep=1)
+        item0 = body["result"]["payload"]["items"][0]
+        self.assertEqual(item0["day_offset"], 0)
+        self.assertIsNone(item0["dependency"])
+        item1 = body["result"]["payload"]["items"][1]
+        self.assertEqual(item1["day_offset"], 0)
+        self.assertEqual(item1["dependency"], 0)
+        item2 = body["result"]["payload"]["items"][2]
+        self.assertEqual(item2["day_offset"], 1)
+        self.assertEqual(item2["dependency"], 1)
+        # Verify document_id from learning_scope is NOT leaked into
+        # linked_course_id at the draft item level
+        for item in [item0, item1, item2]:
+            self.assertNotIn("linked_course_id", item)
 
     # ── negative: cross-user rejection ──────────────────────────────────
 

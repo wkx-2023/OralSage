@@ -2552,3 +2552,196 @@ def _new_mem_id(slot: str) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Weakness evidence overview — unified, LLM-free, testable
+# ---------------------------------------------------------------------------
+
+
+def get_weakness_overview(
+    memory: LearningMemory,
+    user_id: str,
+) -> dict[str, Any]:
+    """Return a unified weakness-evidence overview from real learner data.
+
+    This is a **pure, deterministic reader** — no LLM, no writes, no side
+    effects.  It consumes only existing :class:`LearningMemory` read APIs
+    and returns a structured overview suitable for:
+
+    * Displaying to the user ("what are my weaknesses?")
+    * Feeding into the study-plan orchestration context as scope candidates
+
+    Evidence sources (in priority order):
+
+    1. **Learner-memory weakness items** — ``weaknesses`` slot items with
+       non-empty ``kg_node_ids``, ``label``, and ``text``.
+    2. **Low-mastery scores** — mastery items whose ``score`` is below 0.62
+       and which carry ``kg_node_ids``.
+    3. **Profile-state summaries** — ``profile_state.weakness_summary`` and
+       ``profile_state.mastery_summary`` entries with non-empty
+       ``kg_node_ids``.
+
+    Each entry carries a stable ``evidence_source`` marker
+    (``"learner_memory_weakness"``, ``"low_mastery"``, or
+    ``"profile_state"``) so consumers can trace provenance.
+
+    Returns
+    -------
+    dict
+        Keys:
+
+        * ``weaknesses`` — list of deduplicated weakness entry dicts, each
+          with ``label``, ``kg_node_ids``, ``evidence_source``,
+          ``severity``, ``text``.
+        * ``low_mastery`` — list of deduplicated low-mastery entry dicts,
+          each with ``label``, ``kg_node_ids``, ``evidence_source``,
+          ``mastery_score``, ``text``.
+        * ``has_evidence`` — ``True`` when at least one weakness or
+          low-mastery entry with ``kg_node_ids`` was found.
+        * ``evidence_unavailable_reason`` — English string explaining why
+          no evidence is available (empty when ``has_evidence`` is
+          ``True``).
+        * ``all_kg_node_ids`` — deduplicated flat list of all KG node IDs
+          found across weaknesses and low-mastery entries.
+    """
+    l3 = _with_default_slots(memory.get_learner_memory(user_id))
+    profile_state = l3.get(PROFILE_STATE_SLOT, {})
+    if not isinstance(profile_state, dict):
+        profile_state = {}
+
+    weakness_entries: list[dict[str, Any]] = []
+    low_mastery_entries: list[dict[str, Any]] = []
+    seen_kg_ids: set[str] = set()
+
+    # --- 1. Learner-memory weakness items ----------------------------------
+    for item in _slot_items(l3, "weaknesses"):
+        kg_ids = [
+            str(kid).strip()
+            for kid in (item.get("kg_node_ids") or [])
+            if str(kid).strip()
+        ]
+        label = str(item.get("label") or item.get("text") or "").strip()
+        text = str(item.get("text") or "").strip()
+        if not kg_ids or (not label and not text):
+            continue
+        severity = _clamp_float(
+            item.get("severity", item.get("confidence", 0.5)),
+            0.0, 1.0, 0.5,
+        )
+        for kid in kg_ids:
+            if kid in seen_kg_ids:
+                continue
+            seen_kg_ids.add(kid)
+            weakness_entries.append({
+                "label": label or text[:80],
+                "kg_node_ids": [kid],
+                "evidence_source": "learner_memory_weakness",
+                "severity": round(severity, 3),
+                "text": text[:200],
+            })
+
+    # --- 2. Low-mastery items from learner memory --------------------------
+    for item in _slot_items(l3, "mastery"):
+        score = _clamp_float(
+            item.get("score", item.get("confidence", 0.5)),
+            0.0, 1.0, 0.5,
+        )
+        if score >= 0.62:
+            continue
+        kg_ids = [
+            str(kid).strip()
+            for kid in (item.get("kg_node_ids") or [])
+            if str(kid).strip()
+        ]
+        label = str(item.get("label") or item.get("text") or "").strip()
+        text = str(item.get("text") or "").strip()
+        if not kg_ids or (not label and not text):
+            continue
+        for kid in kg_ids:
+            if kid in seen_kg_ids:
+                continue
+            seen_kg_ids.add(kid)
+            low_mastery_entries.append({
+                "label": label or text[:80],
+                "kg_node_ids": [kid],
+                "evidence_source": "low_mastery",
+                "mastery_score": round(score, 3),
+                "text": text[:200],
+            })
+
+    # --- 3. Profile-state summaries ----------------------------------------
+    for ws in (profile_state.get("weakness_summary") or []):
+        if not isinstance(ws, dict):
+            continue
+        kg_ids = [
+            str(kid).strip()
+            for kid in (ws.get("kg_node_ids") or [])
+            if str(kid).strip()
+        ]
+        if not kg_ids:
+            continue
+        label = str(ws.get("label") or ws.get("text") or "").strip()
+        if not label:
+            continue
+        for kid in kg_ids:
+            if kid in seen_kg_ids:
+                continue
+            seen_kg_ids.add(kid)
+            weakness_entries.append({
+                "label": label,
+                "kg_node_ids": [kid],
+                "evidence_source": "profile_state",
+                "severity": _clamp_float(ws.get("severity"), 0.0, 1.0, 0.5),
+                "text": str(ws.get("text") or "")[:200],
+            })
+
+    for ms in (profile_state.get("mastery_summary") or []):
+        if not isinstance(ms, dict):
+            continue
+        mastery = _clamp_float(ms.get("mastery"), 0.0, 1.0, 0.5)
+        if mastery >= 0.62:
+            continue
+        kg_ids = [
+            str(kid).strip()
+            for kid in (ms.get("kg_node_ids") or [])
+            if str(kid).strip()
+        ]
+        if not kg_ids:
+            continue
+        label = str(ms.get("label") or ms.get("text") or "").strip()
+        if not label:
+            continue
+        for kid in kg_ids:
+            if kid in seen_kg_ids:
+                continue
+            seen_kg_ids.add(kid)
+            low_mastery_entries.append({
+                "label": label,
+                "kg_node_ids": [kid],
+                "evidence_source": "profile_state",
+                "mastery_score": round(mastery, 3),
+                "text": str(ms.get("text") or "")[:200],
+            })
+
+    all_kg_node_ids = sorted(seen_kg_ids)
+    has_evidence = bool(weakness_entries or low_mastery_entries)
+
+    evidence_unavailable_reason = ""
+    if not has_evidence:
+        evidence_unavailable_reason = (
+            "No weakness or low-mastery evidence with KG node IDs is "
+            "available in the learner memory. The system has not yet formed "
+            "reliable weakness judgments from your learning activities. "
+            "Weakness evidence is built from quiz mistakes, repeated "
+            "confusions, and low mastery scores in completed learning "
+            "sessions."
+        )
+
+    return {
+        "weaknesses": weakness_entries,
+        "low_mastery": low_mastery_entries,
+        "has_evidence": has_evidence,
+        "evidence_unavailable_reason": evidence_unavailable_reason,
+        "all_kg_node_ids": all_kg_node_ids,
+    }

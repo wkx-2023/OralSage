@@ -1100,7 +1100,7 @@ test('handout and lecture streams render together during generation', function (
     'the handout stream must not hide the lecture stream');
   ok(source.indexOf("const handoutHtml = message.handoutStream ? renderHandoutStream(message.handoutStream) : '';") >= 0,
     'the handout stream must be retained while rendering the lecture');
-  ok(source.indexOf('${handoutHtml}\n        <section class="job-stream"') >= 0,
+  ok(/\$\{handoutHtml\}\r?\n\s*<section class="job-stream"/.test(source),
     'lecture markup must include the handout markup when both streams exist');
   ok(source.indexOf('if (handoutHtml) return handoutHtml;') >= 0,
     'the handout remains visible before the lecture stream starts');

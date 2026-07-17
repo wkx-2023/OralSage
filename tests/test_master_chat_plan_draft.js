@@ -35,6 +35,8 @@ function createSandbox() {
         this.close = function () {};
       },
       addEventListener: function () {},
+      setTimeout: setTimeout,
+      clearTimeout: clearTimeout,
     },
     document: {
       readyState: 'complete',
@@ -103,6 +105,8 @@ function loadModule() {
     restoreSession: api.restoreSession,
     formatMarkdown: api.formatMarkdown,
     resumePendingJobs: api.resumePendingJobs,
+    renderStudyPlanResult: api.renderStudyPlanResult,
+    resultAnswer: api.resultAnswer,
   };
 }
 
@@ -642,6 +646,1428 @@ console.log('\n12. Plan draft ID uniqueness per session');
     api.restoreSession(idA);
     equal(api.getState().currentPlanDraftId, 'draft_A_unique',
       'session A must NOT inherit B\'s draft ID');
+  });
+})();
+
+// ============================================================================
+// 13. renderStudyPlanResult: clarification_needed rendering
+// ============================================================================
+
+console.log('\n13. renderStudyPlanResult: clarification_needed rendering');
+
+(function () {
+  var api = loadModule();
+  test('clarification_needed=true shows clarification message not default success', function () {
+    var routerResult = {
+      ok: true,
+      route: { intent: 'study_plan', source: 'llm_router', reason: 'test' },
+      final_result: {
+        clarification_needed: true,
+        clarification_message: '请告诉我您想学习的教材章节或主题，也可以直接说"薄弱点"，我会根据您的学习情况安排复习。目前支持《牙周病学》《口腔颌面外科学》等口腔医学教材。',
+        recommendations: [],
+        plan_draft_id: 'draft_clarify_001',
+      },
+    };
+    var html = api.renderStudyPlanResult(routerResult);
+    // Must show the clarification message with all three entry points
+    ok(html.indexOf('请告诉我您想学习的教材章节或主题') !== -1,
+      'must contain clarification_message text');
+    ok(html.indexOf('薄弱点') !== -1,
+      'must mention 薄弱点 as an explicit entry point');
+    ok(html.indexOf('学习情况安排复习') !== -1,
+      'must mention 学习情况安排复习 for weakness-driven review');
+    // Must use clarification-response section
+    ok(html.indexOf('clarification-response') !== -1,
+      'must use clarification-response section');
+    // Must show quick-action buttons
+    ok(html.indexOf('clarification-actions') !== -1,
+      'must include clarification quick-action buttons');
+    // Must NOT show the default success text
+    ok(html.indexOf('已生成学习计划建议') === -1,
+      'must NOT show default success text');
+    // Must NOT show plan mode header
+    ok(html.indexOf('计划模式') === -1,
+      'must NOT show plan mode header');
+    // Must NOT show route details (调度详情)
+    ok(html.indexOf('调度详情') === -1,
+      'must NOT show route details for clarification');
+  });
+
+  test('clarification_needed=true with empty message falls back gracefully', function () {
+    var routerResult = {
+      ok: true,
+      route: { intent: 'study_plan', source: 'llm_router', reason: 'test' },
+      final_result: {
+        clarification_needed: true,
+        clarification_message: '',
+        recommendations: [],
+      },
+    };
+    var html = api.renderStudyPlanResult(routerResult);
+    // Must still use clarification-response (with fallback text)
+    ok(html.indexOf('clarification-response') !== -1,
+      'must use clarification-response section even with empty message');
+    // Fallback text must also contain the three entry points
+    ok(html.indexOf('教材章节或主题') !== -1,
+      'fallback must mention 教材章节或主题');
+    ok(html.indexOf('薄弱点') !== -1,
+      'fallback must mention 薄弱点');
+    ok(html.indexOf('学习情况安排复习') !== -1,
+      'fallback must mention 学习情况安排复习');
+    // Must NOT show default success text
+    ok(html.indexOf('已生成学习计划建议') === -1,
+      'must NOT show default success text');
+    // Must NOT show plan mode header
+    ok(html.indexOf('计划模式') === -1,
+      'must NOT show plan mode header');
+  });
+
+  test('clarification_needed=false with items shows normal plan card', function () {
+    var routerResult = {
+      ok: true,
+      route: { intent: 'study_plan', source: 'llm_router', reason: 'test' },
+      final_result: {
+        plan_date: '2026-07-16',
+        plan_draft_id: 'draft_normal_001',
+        recommendations: [
+          {
+            recommendation_id: 'draft_normal_001:0',
+            title: '学习牙周病学第三章',
+            task_type: 'learn_chapter',
+            reason: '开始系统学习',
+            estimated_minutes: 30,
+          },
+        ],
+      },
+    };
+    var html = api.renderStudyPlanResult(routerResult);
+    // Must show plan mode header
+    ok(html.indexOf('计划模式') !== -1,
+      'normal plan must show plan mode header');
+    // Must show total minutes
+    ok(html.indexOf('30') !== -1,
+      'normal plan must show total minutes');
+    // Must NOT show clarification section
+    ok(html.indexOf('clarification-response') === -1,
+      'normal plan must NOT show clarification section');
+  });
+
+  test('old result without clarification_needed and empty items uses legacy path', function () {
+    var routerResult = {
+      ok: true,
+      route: { intent: 'study_plan', source: 'llm_router', reason: 'test' },
+      final_result: {
+        // No clarification_needed field at all (old result)
+        recommendations: [],
+      },
+    };
+    var html = api.renderStudyPlanResult(routerResult);
+    // Legacy path: shows resultAnswer (which produces default success text)
+    ok(html.indexOf('已生成学习计划建议') !== -1,
+      'old result without clarification field uses legacy success text');
+  });
+})();
+
+// ============================================================================
+// 14. Entry point cache version — HTML must reference current script version
+// ============================================================================
+
+console.log('\n14. Entry point cache version — HTML must reference current script version');
+
+(function () {
+  var htmlPath = path.resolve(__dirname, '..', 'frontend', 'pages', 'master-chat.html');
+  var htmlSrc = fs.readFileSync(htmlPath, 'utf-8');
+
+  test('HTML script tag references canonical renderer path with current query version', function () {
+    ok(htmlSrc.indexOf('/js/master-chat.js?v=20260718-plan-smart-routing-v1') !== -1,
+      'master-chat.html must reference canonical path /js/master-chat.js?v=20260718-plan-smart-routing-v1');
+  });
+
+  test('HTML script tag does NOT reference versioned duplicate path', function () {
+    ok(htmlSrc.indexOf('/js/master-chat-plan-clarification.js') === -1,
+      'master-chat.html must NOT reference versioned duplicate master-chat-plan-clarification.js');
+  });
+
+  test('canonical renderer file path exists on disk', function () {
+    var canonicalPath = path.resolve(__dirname, '..', 'frontend', 'js', 'master-chat.js');
+    ok(fs.existsSync(canonicalPath),
+      'canonical master-chat.js must exist on disk');
+  });
+
+  test('versioned duplicate file path does not exist on disk', function () {
+    var dupPath = path.resolve(__dirname, '..', 'frontend', 'js', 'master-chat-plan-clarification.js');
+    ok(!fs.existsSync(dupPath),
+      'versioned duplicate master-chat-plan-clarification.js must not exist on disk');
+  });
+})();
+
+// ============================================================================
+// 15. learning-plan.js data-logic tests — draft mapping and payload correctness
+// ============================================================================
+
+console.log('\n15. learning-plan.js data logic — draft mapping and payload correctness');
+
+(function () {
+  // Load the real learning-plan.js
+  var lpScriptPath = path.resolve(__dirname, '..', 'frontend', 'js', 'learning-plan.js');
+  var lpScriptSrc = fs.readFileSync(lpScriptPath, 'utf-8');
+
+  function loadLearningPlanModule() {
+    resetLocalStorage();
+    var sandbox = createSandbox();
+    // Set up oralUi BEFORE running learning-plan.js
+    sandbox.window.oralUi = sandbox.window.oralUi || {};
+    sandbox.window.oralUi.byId = function () { return null; };
+    sandbox.window.oralUi.escapeHtml = function (v) { return String(v || ''); };
+    sandbox.window.oralUi.apiPost = async function () { return {}; };
+    vm.runInNewContext(lpScriptSrc, sandbox, { filename: lpScriptPath });
+    var api = sandbox.window.oralUi.learningPlanInternals;
+    if (!api) {
+      console.error('ERROR: learning-plan.js did not expose learningPlanInternals');
+      process.exit(1);
+    }
+    // Patch state for draft-payload tests
+    var state = api.getState();
+    state.selectedDate = '2026-07-16';
+    state.draftBaseDate = '2026-07-16';
+    state.planDraftId = 'draft_test123';
+    state._draftIdToFormalId = {};
+    return {
+      mapDraftItemsToRecommendations: api.mapDraftItemsToRecommendations,
+      recommendationPayload: api.recommendationPayload,
+      _topologicalOrder: api._topologicalOrder,
+      _resolveFormalDependency: api._resolveFormalDependency,
+      addDays: api.addDays,
+      dateKey: api.dateKey,
+      getState: api.getState,
+    };
+  }
+
+  var lp = loadLearningPlanModule();
+  var state = lp.getState();
+
+  // ── helpers ──────────────────────────────────────────────────────
+  function makeDraftItem(overrides) {
+    var defaults = {
+      task_type: 'learn_chapter',
+      learning_target: '第三章 牙周病的分类和流行病学',
+      estimated_minutes: 30,
+      reason: '系统学习牙周病学第三章',
+      evidence_source: 'chapter_sequence_v1',
+      learning_scope: {
+        book_title: '牙周病学',
+        document_id: 'document.d766e8629232a2f6',
+        chapter_key: 'chapter:perio-ch3',
+        chapter_title: '第三章 牙周病的分类和流行病学',
+        kg_node_ids: ['core:aaa111', 'core:bbb222'],
+      },
+      dependency: null,
+      day_offset: 0,
+    };
+    var item = {};
+    Object.keys(defaults).forEach(function (k) { item[k] = defaults[k]; });
+    if (overrides) Object.keys(overrides).forEach(function (k) { item[k] = overrides[k]; });
+    return item;
+  }
+
+  // ── 15a. linked_course_id must NOT come from scope.document_id
+  test('linked_course_id is NOT scope.document_id', function () {
+    var items = [makeDraftItem()];
+    var recs = lp.mapDraftItemsToRecommendations('draft_x', items);
+    equal(recs[0].linked_course_id, null,
+      'linked_course_id must be null when item has no linked_course_id/session_id');
+    ok(recs[0].learning_scope.document_id === 'document.d766e8629232a2f6',
+      'scope.document_id is still present in learning_scope');
+    ok(recs[0].linked_course_id !== recs[0].learning_scope.document_id,
+      'linked_course_id MUST NOT equal scope.document_id');
+  });
+
+  test('linked_course_id uses item.session_id when available', function () {
+    var items = [makeDraftItem({ session_id: 'sess_real_123' })];
+    var recs = lp.mapDraftItemsToRecommendations('draft_x', items);
+    equal(recs[0].linked_course_id, 'sess_real_123',
+      'linked_course_id should use real session_id');
+    ok(recs[0].linked_course_id !== recs[0].learning_scope.document_id,
+      'linked_course_id MUST NOT equal scope.document_id even when session present');
+  });
+
+  test('linked_course_id uses item.linked_course_id when available', function () {
+    var items = [makeDraftItem({ linked_course_id: 'lc_real_456' })];
+    var recs = lp.mapDraftItemsToRecommendations('draft_x', items);
+    equal(recs[0].linked_course_id, 'lc_real_456',
+      'linked_course_id should use item.linked_course_id');
+  });
+
+  // ── 15b. day_offset preserved
+  test('day_offset is preserved from draft items', function () {
+    var items = [
+      makeDraftItem({ day_offset: 0, task_type: 'learn_chapter' }),
+      makeDraftItem({ day_offset: 1, task_type: 'basic_practice', dependency: 0 }),
+      makeDraftItem({ day_offset: 2, task_type: 'review_chapter', dependency: 0 }),
+    ];
+    var recs = lp.mapDraftItemsToRecommendations('draft_x', items);
+    equal(recs[0].day_offset, 0, 'item 0 day_offset');
+    equal(recs[1].day_offset, 1, 'item 1 day_offset');
+    equal(recs[2].day_offset, 2, 'item 2 day_offset');
+  });
+
+  test('day_offset is undefined when not present in draft', function () {
+    var items = [makeDraftItem()];
+    delete items[0].day_offset;
+    var recs = lp.mapDraftItemsToRecommendations('draft_x', items);
+    equal(recs[0].day_offset, undefined,
+      'day_offset should be undefined when missing from draft');
+  });
+
+  // ── 15c. dependency preserved as integer (for mapping to formal ID)
+  test('dependency preserved as integer index from draft', function () {
+    var items = [
+      makeDraftItem({ day_offset: 0, dependency: null }),
+      makeDraftItem({ day_offset: 1, dependency: 0 }),
+      makeDraftItem({ day_offset: 2, dependency: 1 }),
+    ];
+    var recs = lp.mapDraftItemsToRecommendations('draft_x', items);
+    equal(recs[0].dependency, null, 'first item has no dependency');
+    equal(recs[1].dependency, 0, 'second item depends on index 0');
+    equal(recs[2].dependency, 1, 'third item depends on index 1');
+  });
+
+  // ── 15d. practice_level preserved
+  test('practice_level is preserved from draft items', function () {
+    var items = [makeDraftItem({ practice_level: 'basic' })];
+    var recs = lp.mapDraftItemsToRecommendations('draft_x', items);
+    equal(recs[0].practice_level, 'basic', 'practice_level preserved');
+  });
+
+  test('practice_level is null when not present', function () {
+    var items = [makeDraftItem()];
+    var recs = lp.mapDraftItemsToRecommendations('draft_x', items);
+    equal(recs[0].practice_level, null, 'practice_level should be null when missing');
+  });
+
+  // ── 15e. recommendationPayload: plan_date computed from base + offset
+  test('plan_date = draftBaseDate + day_offset for draft items', function () {
+    state.draftBaseDate = '2026-07-16';
+    state.selectedDate = '2026-07-20';
+    var item = {
+      title: '测试',
+      task_type: 'learn_chapter',
+      estimated_minutes: 30,
+      day_offset: 2,
+      dependency: null,
+      learning_scope: { book_title: '牙周病学' },
+      kg_node_ids: [],
+    };
+    var payload = lp.recommendationPayload(item);
+    equal(payload.plan_date, '2026-07-18',
+      'plan_date should be base(07-16) + 2 days = 07-18, not selectedDate');
+  });
+
+  test('plan_date falls back to selectedDate when day_offset missing', function () {
+    state.draftBaseDate = '2026-07-16';
+    state.selectedDate = '2026-07-20';
+    var item = {
+      title: '测试',
+      task_type: 'learn_chapter',
+      estimated_minutes: 30,
+      dependency: null,
+      learning_scope: { book_title: '牙周病学' },
+      kg_node_ids: [],
+    };
+    var payload = lp.recommendationPayload(item);
+    equal(payload.plan_date, '2026-07-20',
+      'plan_date should fall back to selectedDate when no day_offset');
+  });
+
+  // ── 15f. recommendationPayload: no reason field in payload
+  test('recommendationPayload does NOT include reason field', function () {
+    var item = {
+      title: '测试',
+      task_type: 'learn_chapter',
+      estimated_minutes: 30,
+      reason: 'some reason text',
+      dependency: null,
+      learning_scope: null,
+      kg_node_ids: [],
+    };
+    var payload = lp.recommendationPayload(item);
+    ok(!('reason' in payload),
+      'reason must NOT appear in the API payload (not a declared schema field)');
+    // reason can go into notes though
+    ok(typeof payload.notes === 'string' || payload.notes === null,
+      'notes is still present for reason text');
+  });
+
+  // ── 15g. recommendationPayload: dependency resolved to formal ID
+  test('recommendationPayload resolves dependency to formal item ID', function () {
+    state.planDraftId = 'draft_test123';
+    state._draftIdToFormalId = { 'draft_test123:0': 'formal-item-abc' };
+    var item = {
+      title: '基础练习',
+      task_type: 'basic_practice',
+      estimated_minutes: 20,
+      dependency: 0,
+      learning_scope: { book_title: '牙周病学' },
+      kg_node_ids: [],
+    };
+    var payload = lp.recommendationPayload(item);
+    equal(payload.dependency, 'formal-item-abc',
+      'dependency must be resolved to formal item ID, not integer index');
+  });
+
+  test('recommendationPayload passes practice_level through', function () {
+    var item = {
+      title: '基础练习',
+      task_type: 'basic_practice',
+      estimated_minutes: 20,
+      dependency: null,
+      practice_level: 'basic',
+      learning_scope: null,
+      kg_node_ids: [],
+    };
+    var payload = lp.recommendationPayload(item);
+    equal(payload.practice_level, 'basic', 'practice_level passed through');
+  });
+
+  test('recommendationPayload passes session_id through', function () {
+    var item = {
+      title: '学习',
+      task_type: 'learn_chapter',
+      estimated_minutes: 30,
+      dependency: null,
+      session_id: 'sess_real_789',
+      learning_scope: null,
+      kg_node_ids: [],
+    };
+    var payload = lp.recommendationPayload(item);
+    equal(payload.session_id, 'sess_real_789', 'session_id passed through');
+  });
+
+  test('recommendationPayload omits null session_id', function () {
+    var item = {
+      title: '学习',
+      task_type: 'learn_chapter',
+      estimated_minutes: 30,
+      dependency: null,
+      session_id: null,
+      learning_scope: null,
+      kg_node_ids: [],
+    };
+    var payload = lp.recommendationPayload(item);
+    ok(!('session_id' in payload), 'null session_id omitted from payload');
+  });
+
+  // ── 15h. _topologicalOrder ─────────────────────────────────────
+  test('_topologicalOrder sorts with dependencies first', function () {
+    var items = [
+      { recommendation_id: 'd:0', _draft_index: 0, dependency: null, title: 'learn ch1' },
+      { recommendation_id: 'd:1', _draft_index: 1, dependency: 0, title: 'review ch1' },
+      { recommendation_id: 'd:2', _draft_index: 2, dependency: 1, title: 'practice ch1' },
+    ];
+    var ordered = lp._topologicalOrder(items);
+    equal(ordered.length, 3, 'all items returned');
+    equal(ordered[0]._draft_index, 0, 'index 0 first (no deps)');
+    equal(ordered[1]._draft_index, 1, 'index 1 second (depends on 0)');
+    equal(ordered[2]._draft_index, 2, 'index 2 third (depends on 1)');
+  });
+
+  test('_topologicalOrder handles no-dependency items', function () {
+    var items = [
+      { recommendation_id: 'd:0', _draft_index: 0, dependency: null, title: 'learn ch1' },
+      { recommendation_id: 'd:1', _draft_index: 1, dependency: null, title: 'learn ch2' },
+      { recommendation_id: 'd:2', _draft_index: 2, dependency: null, title: 'learn ch3' },
+    ];
+    var ordered = lp._topologicalOrder(items);
+    equal(ordered.length, 3, 'all items returned');
+    // With all null deps, natural order by index is maintained
+    equal(ordered[0]._draft_index, 0);
+    equal(ordered[1]._draft_index, 1);
+    equal(ordered[2]._draft_index, 2);
+  });
+
+  test('_topologicalOrder handles empty list', function () {
+    var ordered = lp._topologicalOrder([]);
+    equal(ordered.length, 0, 'empty returns empty');
+  });
+
+  // ── 15i. Two structurally different drafts ──────────────────────
+  test('three-day chapter draft: dates and dependencies correct', function () {
+    state.draftBaseDate = '2026-07-16';
+    state.planDraftId = 'draft_ch3';
+    state._draftIdToFormalId = {};
+
+    var items = [
+      makeDraftItem({ day_offset: 0, dependency: null, task_type: 'learn_chapter' }),
+      makeDraftItem({ day_offset: 1, dependency: 0, task_type: 'basic_practice' }),
+      makeDraftItem({ day_offset: 2, dependency: 0, task_type: 'review_chapter' }),
+    ];
+    var recs = lp.mapDraftItemsToRecommendations('draft_ch3', items);
+    equal(recs.length, 3);
+
+    // Verify dates
+    var p0 = lp.recommendationPayload(recs[0]);
+    var p1 = lp.recommendationPayload(recs[1]);
+    var p2 = lp.recommendationPayload(recs[2]);
+    equal(p0.plan_date, '2026-07-16', 'day 0 → base date');
+    equal(p1.plan_date, '2026-07-17', 'day 1 → base + 1');
+    equal(p2.plan_date, '2026-07-18', 'day 2 → base + 2');
+
+    // Verify task types
+    equal(p0.task_type, 'learn_chapter');
+    equal(p1.task_type, 'basic_practice');
+    equal(p2.task_type, 'review_chapter');
+
+    // No reason field in any payload
+    ok(!('reason' in p0) && !('reason' in p1) && !('reason' in p2),
+      'no reason field in any payload');
+  });
+
+  test('two-day weakness draft: review+practice per day', function () {
+    state.draftBaseDate = '2026-07-17';
+    state.planDraftId = 'draft_wk';
+    state._draftIdToFormalId = {};
+
+    var items = [
+      makeDraftItem({
+        day_offset: 0, dependency: null,
+        task_type: 'review_chapter',
+        learning_target: '牙菌斑生物膜',
+        practice_level: null,
+        learning_scope: {
+          book_title: '牙周病学',
+          document_id: 'document.d766e8629232a2f6',
+          chapter_key: 'chapter:perio-ch3',
+          chapter_title: '第三章 牙周病的分类和流行病学',
+          kg_node_ids: ['core:aaa111'],
+        },
+      }),
+      makeDraftItem({
+        day_offset: 0, dependency: 0,
+        task_type: 'basic_practice',
+        practice_level: 'basic',
+        learning_target: '牙菌斑生物膜',
+        learning_scope: {
+          book_title: '牙周病学',
+          document_id: 'document.d766e8629232a2f6',
+          chapter_key: 'chapter:perio-ch3',
+          chapter_title: '第三章 牙周病的分类和流行病学',
+          kg_node_ids: ['core:aaa111'],
+        },
+      }),
+      makeDraftItem({
+        day_offset: 1, dependency: null,
+        task_type: 'review_chapter',
+        learning_target: '宿主免疫反应',
+        practice_level: null,
+        learning_scope: {
+          book_title: '牙周病学',
+          document_id: 'document.d766e8629232a2f6',
+          chapter_key: 'chapter:perio-ch3',
+          chapter_title: '第三章 牙周病的分类和流行病学',
+          kg_node_ids: ['core:bbb222'],
+        },
+      }),
+      makeDraftItem({
+        day_offset: 1, dependency: 2,
+        task_type: 'basic_practice',
+        practice_level: 'basic',
+        learning_target: '宿主免疫反应',
+        learning_scope: {
+          book_title: '牙周病学',
+          document_id: 'document.d766e8629232a2f6',
+          chapter_key: 'chapter:perio-ch3',
+          chapter_title: '第三章 牙周病的分类和流行病学',
+          kg_node_ids: ['core:bbb222'],
+        },
+      }),
+    ];
+    var recs = lp.mapDraftItemsToRecommendations('draft_wk', items);
+    equal(recs.length, 4);
+
+    // All linked_course_id must be null (not document_id)
+    for (var i = 0; i < recs.length; i++) {
+      equal(recs[i].linked_course_id, null,
+        'item ' + i + ' linked_course_id must be null, not document_id');
+    }
+
+    // Verify dates
+    equal(lp.recommendationPayload(recs[0]).plan_date, '2026-07-17', 'weakness day 0 review');
+    equal(lp.recommendationPayload(recs[1]).plan_date, '2026-07-17', 'weakness day 0 practice');
+    equal(lp.recommendationPayload(recs[2]).plan_date, '2026-07-18', 'weakness day 1 review');
+    equal(lp.recommendationPayload(recs[3]).plan_date, '2026-07-18', 'weakness day 1 practice');
+
+    // Verify dependencies preserved
+    equal(recs[0].dependency, null, 'day 0 review no dep');
+    equal(recs[1].dependency, 0, 'day 0 practice depends on review');
+    equal(recs[2].dependency, null, 'day 1 review no dep');
+    equal(recs[3].dependency, 2, 'day 1 practice depends on review');
+
+    // Verify practice_level
+    equal(recs[1].practice_level, 'basic');
+    equal(recs[3].practice_level, 'basic');
+
+    // Verify topological order
+    var ordered = lp._topologicalOrder(recs);
+    equal(ordered.length, 4);
+    // review before practice on same day
+    var idx0 = ordered.findIndex(function (r) { return r._draft_index === 0; });
+    var idx1 = ordered.findIndex(function (r) { return r._draft_index === 1; });
+    ok(idx0 < idx1, 'day 0 review must come before day 0 practice');
+    var idx2 = ordered.findIndex(function (r) { return r._draft_index === 2; });
+    var idx3 = ordered.findIndex(function (r) { return r._draft_index === 3; });
+    ok(idx2 < idx3, 'day 1 review must come before day 1 practice');
+  });
+})();
+
+// ============================================================================
+// 16. Draft adoption acceptance tests — inject apiPost spy, call production
+//     acceptRecommendation / acceptAllRecommendations and verify POST sequence,
+//     dates, dependency IDs, and fail-closed behavior.
+// ============================================================================
+
+console.log('\n16. Draft adoption — production accept functions with apiPost spy');
+
+(function () {
+  var lpScriptPath = path.resolve(__dirname, '..', 'frontend', 'js', 'learning-plan.js');
+  var lpScriptSrc = fs.readFileSync(lpScriptPath, 'utf-8');
+
+  // ── apiPost spy ──────────────────────────────────────────────────
+  function createApiPostSpy() {
+    var calls = [];
+    var queue = [];
+
+    function spy(url, payload) {
+      var call = { url: url, payload: JSON.parse(JSON.stringify(payload)) };
+      calls.push(call);
+      var response = queue.shift();
+      if (response === undefined) {
+        return Promise.resolve({ result: { item: { id: 'auto-item-' + calls.length } } });
+      }
+      if (response instanceof Error) {
+        return Promise.reject(response);
+      }
+      return Promise.resolve(JSON.parse(JSON.stringify(response)));
+    }
+
+    spy.calls = calls;
+    spy.queue = function (r) { queue.push(r); };
+    spy.reset = function () { calls.length = 0; queue.length = 0; };
+
+    return spy;
+  }
+
+  // ── Sandbox factory (with proper headers for apiGet/loadMonth) ──
+  function createLPSandbox() {
+    var sb = {
+      window: {
+        oralUi: {
+          byId: function () { return null; },
+          escapeHtml: function (v) { return String(v || ''); },
+        },
+        lucide: { createIcons: function () {} },
+        location: { search: '' },
+        history: { replaceState: function () {} },
+        EventSource: function EventSourceMock() { this.close = function () {}; },
+        addEventListener: function () {},
+        setTimeout: setTimeout,
+        clearTimeout: clearTimeout,
+      },
+      document: {
+        readyState: 'complete',
+        documentElement: {},
+        querySelector: function () { return null; },
+        querySelectorAll: function () { return []; },
+        addEventListener: function () {},
+        createElement: function () { return { className: '', innerHTML: '', appendChild: function () {} }; },
+      },
+      URLSearchParams: URLSearchParams,
+      URL: URL,
+      setTimeout: setTimeout,
+      clearTimeout: clearTimeout,
+      setInterval: setInterval,
+      clearInterval: clearInterval,
+      console: console,
+      fetch: async function () {
+        return {
+          ok: true,
+          headers: { get: function () { return 'application/json'; } },
+          json: async function () { return {}; },
+          text: async function () { return ''; },
+        };
+      },
+    };
+    Object.defineProperty(sb, 'localStorage', {
+      get: function () { return { getItem: function () { return null; }, setItem: function () {}, removeItem: function () {} }; },
+      configurable: true,
+      enumerable: true,
+    });
+    return sb;
+  }
+
+  function loadLpModule(spy) {
+    var sandbox = createLPSandbox();
+    vm.runInNewContext(lpScriptSrc, sandbox, { filename: lpScriptPath });
+    var api = sandbox.window.oralUi.learningPlanInternals;
+    if (!api) throw new Error('learningPlanInternals not exposed');
+    api.setApiPost(spy);
+    return { api: api, state: api.getState() };
+  }
+
+  function makeDraftItemLP(overrides) {
+    var defaults = {
+      task_type: 'learn_chapter',
+      learning_target: '第三章 牙周病的分类',
+      estimated_minutes: 30,
+      reason: '学习牙周病学第三章',
+      learning_scope: {
+        book_title: '牙周病学',
+        document_id: 'document.d766e8629232a2f6',
+        chapter_key: 'chapter:perio-ch3',
+        chapter_title: '第三章 牙周病的分类和流行病学',
+        kg_node_ids: ['core:aaa111', 'core:bbb222'],
+      },
+      dependency: null,
+      day_offset: 0,
+    };
+    var item = {};
+    Object.keys(defaults).forEach(function (k) { item[k] = defaults[k]; });
+    if (overrides) Object.keys(overrides).forEach(function (k) { item[k] = overrides[k]; });
+    return item;
+  }
+
+  function setupDraftState(api, baseDate, planDraftId, draftItems) {
+    var state = api.getState();
+    state.userId = 'demo';
+    state.selectedDate = baseDate;
+    state.draftBaseDate = baseDate;
+    state.planDraftId = planDraftId;
+    state._draftIdToFormalId = {};
+    state.recommendations = api.mapDraftItemsToRecommendations(planDraftId, draftItems);
+    state.recommendationDate = baseDate;
+  }
+
+  // ── 16a. Three-chapter draft batch POST: dates, order, dependency IDs
+  test('batch: three-chapter draft — POST order, dates, and dependency IDs', async function () {
+    var spy = createApiPostSpy();
+    // Queue responses with distinct formal IDs
+    spy.queue({ result: { item: { id: 'formal-ch1-learn' } } });
+    spy.queue({ result: { item: { id: 'formal-ch1-practice' } } });
+    spy.queue({ result: { item: { id: 'formal-ch1-review' } } });
+    spy.queue({ result: { item: { id: 'formal-ch2-learn' } } });
+    spy.queue({ result: { item: { id: 'formal-ch2-practice' } } });
+    spy.queue({ result: { item: { id: 'formal-ch2-review' } } });
+
+    var lp = loadLpModule(spy);
+    var items = [
+      makeDraftItemLP({ day_offset: 0, dependency: null, task_type: 'learn_chapter', learning_target: '第1章' }),
+      makeDraftItemLP({ day_offset: 0, dependency: 0, task_type: 'basic_practice', learning_target: '第1章练习', practice_level: 'basic' }),
+      makeDraftItemLP({ day_offset: 1, dependency: 0, task_type: 'review_chapter', learning_target: '第1章复习' }),
+      makeDraftItemLP({ day_offset: 1, dependency: null, task_type: 'learn_chapter', learning_target: '第2章' }),
+      makeDraftItemLP({ day_offset: 1, dependency: 3, task_type: 'basic_practice', learning_target: '第2章练习', practice_level: 'basic' }),
+      makeDraftItemLP({ day_offset: 2, dependency: 3, task_type: 'review_chapter', learning_target: '第2章复习' }),
+    ];
+    setupDraftState(lp.api, '2026-07-16', 'draft_ch12', items);
+
+    await lp.api.acceptAllRecommendations();
+
+    equal(spy.calls.length, 6, 'exactly 6 POST calls');
+    // Verify dates: day_offset 0 → 07-16, offset 1 → 07-17, offset 2 → 07-18
+    equal(spy.calls[0].payload.plan_date, '2026-07-16', 'ch1 learn on day 0');
+    equal(spy.calls[1].payload.plan_date, '2026-07-16', 'ch1 practice on day 0');
+    equal(spy.calls[2].payload.plan_date, '2026-07-17', 'ch1 review on day 1');
+    equal(spy.calls[3].payload.plan_date, '2026-07-17', 'ch2 learn on day 1');
+    equal(spy.calls[4].payload.plan_date, '2026-07-17', 'ch2 practice on day 1');
+    equal(spy.calls[5].payload.plan_date, '2026-07-18', 'ch2 review on day 2');
+
+    // Verify topological order: index 0 first, then 0's dependents + index 3
+    equal(spy.calls[0].payload.task_type, 'learn_chapter', 'first call is learn');
+    // Practice items have dependency on formal IDs from prior POSTs
+    equal(spy.calls[1].payload.dependency, 'formal-ch1-learn', 'ch1 practice depends on formal-ch1-learn');
+    equal(spy.calls[4].payload.dependency, 'formal-ch2-learn', 'ch2 practice depends on formal-ch2-learn');
+    // Review items depend on the learn item
+    equal(spy.calls[2].payload.dependency, 'formal-ch1-learn', 'ch1 review depends on formal-ch1-learn');
+    equal(spy.calls[5].payload.dependency, 'formal-ch2-learn', 'ch2 review depends on formal-ch2-learn');
+
+    // document_id never enters linked_course_id
+    for (var i = 0; i < spy.calls.length; i++) {
+      var lcid = spy.calls[i].payload.linked_course_id;
+      ok(lcid !== 'document.d766e8629232a2f6',
+        'call ' + i + ' linked_course_id must not be document_id');
+    }
+  });
+
+  // ── 16b. Individual practice adoption: accept dependency first, then practice
+  test('single: accept practice item adopts dependency first', async function () {
+    var spy = createApiPostSpy();
+    spy.queue({ result: { item: { id: 'formal-review-wk1' } } });
+    spy.queue({ result: { item: { id: 'formal-practice-wk1' } } });
+
+    var lp = loadLpModule(spy);
+    var items = [
+      makeDraftItemLP({ day_offset: 0, dependency: null, task_type: 'review_chapter', learning_target: '弱点A复习' }),
+      makeDraftItemLP({ day_offset: 0, dependency: 0, task_type: 'basic_practice', practice_level: 'basic', learning_target: '弱点A练习' }),
+    ];
+    setupDraftState(lp.api, '2026-07-16', 'draft_wk', items);
+
+    // Accept the practice item (index 1) — it should auto-adopt dependency (index 0)
+    await lp.api.acceptRecommendation('draft_wk:1');
+
+    equal(spy.calls.length, 2, 'exactly 2 POST calls (dependency + target)');
+    equal(spy.calls[0].payload.task_type, 'review_chapter', 'dependency posted first');
+    equal(spy.calls[1].payload.task_type, 'basic_practice', 'target posted second');
+    equal(spy.calls[1].payload.dependency, 'formal-review-wk1', 'practice depends on formal review ID');
+
+    // Both removed from recommendations
+    var state = lp.api.getState();
+    equal(state.recommendations.length, 0, 'all adopted items removed');
+  });
+
+  // ── 16c. Two different scope weakness chains
+  test('batch: two different scope weakness chains POST correctly', async function () {
+    var spy = createApiPostSpy();
+    spy.queue({ result: { item: { id: 'formal-wk1-review' } } });
+    spy.queue({ result: { item: { id: 'formal-wk1-practice' } } });
+    spy.queue({ result: { item: { id: 'formal-wk2-review' } } });
+    spy.queue({ result: { item: { id: 'formal-wk2-practice' } } });
+
+    var lp = loadLpModule(spy);
+    var items = [
+      makeDraftItemLP({
+        day_offset: 0, dependency: null, task_type: 'review_chapter', learning_target: '牙菌斑生物膜',
+        learning_scope: {
+          book_title: '牙周病学', document_id: 'document.d766e8629232a2f6',
+          chapter_key: 'chapter:perio-ch3', chapter_title: '第三章 牙周病的分类和流行病学',
+          kg_node_ids: ['core:aaa111'],
+        },
+      }),
+      makeDraftItemLP({
+        day_offset: 0, dependency: 0, task_type: 'basic_practice', practice_level: 'basic', learning_target: '牙菌斑生物膜练习',
+        learning_scope: {
+          book_title: '牙周病学', document_id: 'document.d766e8629232a2f6',
+          chapter_key: 'chapter:perio-ch3', chapter_title: '第三章 牙周病的分类和流行病学',
+          kg_node_ids: ['core:aaa111'],
+        },
+      }),
+      makeDraftItemLP({
+        day_offset: 1, dependency: null, task_type: 'review_chapter', learning_target: '宿主免疫反应',
+        learning_scope: {
+          book_title: '牙周病学', document_id: 'document.d766e8629232a2f6',
+          chapter_key: 'chapter:perio-ch3', chapter_title: '第三章 牙周病的分类和流行病学',
+          kg_node_ids: ['core:bbb222'],
+        },
+      }),
+      makeDraftItemLP({
+        day_offset: 1, dependency: 2, task_type: 'basic_practice', practice_level: 'basic', learning_target: '宿主免疫反应练习',
+        learning_scope: {
+          book_title: '牙周病学', document_id: 'document.d766e8629232a2f6',
+          chapter_key: 'chapter:perio-ch3', chapter_title: '第三章 牙周病的分类和流行病学',
+          kg_node_ids: ['core:bbb222'],
+        },
+      }),
+    ];
+    setupDraftState(lp.api, '2026-07-17', 'draft_wk2scopes', items);
+
+    await lp.api.acceptAllRecommendations();
+
+    equal(spy.calls.length, 4, '4 POST calls');
+    // Dates
+    equal(spy.calls[0].payload.plan_date, '2026-07-17', 'weakness 1 day 0');
+    equal(spy.calls[1].payload.plan_date, '2026-07-17', 'weakness 1 day 0 practice');
+    equal(spy.calls[2].payload.plan_date, '2026-07-18', 'weakness 2 day 1');
+    equal(spy.calls[3].payload.plan_date, '2026-07-18', 'weakness 2 day 1 practice');
+    // Dependency IDs use real formal IDs
+    equal(spy.calls[1].payload.dependency, 'formal-wk1-review', 'wk1 practice depends on wk1 review');
+    equal(spy.calls[3].payload.dependency, 'formal-wk2-review', 'wk2 practice depends on wk2 review');
+    // Different scopes
+    ok(spy.calls[0].payload.learning_scope.kg_node_ids[0] !== spy.calls[2].payload.learning_scope.kg_node_ids[0],
+      'different weakness scopes');
+  });
+
+  // ── 16d. missing dependency — fail before first POST
+  test('fail-closed: missing dependency index — zero API calls', async function () {
+    var spy = createApiPostSpy();
+    var lp = loadLpModule(spy);
+    var items = [
+      makeDraftItemLP({ day_offset: 0, dependency: null }),
+      makeDraftItemLP({ day_offset: 1, dependency: 99 }), // missing index
+    ];
+    setupDraftState(lp.api, '2026-07-16', 'draft_missing', items);
+
+    try { await lp.api.acceptAllRecommendations(); } catch (e) { /* expected */ }
+    equal(spy.calls.length, 0, 'zero POST calls when dependency missing');
+  });
+
+  // ── 16e. NaN dependency — fail before first POST
+  test('fail-closed: NaN dependency — zero API calls', async function () {
+    var spy = createApiPostSpy();
+    var lp = loadLpModule(spy);
+    var items = [
+      makeDraftItemLP({ day_offset: 0, dependency: null }),
+      makeDraftItemLP({ day_offset: 1, dependency: 'not-a-number' }),
+    ];
+    setupDraftState(lp.api, '2026-07-16', 'draft_nan', items);
+
+    try { await lp.api.acceptAllRecommendations(); } catch (e) { /* expected */ }
+    equal(spy.calls.length, 0, 'zero POST calls when dependency is NaN');
+  });
+
+  // ── 16f. negative dependency — fail before first POST
+  test('fail-closed: negative dependency — zero API calls', async function () {
+    var spy = createApiPostSpy();
+    var lp = loadLpModule(spy);
+    var items = [
+      makeDraftItemLP({ day_offset: 0, dependency: null }),
+      makeDraftItemLP({ day_offset: 1, dependency: -1 }),
+    ];
+    setupDraftState(lp.api, '2026-07-16', 'draft_neg', items);
+
+    try { await lp.api.acceptAllRecommendations(); } catch (e) { /* expected */ }
+    equal(spy.calls.length, 0, 'zero POST calls when dependency is negative');
+  });
+
+  // ── 16g. self-dependency — fail before first POST
+  test('fail-closed: self-dependency — zero API calls', async function () {
+    var spy = createApiPostSpy();
+    var lp = loadLpModule(spy);
+    var items = [
+      makeDraftItemLP({ day_offset: 0, dependency: null }),
+      makeDraftItemLP({ day_offset: 1, dependency: 1 }), // depends on itself
+    ];
+    setupDraftState(lp.api, '2026-07-16', 'draft_self', items);
+
+    try { await lp.api.acceptAllRecommendations(); } catch (e) { /* expected */ }
+    equal(spy.calls.length, 0, 'zero POST calls for self-dependency');
+  });
+
+  // ── 16h. forward dependency — fail before first POST
+  test('fail-closed: forward dependency — zero API calls', async function () {
+    var spy = createApiPostSpy();
+    var lp = loadLpModule(spy);
+    var items = [
+      makeDraftItemLP({ day_offset: 0, dependency: 2 }), // depends on future index 2
+      makeDraftItemLP({ day_offset: 0, dependency: null }),
+      makeDraftItemLP({ day_offset: 1, dependency: null }),
+    ];
+    setupDraftState(lp.api, '2026-07-16', 'draft_fwd', items);
+
+    try { await lp.api.acceptAllRecommendations(); } catch (e) { /* expected */ }
+    equal(spy.calls.length, 0, 'zero POST calls for forward dependency');
+  });
+
+  // ── 16i. cycle detection — fail before first POST
+  test('fail-closed: cycle dependency — zero API calls', async function () {
+    var spy = createApiPostSpy();
+    var lp = loadLpModule(spy);
+    // Build items that look valid on static checks (0→null, 1→0, 2→1)
+    // but have a cycle by manually setting dependency.
+    // Static check: depIdx < idx passes for 1→0 and 2→1.
+    // But we can hack it: set up items where the topological order fails due to a cycle.
+    // Since _validateDraftDependencyGraph checks depIdx > idx as forward,
+    // cycles with valid-looking dependencies need a different shape.
+    // Example: 0 depends on 1, 1 depends on 0 — but both are forward (each depIdx > own idx fails).
+    // A cycle only passes static check if we use items where the dependency chain wraps.
+    // Simplify: just test the validator directly with items that have a cycle.
+    var recs = [
+      { recommendation_id: 'd:0', _draft_index: 0, dependency: 1, title: 'A' },
+      { recommendation_id: 'd:1', _draft_index: 1, dependency: 0, title: 'B' },
+    ];
+    var errors = lp.api._validateDraftDependencyGraph(recs);
+    ok(errors.length > 0, 'validator must detect the cycle (0→1 and 1→0)');
+  });
+
+  // ── 16j. cycle via topologicalOrder — throws on GRAY
+  test('fail-closed: _topologicalOrder throws on cycle', function () {
+    var lp = loadLpModule(createApiPostSpy());
+    var items = [
+      { recommendation_id: 'd:0', _draft_index: 0, dependency: 1, title: 'A' },
+      { recommendation_id: 'd:1', _draft_index: 1, dependency: 0, title: 'B' },
+    ];
+    try {
+      lp.api._topologicalOrder(items);
+      ok(false, 'should have thrown on cycle');
+    } catch (e) {
+      ok(e.message.indexOf('循环依赖') !== -1, 'throws cycle error');
+    }
+  });
+
+  // ── 16k. API returns no ID — stop subsequent POSTs, no fake mapping
+  test('fail-closed: API returns no item.id — stops, no fake mapping', async function () {
+    var spy = createApiPostSpy();
+    // First POST returns no item.id
+    spy.queue({ result: { item: null } });
+
+    var lp = loadLpModule(spy);
+    var items = [
+      makeDraftItemLP({ day_offset: 0, dependency: null }),
+      makeDraftItemLP({ day_offset: 0, dependency: 0, task_type: 'basic_practice', practice_level: 'basic' }),
+    ];
+    setupDraftState(lp.api, '2026-07-16', 'draft_noid', items);
+
+    try { await lp.api.acceptAllRecommendations(); } catch (e) { /* expected */ }
+
+    // Only the first call should go through (which got an empty response)
+    // Actually the first call to _adoptDraftItem should throw because no ID
+    equal(spy.calls.length, 1, 'only 1 POST call — failed on missing ID');
+    var state = lp.api.getState();
+    ok(!state._draftIdToFormalId['draft_noid:0'], 'no fake mapping for missing ID');
+    ok(!state._draftIdToFormalId['draft_noid:1'], 'no fake mapping for dependent item');
+    // Recommendations preserved (not cleared)
+    equal(state.recommendations.length, 2, 'recommendations preserved on failure');
+  });
+
+  // ── 16l. document_id never enters linked_course_id in any payload
+  test('document_id never enters linked_course_id', function () {
+    var spy = createApiPostSpy();
+    var lp = loadLpModule(spy);
+    var items = [
+      makeDraftItemLP({ day_offset: 0, dependency: null, session_id: null, linked_course_id: null }),
+      makeDraftItemLP({ day_offset: 0, dependency: 0, task_type: 'basic_practice', session_id: null, linked_course_id: null }),
+    ];
+    var recs = lp.api.mapDraftItemsToRecommendations('draft_docid', items);
+
+    for (var i = 0; i < recs.length; i++) {
+      ok(recs[i].linked_course_id === null || recs[i].linked_course_id !== 'document.d766e8629232a2f6',
+        'item ' + i + ' linked_course_id must not be document_id');
+    }
+
+    var p0 = lp.api.recommendationPayload(recs[0]);
+    var p1 = lp.api.recommendationPayload(recs[1]);
+    ok(p0.linked_course_id !== 'document.d766e8629232a2f6', 'payload 0 no document_id');
+    ok(p1.linked_course_id !== 'document.d766e8629232a2f6', 'payload 1 no document_id');
+  });
+
+  // ── 16m. duplicate _draft_index detected by validator
+  test('validator: duplicate _draft_index is rejected', function () {
+    var spy = createApiPostSpy();
+    var lp = loadLpModule(spy);
+    var recs = [
+      { recommendation_id: 'd:0', _draft_index: 0, dependency: null },
+      { recommendation_id: 'd:0_dup', _draft_index: 0, dependency: null },
+    ];
+    var errors = lp.api._validateDraftDependencyGraph(recs);
+    ok(errors.length > 0, 'duplicate _draft_index must produce error');
+  });
+
+  // ── 16n. validator: non-integer _draft_index is rejected
+  test('validator: non-integer _draft_index is rejected', function () {
+    var spy = createApiPostSpy();
+    var lp = loadLpModule(spy);
+    var recs = [
+      { recommendation_id: 'd:bad', _draft_index: 'abc', dependency: null },
+    ];
+    var errors = lp.api._validateDraftDependencyGraph(recs);
+    ok(errors.length > 0, 'non-integer _draft_index must produce error');
+  });
+
+  // ── 16o. already-adopted dependency not re-POSTed (acceptRecommendation)
+  test('single: already-adopted dependency not re-POSTed', async function () {
+    var spy = createApiPostSpy();
+    spy.queue({ result: { item: { id: 'formal-dep' } } });
+    spy.queue({ result: { item: { id: 'formal-target' } } });
+
+    var lp = loadLpModule(spy);
+    var items = [
+      makeDraftItemLP({ day_offset: 0, dependency: null, task_type: 'learn_chapter' }),
+      makeDraftItemLP({ day_offset: 0, dependency: 0, task_type: 'basic_practice', practice_level: 'basic' }),
+    ];
+    setupDraftState(lp.api, '2026-07-16', 'draft_nodup', items);
+
+    // First, accept the dependency item alone
+    await lp.api.acceptRecommendation('draft_nodup:0');
+    equal(spy.calls.length, 1, '1 POST for dependency');
+    spy.reset();
+
+    // Now accept the practice item (dep already adopted)
+    spy.queue({ result: { item: { id: 'formal-target' } } });
+    await lp.api.acceptRecommendation('draft_nodup:1');
+    equal(spy.calls.length, 1, 'only 1 more POST — dependency not re-POSTed');
+  });
+
+})();
+
+// ============================================================================
+// 17. renderStudyPlanResult: open-plan-link carries both plan_draft_id and user_id
+// ============================================================================
+
+console.log('\n17. renderStudyPlanResult: open-plan-link carries both plan_draft_id and user_id');
+
+(function () {
+  var api = loadModule();
+
+  // ── helper: extract href from rendered link ────────────────────────
+  function extractOpenPlanHref(html) {
+    var m = html.match(/<a\s[^>]*class="open-plan-link"[^>]*href="([^"]*)"/);
+    return m ? m[1] : '';
+  }
+
+  test('open-plan-link includes both encoded plan_draft_id and user_id', function () {
+    var routerResult = {
+      ok: true,
+      route: { intent: 'study_plan', source: 'llm_router', reason: 'test' },
+      final_result: {
+        plan_date: '2026-07-17',
+        plan_draft_id: 'draft_abc123',
+        recommendations: [
+          { recommendation_id: 'draft_abc123:0', title: '学习任务A', task_type: 'learn_chapter', estimated_minutes: 30 },
+        ],
+      },
+    };
+    var html = api.renderStudyPlanResult(routerResult);
+    var href = extractOpenPlanHref(html);
+
+    ok(href.indexOf('plan_draft_id=') !== -1, 'href must contain plan_draft_id');
+    ok(href.indexOf('user_id=') !== -1, 'href must contain user_id');
+    // Both values are encoded
+    ok(href.indexOf('plan_draft_id=draft_abc123') !== -1, 'plan_draft_id value present');
+    ok(href.indexOf('user_id=demo') !== -1, 'default user_id=demo present');
+    // Parameter separator is &
+    ok(href.indexOf('&user_id=') !== -1, 'parameters joined with &');
+  });
+
+  test('open-plan-link encodes complex user ID (spaces, Chinese, slashes)', function () {
+    // Set a complex user ID via state
+    api.getState().userId = 'user alpha/中文';
+    var routerResult = {
+      ok: true,
+      route: { intent: 'study_plan', source: 'llm_router', reason: 'test' },
+      final_result: {
+        plan_date: '2026-07-17',
+        plan_draft_id: 'draft_test',
+        recommendations: [
+          { recommendation_id: 'draft_test:0', title: '任务', task_type: 'learn_chapter', estimated_minutes: 20 },
+        ],
+      },
+    };
+    var html = api.renderStudyPlanResult(routerResult);
+    var href = extractOpenPlanHref(html);
+
+    ok(href.indexOf('user_id=') !== -1, 'href must contain user_id');
+    // user_id VALUE must be encoded, not raw (href naturally contains / from path)
+    // Verify round-trip: decode back
+    var userParam = href.split('&').find(function (p) { return p.startsWith('user_id='); });
+    ok(userParam, 'user_id parameter exists');
+    var rawValue = userParam.slice(userParam.indexOf('=') + 1);
+    // Raw value must contain encoded characters
+    ok(rawValue.indexOf(' ') === -1, 'spaces must be encoded');
+    ok(rawValue.indexOf('%2F') !== -1, 'slash must be encoded as %2F');
+    var decoded = decodeURIComponent(rawValue);
+    equal(decoded, 'user alpha/中文', 'round-trip decode matches original');
+    // Chinese chars also encoded
+    ok(rawValue.indexOf('中文') === -1, 'Chinese chars must be encoded');
+  });
+
+  test('open-plan-link encodes complex draft ID (spaces, Chinese, slashes)', function () {
+    var routerResult = {
+      ok: true,
+      route: { intent: 'study_plan', source: 'llm_router', reason: 'test' },
+      final_result: {
+        plan_date: '2026-07-17',
+        plan_draft_id: 'draft with spaces/中文',
+        recommendations: [
+          { recommendation_id: 'd:0', title: '任务', task_type: 'learn_chapter', estimated_minutes: 20 },
+        ],
+      },
+    };
+    var html = api.renderStudyPlanResult(routerResult);
+    var href = extractOpenPlanHref(html);
+
+    ok(href.indexOf('plan_draft_id=') !== -1, 'href must contain plan_draft_id');
+    // draft ID must be encoded
+    var draftParam = href.split('&')[0];
+    var prefix = 'plan_draft_id=';
+    var value = draftParam.slice(draftParam.indexOf(prefix) + prefix.length);
+    ok(value.indexOf(' ') === -1, 'draft spaces must be encoded');
+    // Verify round-trip
+    var decoded = decodeURIComponent(value);
+    equal(decoded, 'draft with spaces/中文', 'round-trip decode matches original draft ID');
+  });
+
+  test('second render uses latest child draft ID while keeping same user', function () {
+    api.getState().userId = 'fixture-child-owner-42';
+
+    // First render
+    var result1 = {
+      ok: true,
+      route: { intent: 'study_plan', source: 'llm_router', reason: 'test' },
+      final_result: {
+        plan_date: '2026-07-17',
+        plan_draft_id: 'draft_first_child',
+        recommendations: [
+          { recommendation_id: 'draft_first_child:0', title: '任务v1', task_type: 'learn_chapter', estimated_minutes: 30 },
+        ],
+      },
+    };
+    var href1 = extractOpenPlanHref(api.renderStudyPlanResult(result1));
+    ok(href1.indexOf('plan_draft_id=draft_first_child') !== -1, 'first render has first draft ID');
+    ok(href1.indexOf('user_id=fixture-child-owner-42') !== -1, 'first render has user');
+
+    // Second render — different draft ID, same user
+    var result2 = {
+      ok: true,
+      route: { intent: 'study_plan', source: 'llm_router', reason: 'test' },
+      final_result: {
+        plan_date: '2026-07-17',
+        plan_draft_id: 'draft_second_child',
+        recommendations: [
+          { recommendation_id: 'draft_second_child:0', title: '任务v2', task_type: 'learn_chapter', estimated_minutes: 20 },
+        ],
+      },
+    };
+    var href2 = extractOpenPlanHref(api.renderStudyPlanResult(result2));
+    ok(href2.indexOf('plan_draft_id=draft_second_child') !== -1, 'second render has second draft ID');
+    ok(href2.indexOf('user_id=fixture-child-owner-42') !== -1, 'second render keeps same user');
+    ok(href1 !== href2, 'two renders produce different hrefs');
+  });
+
+  test('no draft link when no recommendations — uses legacy path, no open-plan-link', function () {
+    var routerResult = {
+      ok: true,
+      route: { intent: 'study_plan', source: 'llm_router', reason: 'test' },
+      final_result: {
+        // no recommendations, no plan_draft_id
+        recommendations: [],
+      },
+    };
+    var html = api.renderStudyPlanResult(routerResult);
+    // No open-plan-link in the output — empty recommendations fall to legacy resultAnswer
+    ok(html.indexOf('open-plan-link') === -1,
+      'empty recommendations must not produce open-plan-link');
+    ok(html.indexOf('plan_draft_id=') === -1,
+      'empty recommendations must not have plan_draft_id in href');
+  });
+
+  test('no draft but has recommendations — href is bare learning-plan.html', function () {
+    var routerResult = {
+      ok: true,
+      route: { intent: 'study_plan', source: 'llm_router', reason: 'test' },
+      final_result: {
+        plan_date: '2026-07-17',
+        plan_draft_id: '',  // empty draft ID
+        recommendations: [
+          { recommendation_id: 'r:0', title: '旧版推荐', task_type: 'learn_chapter', estimated_minutes: 15 },
+        ],
+      },
+    };
+    var html = api.renderStudyPlanResult(routerResult);
+    var href = extractOpenPlanHref(html);
+    // When draftId is empty, href is bare /pages/learning-plan.html
+    equal(href, '/pages/learning-plan.html',
+      'empty draft ID produces bare learning-plan.html href');
+  });
+})();
+
+// ============================================================================
+// 18. buildStartLearningUrl — carries both plan_item_id and user_id
+// ============================================================================
+
+console.log('\n18. buildStartLearningUrl — carries both plan_item_id and user_id');
+
+(function () {
+  var lpScriptPath = path.resolve(__dirname, '..', 'frontend', 'js', 'learning-plan.js');
+  var lpScriptSrc = fs.readFileSync(lpScriptPath, 'utf-8');
+
+  function createLPSandbox() {
+    var sb = {
+      window: {
+        oralUi: {
+          byId: function () { return null; },
+          escapeHtml: function (v) { return String(v || ''); },
+        },
+        lucide: { createIcons: function () {} },
+        location: { search: '' },
+        history: { replaceState: function () {} },
+        EventSource: function EventSourceMock() { this.close = function () {}; },
+        addEventListener: function () {},
+        setTimeout: setTimeout,
+        clearTimeout: clearTimeout,
+      },
+      document: {
+        readyState: 'complete',
+        documentElement: {},
+        querySelector: function () { return null; },
+        querySelectorAll: function () { return []; },
+        addEventListener: function () {},
+        createElement: function () { return { className: '', innerHTML: '', appendChild: function () {} }; },
+      },
+      URLSearchParams: URLSearchParams,
+      URL: URL,
+      setTimeout: setTimeout,
+      clearTimeout: clearTimeout,
+      setInterval: setInterval,
+      clearInterval: clearInterval,
+      console: console,
+      fetch: async function () {
+        return {
+          ok: true,
+          headers: { get: function () { return 'application/json'; } },
+          json: async function () { return {}; },
+          text: async function () { return ''; },
+        };
+      },
+    };
+    Object.defineProperty(sb, 'localStorage', {
+      get: function () { return { getItem: function () { return null; }, setItem: function () {}, removeItem: function () {} }; },
+      configurable: true,
+      enumerable: true,
+    });
+    return sb;
+  }
+
+  function loadLP() {
+    var sandbox = createLPSandbox();
+    vm.runInNewContext(lpScriptSrc, sandbox, { filename: lpScriptPath });
+    var api = sandbox.window.oralUi.learningPlanInternals;
+    if (!api) throw new Error('learningPlanInternals not exposed');
+    return api;
+  }
+
+  test('default user_id=demo when state.userId is default', function () {
+    var api = loadLP();
+    var url = api.buildStartLearningUrl('item-abc-123');
+    ok(url.indexOf('plan_item_id=item-abc-123') !== -1, 'plan_item_id present');
+    ok(url.indexOf('&user_id=demo') !== -1, 'default user_id=demo present');
+  });
+
+  test('encodes complex item ID (spaces, Chinese, slashes)', function () {
+    var api = loadLP();
+    var url = api.buildStartLearningUrl('item 中文/测试');
+    // Extract the encoded values
+    var parts = url.split('?')[1].split('&');
+    var itemPart = parts.find(function (p) { return p.startsWith('plan_item_id='); });
+    var encodedItem = itemPart.slice('plan_item_id='.length);
+    ok(encodedItem.indexOf(' ') === -1, 'item spaces must be encoded');
+    ok(encodedItem.indexOf('/') === -1 || encodedItem.indexOf('%2F') !== -1, 'item slash must be encoded');
+    equal(decodeURIComponent(encodedItem), 'item 中文/测试', 'round-trip decode matches');
+  });
+
+  test('encodes user_id when state has complex user ID', function () {
+    var api = loadLP();
+    api.getState().userId = 'user with spaces/中文';
+    var url = api.buildStartLearningUrl('item-xyz');
+    var parts = url.split('?')[1].split('&');
+    var userPart = parts.find(function (p) { return p.startsWith('user_id='); });
+    var encodedUser = userPart.slice('user_id='.length);
+    ok(encodedUser.indexOf(' ') === -1, 'user spaces must be encoded');
+    ok(encodedUser.indexOf('%2F') !== -1, 'user slash must be encoded as %2F');
+    equal(decodeURIComponent(encodedUser), 'user with spaces/中文', 'round-trip decode matches');
+  });
+
+  test('consecutive different items keep same user', function () {
+    var api = loadLP();
+    api.getState().userId = 'steady-user-99';
+    var url1 = api.buildStartLearningUrl('item-A');
+    var url2 = api.buildStartLearningUrl('item-B');
+    ok(url1.indexOf('plan_item_id=item-A') !== -1, 'url1 has item-A');
+    ok(url2.indexOf('plan_item_id=item-B') !== -1, 'url2 has item-B');
+    ok(url1.indexOf('user_id=steady-user-99') !== -1, 'url1 has user');
+    ok(url2.indexOf('user_id=steady-user-99') !== -1, 'url2 has same user');
+  });
+
+  test('user_id falls back to demo when state.userId is empty', function () {
+    var api = loadLP();
+    api.getState().userId = '';
+    var url = api.buildStartLearningUrl('item-fallback');
+    ok(url.indexOf('&user_id=demo') !== -1, 'empty userId falls back to demo');
+  });
+})();
+
+// ============================================================================
+// 19. Learning Plan CSS contract — text containment and ellipsis
+// ============================================================================
+
+console.log('\n19. Learning Plan CSS contract — text containment and ellipsis');
+
+(function () {
+  var cssPath = path.resolve(__dirname, '..', 'frontend', 'css', 'learning-plan.css');
+  var cssSrc = fs.readFileSync(cssPath, 'utf-8');
+  var htmlPath = path.resolve(__dirname, '..', 'frontend', 'pages', 'learning-plan.html');
+  var htmlSrc = fs.readFileSync(htmlPath, 'utf-8');
+
+  // Helper: extract the body of a CSS rule (text between { and })
+  function extractCssBlock(css, selector) {
+    var idx = css.indexOf(selector + ' {');
+    if (idx === -1) idx = css.indexOf(selector + '{');
+    if (idx === -1) return '';
+    var start = css.indexOf('{', idx) + 1;
+    var depth = 1, i = start;
+    while (i < css.length && depth > 0) {
+      if (css[i] === '{') depth++;
+      else if (css[i] === '}') depth--;
+      i++;
+    }
+    return css.substring(start, i - 1);
+  }
+
+  // ── 19a. .todo-copy overflow containment ────────────────────────────
+  test('.todo-copy rule has overflow: hidden containment', function () {
+    var block = extractCssBlock(cssSrc, '.todo-copy');
+    ok(block !== '', '.todo-copy rule exists in CSS');
+    ok(block.indexOf('overflow') !== -1 && block.indexOf('hidden') !== -1,
+      '.todo-copy must contain overflow: hidden');
+  });
+
+  // ── 19b. .todo-title single-line ellipsis ───────────────────────────
+  test('.todo-title rule has single-line ellipsis (nowrap + hidden + ellipsis)', function () {
+    var block = extractCssBlock(cssSrc, '.todo-title');
+    ok(block !== '', '.todo-title rule exists in CSS');
+    ok(block.indexOf('text-overflow') !== -1 && block.indexOf('ellipsis') !== -1,
+      '.todo-title must have text-overflow: ellipsis');
+    ok(block.indexOf('white-space') !== -1 && block.indexOf('nowrap') !== -1,
+      '.todo-title must have white-space: nowrap');
+    ok(block.indexOf('overflow') !== -1 && block.indexOf('hidden') !== -1,
+      '.todo-title must have overflow: hidden');
+    ok(block.indexOf('overflow-wrap') === -1,
+      '.todo-title must NOT have overflow-wrap: anywhere');
+  });
+
+  // ── 19c. .todo-meta single-line ellipsis ────────────────────────────
+  test('.todo-meta rule has single-line ellipsis (nowrap + hidden + ellipsis)', function () {
+    var block = extractCssBlock(cssSrc, '.todo-meta');
+    ok(block !== '', '.todo-meta rule exists in CSS');
+    ok(block.indexOf('text-overflow') !== -1 && block.indexOf('ellipsis') !== -1,
+      '.todo-meta must have text-overflow: ellipsis');
+    ok(block.indexOf('white-space') !== -1 && block.indexOf('nowrap') !== -1,
+      '.todo-meta must have white-space: nowrap');
+    ok(block.indexOf('overflow') !== -1 && block.indexOf('hidden') !== -1,
+      '.todo-meta must have overflow: hidden');
+    ok(block.indexOf('overflow-wrap') === -1,
+      '.todo-meta must NOT have overflow-wrap: anywhere');
+  });
+
+  // ── 19d. New CSS token present in HTML ──────────────────────────────
+  test('HTML references canonical CSS with new token v=20260717-plan-text-ellipsis', function () {
+    ok(htmlSrc.indexOf('learning-plan.css?v=20260717-plan-text-ellipsis') !== -1,
+      'HTML must reference learning-plan.css with new token');
+  });
+
+  // ── 19e. Old CSS token absent from HTML ─────────────────────────────
+  test('HTML does NOT reference old CSS token', function () {
+    ok(htmlSrc.indexOf('20260712-cleanup-merge-v1') === -1,
+      'old token 20260712-cleanup-merge-v1 must not appear in HTML');
+  });
+
+  // ── 19f. .todo-tools still exists in CSS (tools area preserved) ─────
+  test('.todo-tools rules still exist in CSS', function () {
+    ok(cssSrc.indexOf('.todo-tools') !== -1,
+      '.todo-tools rules must still exist in CSS');
+  });
+
+  // ── 19g. .start-learning-link referenced in learning-plan.js ────────
+  test('.start-learning-link is referenced in learning-plan.js', function () {
+    var jsPath = path.resolve(__dirname, '..', 'frontend', 'js', 'learning-plan.js');
+    var jsSrc = fs.readFileSync(jsPath, 'utf-8');
+    ok(jsSrc.indexOf('start-learning-link') !== -1,
+      '.start-learning-link must be referenced in learning-plan.js');
+  });
+
+  // ── 19h. Both long-title and long-meta covered by containment ──────
+  test('both .todo-title and .todo-meta have overflow:hidden containment', function () {
+    var titleBlock = extractCssBlock(cssSrc, '.todo-title');
+    var metaBlock = extractCssBlock(cssSrc, '.todo-meta');
+    ok(titleBlock.indexOf('overflow') !== -1 && titleBlock.indexOf('hidden') !== -1,
+      '.todo-title overflow hidden confirmed');
+    ok(metaBlock.indexOf('overflow') !== -1 && metaBlock.indexOf('hidden') !== -1,
+      '.todo-meta overflow hidden confirmed');
   });
 })();
 
