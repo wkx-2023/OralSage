@@ -105,6 +105,7 @@ def generate_topic_quiz(
     *,
     topic: str,
     question_count: int = 5,
+    resource_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Build a count-controlled quiz from real question-bank records for a topic."""
     session = memory.get_session(session_id)
@@ -159,7 +160,7 @@ def generate_topic_quiz(
             f"Only {available_count} verified question-bank questions are available for the requested topic."
         )
 
-    return {
+    exam = {
         "schema_version": "learning.topic_quiz.v1",
         "exam_id": f"topic_quiz_{session_id}",
         "session_id": session_id,
@@ -181,6 +182,10 @@ def generate_topic_quiz(
         "warnings": warnings,
         "error": None if questions else "No verified question-bank questions matched the requested topic.",
     }
+    if questions:
+        _write_stage_exam(session_id, exam, resource_root)
+        _record_generated_event(memory, session, exam)
+    return exam
 
 
 def generate_stage_exam(

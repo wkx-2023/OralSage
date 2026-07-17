@@ -968,6 +968,7 @@ class LearningOrchestrator:
                 session_id,
                 topic=topic,
                 question_count=question_count,
+                resource_root=self.resource_root,
             )
         except Exception as exc:
             return {
@@ -1070,6 +1071,23 @@ class LearningOrchestrator:
                 resource_root=self.resource_root,
             ),
         }
+
+    def get_first_handout_section_for_interaction(self, session_id: str) -> dict[str, Any] | None:
+        """Return the first ready handout section for a resource-only request."""
+        outline_record = _require_outline(self.memory, session_id)
+        nodes = list((outline_record.get("outline") or {}).get("nodes") or [])
+        if not nodes:
+            return None
+        node_id = str(nodes[0].get("id") or "")
+        if not node_id:
+            return None
+        cache = get_handout_cache(
+            session_id,
+            node_id,
+            resource_root=self.resource_root,
+        )
+        section = cache.get("handout_section") if self._is_ready_handout_cache(cache) else None
+        return section if isinstance(section, dict) else None
 
     def _prepare_first_handout_section_sync(
         self,

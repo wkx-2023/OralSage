@@ -390,19 +390,25 @@
 
   function renderStageExamHtml(exam) {
     if (!exam || !Array.isArray(exam.questions) || exam.questions.length === 0) return '';
+    if (exam.status === 'submitted' && exam.submission) return renderStageExamSubmission(exam);
+    const sessionId = String(exam.session_id || '');
     const summary = exam.summary || {};
     const questionCount = summary.question_count || exam.questions.length;
     const sectionCount = summary.section_count || 0;
     const questions = exam.questions.map((question, index) => {
+      const questionId = String(question.id || '');
       const options = Array.isArray(question.options) ? question.options : [];
-      const optionHtml = options.map((option) => (
+      const optionHtml = options.map((option, optionIndex) => {
+        const letter = String(option || '').trim().charAt(0).toUpperCase() || String.fromCharCode(65 + optionIndex);
+        return (
         '<label class="stage-exam-chat-option">' +
-          '<input type="radio" disabled>' +
+          '<input type="radio" name="stage-exam-' + escapeHtml(sessionId) + '-' + escapeHtml(questionId) + '" value="' + escapeHtml(letter) + '">' +
           '<span>' + escapeHtml(option) + '</span>' +
         '</label>'
-      )).join('');
+        );
+      }).join('');
       return (
-        '<article class="stage-exam-chat-question">' +
+        '<article class="stage-exam-chat-question" data-stage-exam-question-id="' + escapeHtml(questionId) + '">' +
           '<p class="stage-exam-chat-title">' + (index + 1) + '. ' + escapeHtml(question.stem || '阶段卷题目') + '</p>' +
           '<div class="stage-exam-chat-options">' + optionHtml + '</div>' +
         '</article>'
@@ -410,13 +416,74 @@
     }).join('');
 
     return (
-      '<section class="stage-exam-chat-result">' +
+      '<section class="stage-exam-chat-result" data-stage-exam-card data-session-id="' + escapeHtml(sessionId) + '">' +
         '<h2>阶段卷</h2>' +
         '<p class="stage-exam-chat-meta">共 ' + escapeHtml(String(questionCount)) +
           ' 题' + (sectionCount ? '，覆盖 ' + escapeHtml(String(sectionCount)) + ' 个小节' : '') + '</p>' +
         '<div class="stage-exam-chat-list">' + questions + '</div>' +
+        '<div class="stage-exam-chat-actions"><button type="button" class="learning-action" data-stage-exam-submit>\u63d0\u4ea4\u7b54\u6848</button><p class="stage-exam-chat-feedback" aria-live="polite"></p></div>' +
       '</section>'
     );
+  }
+
+  function renderStageExamSubmission(exam) {
+    const submission = exam.submission || {};
+    const results = Array.isArray(submission.results) ? submission.results : [];
+    const score = Math.round(Number(submission.overall_score || 0) * 100);
+    const questions = results.map((question, index) => {
+      const assessment = question.assessment || {};
+      const isCorrect = Boolean(assessment.is_correct);
+      const explanation = assessment.correct_answer_explanation || question.explanation || assessment.explanation || '';
+      return (
+        '<article class="stage-exam-chat-question ' + (isCorrect ? 'is-correct' : 'is-wrong') + '">' +
+          '<p class="stage-exam-chat-title">' + (index + 1) + '. ' + escapeHtml(question.stem || '') + '</p>' +
+          '<p class="stage-exam-chat-meta">\u4f60\u7684\u7b54\u6848\uff1a' + escapeHtml(question.selected_option || '') + '\uff1b\u6b63\u786e\u7b54\u6848\uff1a' + escapeHtml(question.answer || '') + '</p>' +
+          (explanation ? '<p class="stage-exam-chat-explanation">' + escapeHtml(explanation) + '</p>' : '') +
+        '</article>'
+      );
+    }).join('');
+    return (
+      '<section class="stage-exam-chat-result" data-stage-exam-card>' +
+        '<h2>\u7b54\u9898\u7ed3\u679c</h2>' +
+        '<p class="stage-exam-chat-meta">\u5f97\u5206 ' + escapeHtml(String(score)) + '%\uff0c\u7b54\u5bf9 ' +
+          escapeHtml(String(submission.correct_count || 0)) + '/' + escapeHtml(String(submission.question_count || results.length)) + '</p>' +
+        '<div class="stage-exam-chat-list">' + questions + '</div>' +
+      '</section>'
+    );
+  }
+
+  async function submitStageExamFromChat(button) {
+    const card = button.closest('[data-stage-exam-card]');
+    const sessionId = String(card?.dataset.sessionId || '');
+    const questions = Array.from(card?.querySelectorAll('[data-stage-exam-question-id]') || []);
+    const feedback = card?.querySelector('.stage-exam-chat-feedback');
+    if (!sessionId || !questions.length) return;
+    const answers = questions.map((question) => ({
+      question_id: question.dataset.stageExamQuestionId || '',
+      selected_option: question.querySelector('input[type="radio"]:checked')?.value || '',
+    }));
+    if (answers.some((answer) => !answer.question_id || !answer.selected_option)) {
+      if (feedback) feedback.textContent = '\u8bf7\u5b8c\u6210\u6240\u6709\u9898\u76ee\u540e\u518d\u63d0\u4ea4\u3002';
+      return;
+    }
+    button.disabled = true;
+    if (feedback) feedback.textContent = '\u6b63\u5728\u8bc4\u5206...';
+    try {
+      const response = await fetch(`/api/learning/session/${encodeURIComponent(sessionId)}/stage-exam/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ answers }),
+      });
+      const body = await response.json();
+      if (!response.ok || !body?.ok || !body?.result) {
+        throw new Error(body?.detail || body?.error || '\u63d0\u4ea4\u5931\u8d25');
+      }
+      card.outerHTML = renderStageExamHtml(body.result);
+      refreshIcons();
+    } catch (error) {
+      button.disabled = false;
+      if (feedback) feedback.textContent = error?.message || '\u63d0\u4ea4\u5931\u8d25';
+    }
   }
 
   function renderSelectPlanCandidates(candidates) {
@@ -660,6 +727,23 @@
     `;
   }
 
+  function renderStandaloneHandout(section) {
+    if (!section || typeof section !== 'object') return '';
+    const content = section.content || {};
+    const overview = String(content.overview || '').trim();
+    const points = Array.isArray(content.key_points) ? content.key_points : [];
+    if (!overview && !points.length) return '';
+    const pointHtml = points.map((point) => {
+      const heading = String(point?.heading || '').trim();
+      const explanation = String(point?.explanation || '').trim();
+      return '<li><strong>' + escapeHtml(heading) + '</strong>' +
+        (explanation ? '<p>' + escapeHtml(explanation) + '</p>' : '') + '</li>';
+    }).join('');
+    return '<section class="standalone-handout"><h3>' + escapeHtml(section.title || '\u8bb2\u4e49') + '</h3>' +
+      (overview ? '<p>' + escapeHtml(overview) + '</p>' : '') +
+      (pointHtml ? '<ul>' + pointHtml + '</ul>' : '') + '</section>';
+  }
+
   function renderStandaloneGenerationResult(routerResult) {
     const final = routerResult?.final_result || {};
     const route = routerResult?.route || {};
@@ -680,6 +764,7 @@
       ? `<a class="learning-action" href="/api/learning/session/${encodeURIComponent(sessionId)}/ppt-status" target="_blank" rel="noreferrer"><i data-lucide="presentation"></i><span>\u67e5\u770b PPT \u72b6\u6001</span></a>`
       : '';
     const quiz = final.stage_exam || (target === 'quiz' ? operation : null);
+    const handout = final.handout_section || operation.handout_section;
 
     return `
       <section class="learning-response standalone-generation-response">
@@ -688,6 +773,7 @@
         </div>
         <div class="assistant-markdown">${formatMarkdown(resultAnswer(routerResult))}</div>
         ${statusLink ? `<div class="learning-actions">${statusLink}</div>` : ''}
+        ${target === 'handout' ? renderStandaloneHandout(handout) : ''}
         ${quiz ? renderStageExamHtml(quiz) : ''}
         ${renderRouteDetails(routerResult)}
       </section>
@@ -1686,6 +1772,11 @@
       chip.addEventListener('click', () => sendMessage(chip.dataset.prompt || chip.textContent || ''));
     });
     byId('agent-chat-log')?.addEventListener('click', (event) => {
+      const stageExamSubmit = event.target.closest('[data-stage-exam-submit]');
+      if (stageExamSubmit) {
+        void submitStageExamFromChat(stageExamSubmit);
+        return;
+      }
       const candidate = event.target.closest('.plan-candidate-btn');
       if (candidate?.dataset.planItemId) {
         autoSubmitPlanItem(candidate.dataset.planItemId, state.userId);

@@ -127,7 +127,13 @@ CLASSIFIER_SYSTEM_PROMPT += (
     "or asks to re-explain the current section, include: "
     '"dispatch_type": "agent" and "target_agent": one of '
     "planner|handout|slides|ppt|tutor|lecture_script|voice|qa|quiz|assessment|continue. "
-    "Otherwise omit both fields and use the complete learning workflow."
+    "Otherwise omit both fields and use the complete learning workflow. "
+    "For an independent quiz request, set target_agent to quiz and include "
+    '"topic" as the requested subject plus "question_count" as an integer from 1 to 20. '
+    "Extract these fields from meaning rather than word order. For example, "
+    "a request equivalent to asking for five questions about periodontitis must return "
+    '{"intent":"learning","dispatch_type":"agent","target_agent":"quiz",'
+    '"topic":"periodontitis","question_count":5,"plan_item_requested":false,"reason":"..."}.'
 )
 
 PLAN_ITEM_MATCHER_SYSTEM_PROMPT = (
@@ -201,6 +207,15 @@ def _validate_route(parsed: dict[str, Any]) -> dict[str, Any] | None:
             return None
         route["dispatch_type"] = "agent"
         route["target_agent"] = target_agent
+        if target_agent == "quiz" and parsed.get("question_count") is not None:
+            question_count = _coerce_int(
+                parsed.get("question_count"),
+                minimum=1,
+                maximum=20,
+            )
+            if question_count is None:
+                return None
+            route["question_count"] = question_count
     return route
 
 
@@ -351,6 +366,7 @@ def _detect_conversational_agent(message: str) -> str | None:
     if (
         any(marker in text for marker in ("\u51fa\u9898", "\u7ec3\u4e60\u9898", "\u5c0f\u6d4b", "\u6d4b\u9a8c\u9898"))
         or ("\u51fa" in text and ("\u9053\u9898" in text or "\u4e2a\u9898" in text))
+        or bool(re.search(r"\u51fa\s*\d*\s*(?:\u9053|\u4e2a).{0,40}\u9898", text))
     ):
         return "quiz"
     if any(marker in text for marker in ("\u91cd\u65b0\u8bb2", "\u518d\u8bb2\u4e00\u904d", "\u7b80\u5355\u4e00\u70b9", "\u8be6\u7ec6\u4e00\u70b9")):
@@ -408,6 +424,8 @@ def _extract_standalone_topic(message: str, target: str) -> str:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
     if target == "quiz":
         text = re.sub(r"\u51fa\s*\d*\s*(?:\u9053|\u4e2a)?\s*\u9898", "", text)
+        text = re.sub(r"^\u51fa\s*\d*\s*(?:\u9053|\u4e2a)\s*", "", text)
+        text = re.sub(r"(?:\u7684)?\u9898$", "", text)
         text = re.sub(r"\u51fa\u9898|\u5c0f\u6d4b", "", text)
         text = re.sub(r"^\u9488\u5bf9\s*", "", text)
     return _normalize_learning_topic(text.strip(" \uff0c\u3002\uff1a:,-"))
@@ -417,7 +435,7 @@ def _requested_quiz_question_count(value: Any) -> int:
     direct_count = _coerce_int(value, minimum=1, maximum=20)
     if direct_count is not None:
         return direct_count
-    match = re.search(r"(\d{1,2})\s*(?:\u9053|\u4e2a)\s*\u9898", str(value or ""))
+    match = re.search(r"(\d{1,2})\s*(?:\u9053|\u4e2a)(?:.{0,40}?\u9898)", str(value or ""))
     if not match:
         return 5
     return max(1, min(int(match.group(1)), 20))
@@ -581,6 +599,19 @@ class MasterRouter:
         session_id = str(ctx.get("session_id") or "").strip()
         conversational_agent = _detect_conversational_agent(message)
         if session_id and conversational_agent:
+            standalone_topic = (
+                _extract_standalone_topic(message, conversational_agent)
+                if conversational_agent in STANDALONE_BOOTSTRAP_AGENTS
+                else ""
+            )
+            if standalone_topic:
+                return await self.dispatch_agent(
+                    conversational_agent,
+                    message=message,
+                    user_id=user_id,
+                    history=history,
+                    context={**ctx, "session_id": "", "topic": standalone_topic},
+                )
             return await self.dispatch_agent(
                 conversational_agent,
                 message=message,
@@ -758,7 +789,12 @@ class MasterRouter:
         try:
             if target == "handout":
                 result = await asyncio.to_thread(self.learning_orchestrator.retry_failed_resources, session_id)
-                next_action = "wait_for_resources"
+                handout_section = self.learning_orchestrator.get_first_handout_section_for_interaction(session_id)
+                if handout_section:
+                    result = {**result, "handout_section": handout_section}
+                    next_action = "show_resource"
+                else:
+                    next_action = "wait_for_resources"
             elif target in {"slides", "ppt"}:
                 result = await asyncio.to_thread(self.learning_orchestrator.rebuild_ppt_resources, session_id)
                 next_action = "wait_for_resources"
@@ -1119,12 +1155,25 @@ class MasterRouter:
         if route.get("dispatch_type") == "agent":
             target_agent = str(route.get("target_agent") or "").strip()
             if target_agent:
-                return await self.dispatch_agent(
+                dispatch_context = dict(context or {})
+                if route.get("topic"):
+                    dispatch_context["topic"] = route["topic"]
+                if route.get("question_count") is not None:
+                    dispatch_context["quiz_question_count"] = route["question_count"]
+                dispatched = await self.dispatch_agent(
                     target_agent,
                     message=message,
                     user_id=user_id,
-                    context=context,
+                    context=dispatch_context,
                 )
+                dispatched_route = dispatched.get("route") if isinstance(dispatched, dict) else None
+                if isinstance(dispatched_route, dict):
+                    dispatched["route"] = {
+                        **dispatched_route,
+                        "source": route.get("source", dispatched_route.get("source")),
+                        "reason": route.get("reason", dispatched_route.get("reason")),
+                    }
+                return dispatched
 
         if route.get("plan_item_requested") is not True:
             topic = _normalize_learning_topic(route.get("topic") or message)

@@ -75,6 +75,46 @@ class TestStandaloneQuizParsing:
         assert _requested_quiz_question_count(message) == 5
         assert _requested_quiz_question_count("\u9488\u5bf9\u7259\u5468\u708e\u51fa 1 \u9053\u9898") == 1
 
+    def test_topic_and_count_accept_subject_between_quantity_and_question(self):
+        message = "\u5e2e\u6211\u51fa5\u9053\u7259\u5468\u708e\u7684\u9898"
+        assert _extract_standalone_topic(message, "quiz") == "\u7259\u5468\u708e"
+        assert _requested_quiz_question_count(message) == 5
+
+    def test_explicit_resource_topic_is_available_for_standalone_dispatch(self):
+        assert _extract_standalone_topic("\u751f\u6210\u7259\u5468\u708e\u8bb2\u4e49", "handout") == "\u7259\u5468\u708e"
+
+    def test_llm_quiz_route_preserves_structured_slots(self):
+        route = _validate_route({
+            "intent": "learning",
+            "plan_item_requested": False,
+            "dispatch_type": "agent",
+            "target_agent": "quiz",
+            "topic": "\u7259\u5468\u708e",
+            "question_count": 5,
+            "reason": "\u51fa\u7ec3\u4e60\u9898",
+        })
+        assert route is not None
+        assert route["target_agent"] == "quiz"
+        assert route["topic"] == "\u7259\u5468\u708e"
+        assert route["question_count"] == 5
+
+    @pytest.mark.asyncio
+    async def test_explicit_topic_resource_bypasses_existing_session(self, mock_orchestrator):
+        router = MasterRouter(mock_orchestrator)
+        router.dispatch_agent = AsyncMock(return_value={"ok": True})
+
+        await router.route(
+            "\u751f\u6210\u7259\u5468\u708e\u8bb2\u4e49",
+            "demo",
+            context={"session_id": "formal-session"},
+        )
+
+        args = router.dispatch_agent.await_args.args
+        kwargs = router.dispatch_agent.await_args.kwargs
+        assert args[0] == "handout"
+        assert kwargs["context"]["session_id"] == ""
+        assert kwargs["context"]["topic"] == "\u7259\u5468\u708e"
+
 
 class TestValidateRoute:
     """Server-side enum validation."""

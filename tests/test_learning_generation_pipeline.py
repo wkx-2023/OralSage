@@ -138,6 +138,7 @@ class StageExamTests(unittest.TestCase):
                         session["id"],
                         topic="Target topic",
                         question_count=2,
+                        resource_root=Path(tmp),
                     )
 
                 self.assertEqual(exam["status"], "ready")
@@ -146,6 +147,14 @@ class StageExamTests(unittest.TestCase):
                 self.assertTrue(
                     all(question["source"] == "question_bank.topic_match" for question in exam["questions"])
                 )
+                submitted = submit_stage_exam(
+                    memory,
+                    session["id"],
+                    [{"question_id": exam["questions"][0]["id"], "selected_option": "A"}],
+                    resource_root=Path(tmp),
+                )
+                self.assertEqual(submitted["status"], "submitted")
+                self.assertEqual(submitted["submission"]["question_count"], 1)
             finally:
                 memory._conn.close()
 
