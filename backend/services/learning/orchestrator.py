@@ -50,7 +50,7 @@ from .resource_factory import (
     generate_slides_resource_from_session_cache,
 )
 from .resource_factory import generate_handout_section as _generate_handout_section
-from .stage_exam import generate_stage_exam, load_stage_exam, public_stage_exam
+from .stage_exam import generate_stage_exam, generate_topic_quiz, load_stage_exam, public_stage_exam
 from .tutor import build_tutor_step as _build_tutor_step
 from .tutor import build_tutor_signals
 from .user_model import merge_profile, update_profile_from_assessment, update_profile_from_qa
@@ -951,6 +951,33 @@ class LearningOrchestrator:
                 "questions": [],
                 "summary": {"question_count": 0, "section_count": 0},
                 "error": f"stage_exam_generation_raised: {exc}",
+            }
+        return public_stage_exam(exam, include_answers=False)
+
+    def generate_topic_quiz_for_interaction(
+        self,
+        session_id: str,
+        *,
+        topic: str,
+        question_count: int = 5,
+    ) -> dict[str, Any]:
+        """Generate a count-controlled quiz for a standalone topic request."""
+        try:
+            exam = generate_topic_quiz(
+                self.memory,
+                session_id,
+                topic=topic,
+                question_count=question_count,
+            )
+        except Exception as exc:
+            return {
+                "schema_version": "learning.topic_quiz.v1",
+                "session_id": session_id,
+                "topic": topic,
+                "status": "failed",
+                "questions": [],
+                "summary": {"question_count": 0, "requested_question_count": question_count},
+                "error": f"topic_quiz_generation_raised: {exc}",
             }
         return public_stage_exam(exam, include_answers=False)
 

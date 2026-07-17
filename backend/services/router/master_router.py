@@ -409,7 +409,18 @@ def _extract_standalone_topic(message: str, target: str) -> str:
     if target == "quiz":
         text = re.sub(r"\u51fa\s*\d*\s*(?:\u9053|\u4e2a)?\s*\u9898", "", text)
         text = re.sub(r"\u51fa\u9898|\u5c0f\u6d4b", "", text)
+        text = re.sub(r"^\u9488\u5bf9\s*", "", text)
     return _normalize_learning_topic(text.strip(" \uff0c\u3002\uff1a:,-"))
+
+
+def _requested_quiz_question_count(value: Any) -> int:
+    direct_count = _coerce_int(value, minimum=1, maximum=20)
+    if direct_count is not None:
+        return direct_count
+    match = re.search(r"(\d{1,2})\s*(?:\u9053|\u4e2a)\s*\u9898", str(value or ""))
+    if not match:
+        return 5
+    return max(1, min(int(match.group(1)), 20))
 
 
 def _deterministic_route(message: str) -> dict[str, Any] | None:
@@ -692,7 +703,12 @@ class MasterRouter:
                         message=message,
                         user_id=user_id,
                         history=history,
-                        context={**ctx, "session_id": standalone_session_id},
+                        context={
+                            **ctx,
+                            "session_id": standalone_session_id,
+                            "standalone_topic": topic,
+                            "quiz_question_count": _requested_quiz_question_count(message),
+                        },
                     )
                     if not nested.get("ok"):
                         return nested
@@ -762,10 +778,21 @@ class MasterRouter:
                 )
                 next_action = "wait_for_resources"
             elif target == "quiz":
-                result = await asyncio.to_thread(
-                    self.learning_orchestrator.ensure_stage_exam_for_interaction,
-                    session_id,
-                )
+                standalone_topic = str(ctx.get("standalone_topic") or "").strip()
+                if standalone_topic:
+                    result = await asyncio.to_thread(
+                        self.learning_orchestrator.generate_topic_quiz_for_interaction,
+                        session_id,
+                        topic=standalone_topic,
+                        question_count=_requested_quiz_question_count(
+                            ctx.get("quiz_question_count")
+                        ),
+                    )
+                else:
+                    result = await asyncio.to_thread(
+                        self.learning_orchestrator.ensure_stage_exam_for_interaction,
+                        session_id,
+                    )
                 next_action = "show_stage_exam"
             elif target == "qa":
                 question = str(ctx.get("question") or message).strip()
@@ -786,6 +813,14 @@ class MasterRouter:
         except Exception as exc:
             logger.exception("registered agent dispatch failed: %s", target)
             return self._dispatch_error(route, f"{target} failed: {exc}")
+
+        if target == "quiz" and (
+            result.get("status") != "ready" or not result.get("questions")
+        ):
+            return self._dispatch_error(
+                route,
+                str(result.get("error") or "No usable quiz questions were generated."),
+            )
 
         if isinstance(result, dict):
             result = {

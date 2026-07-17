@@ -41,7 +41,10 @@ from backend.services.learning.ppt_pipeline import (
 )
 from backend.services.learning.resource_factory import generate_handout_section
 from backend.services.learning.stage_exam import (
+    _contains_legacy_fallback_question,
+    _questions_from_question_bank,
     generate_stage_exam,
+    generate_topic_quiz,
     public_stage_exam,
     submit_stage_exam,
 )
@@ -81,6 +84,110 @@ def _node_evidence_with_edges(count: int = 17) -> tuple[dict, list[str]]:
 
 
 class StageExamTests(unittest.TestCase):
+    def test_topic_quiz_respects_requested_question_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = LearningMemory(Path(tmp) / "learning.sqlite3")
+            try:
+                session = memory.create_session("u1", "Target topic")
+                rows = [
+                    {
+                        "question_id": f"question:{index}",
+                        "source_question_id": f"source-{index}",
+                        "stem": f"Target question {index}",
+                        "answer": "A",
+                        "chapter": "Target topic chapter",
+                        "primary_node_id": f"kg://target/{index}",
+                        "primary_knowledge_point": f"Target point {index}",
+                        "verification_status": "linked",
+                        "match_status": "strong_match",
+                    }
+                    for index in range(1, 4)
+                ]
+                rows.append(
+                    {
+                        "question_id": "question:other",
+                        "source_question_id": "source-other",
+                        "stem": "Other question",
+                        "answer": "A",
+                        "chapter": "Other topic chapter",
+                        "primary_node_id": "kg://other/1",
+                        "primary_knowledge_point": "Other point",
+                        "verification_status": "linked",
+                    }
+                )
+                full_records = [
+                    {
+                        "id": f"source-{index}",
+                        "stem": f"Target question {index}",
+                        "options": {"A": "Correct", "B": "Wrong"},
+                        "answer": "A",
+                    }
+                    for index in range(1, 4)
+                ]
+                bank = {
+                    "kag_rows": rows,
+                    "full_records": full_records,
+                    "full_by_id": {record["id"]: record for record in full_records},
+                }
+                with patch(
+                    "backend.services.learning.stage_exam._load_stage_exam_question_bank",
+                    return_value=bank,
+                ):
+                    exam = generate_topic_quiz(
+                        memory,
+                        session["id"],
+                        topic="Target topic",
+                        question_count=2,
+                    )
+
+                self.assertEqual(exam["status"], "ready")
+                self.assertEqual(exam["summary"]["requested_question_count"], 2)
+                self.assertEqual(len(exam["questions"]), 2)
+                self.assertTrue(
+                    all(question["source"] == "question_bank.topic_match" for question in exam["questions"])
+                )
+            finally:
+                memory._conn.close()
+
+    def test_legacy_fallback_questions_are_detected_in_cached_exam(self) -> None:
+        self.assertTrue(
+            _contains_legacy_fallback_question(
+                {"questions": [{"source": "stage_exam.fallback"}]}
+            )
+        )
+        self.assertFalse(
+            _contains_legacy_fallback_question(
+                {"questions": [{"source": "question_bank.full_options"}]}
+            )
+        )
+
+    def test_question_bank_rejects_explicit_question_id_bound_to_another_kg_node(self) -> None:
+        questions = _questions_from_question_bank(
+            node={
+                "id": "node_1",
+                "title": "Target topic",
+                "kg_node_ids": ["kg://subject/chapter/core_target"],
+                "question_ids": ["question:wrong-node"],
+            },
+            node_index=1,
+            question_bank={
+                "kag_rows": [
+                    {
+                        "question_id": "question:wrong-node",
+                        "source_question_id": "source-wrong-node",
+                        "stem": "Target topic question",
+                        "answer": "A",
+                        "primary_node_id": "kg://another-subject/chapter/core_other",
+                    }
+                ],
+                "full_records": [],
+                "full_by_id": {},
+            },
+            used_source_question_ids=set(),
+        )
+
+        self.assertEqual(questions, [])
+
     def test_stage_exam_prefers_question_bank_by_outline_question_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -240,26 +347,22 @@ class StageExamTests(unittest.TestCase):
                     exam = generate_stage_exam(memory, session_id, resource_root=root)
 
                 self.assertEqual(exam["status"], "ready")
-                self.assertEqual(len(exam["questions"]), 2)
+                self.assertEqual(len(exam["questions"]), 1)
                 self.assertEqual(exam["source"]["question_sources"]["tutor_step.questions"], 1)
-                self.assertEqual(exam["source"]["question_sources"]["stage_exam.fallback"], 1)
+                self.assertEqual(exam["summary"]["section_count"], 1)
+                self.assertEqual(exam["warnings"], ["node_2: no usable bank or tutor question"])
                 self.assertNotIn("answer", public_stage_exam(exam)["questions"][0])
 
                 submitted = submit_stage_exam(
                     memory,
                     session_id,
-                    [
-                        {"question_id": exam["questions"][0]["id"], "selected_option": "B"},
-                        {"question_id": exam["questions"][1]["id"], "selected_option": "A"},
-                    ],
+                    [{"question_id": exam["questions"][0]["id"], "selected_option": "B"}],
                     resource_root=root,
                 )
 
                 self.assertEqual(submitted["status"], "submitted")
-                self.assertEqual(submitted["submission"]["overall_score"], 0.5)
-                self.assertIn("node_2", submitted["submission"]["weak_section_ids"])
-                self.assertIn("kg:cause", submitted["submission"]["weak_kg_node_ids"])
-                self.assertEqual(len(memory.list_answer_records(session_id)), 2)
+                self.assertEqual(submitted["submission"]["overall_score"], 1.0)
+                self.assertEqual(len(memory.list_answer_records(session_id)), 1)
             finally:
                 memory._conn.close()
 

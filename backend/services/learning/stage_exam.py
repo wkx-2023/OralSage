@@ -54,6 +54,15 @@ def load_stage_exam(
     return data if isinstance(data, dict) else None
 
 
+def _contains_legacy_fallback_question(exam: dict[str, Any]) -> bool:
+    questions = exam.get("questions", []) if isinstance(exam, dict) else []
+    return any(
+        isinstance(question, dict)
+        and question.get("source") == "stage_exam.fallback"
+        for question in questions
+    )
+
+
 def _write_stage_exam(
     session_id: str,
     exam: dict[str, Any],
@@ -90,6 +99,90 @@ def public_stage_exam(
     return result
 
 
+def generate_topic_quiz(
+    memory: LearningMemory,
+    session_id: str,
+    *,
+    topic: str,
+    question_count: int = 5,
+) -> dict[str, Any]:
+    """Build a count-controlled quiz from real question-bank records for a topic."""
+    session = memory.get_session(session_id)
+    normalized_topic = " ".join(str(topic or "").split()).strip()
+    if not normalized_topic:
+        raise ValueError("A topic is required for a standalone quiz.")
+
+    requested_count = max(1, min(int(question_count or 5), 20))
+    question_bank = _load_stage_exam_question_bank()
+    rows = _question_bank_kag_rows(question_bank) or _question_bank_full_records(question_bank)
+    node = {
+        "id": "standalone_topic",
+        "title": normalized_topic,
+        "difficulty": "basic",
+        "kg_node_ids": [],
+        "question_ids": [],
+    }
+    candidates = [
+        item
+        for item in rows
+        if isinstance(item, dict) and _question_bank_item_matches_topic(item, normalized_topic)
+    ]
+    candidates.sort(key=_question_bank_sort_key)
+
+    questions: list[dict[str, Any]] = []
+    used_source_question_ids: set[str] = set()
+    for raw in candidates:
+        source_question_id = _question_bank_dedupe_id(raw)
+        if not source_question_id or source_question_id in used_source_question_ids:
+            continue
+        question = _normalize_question_bank_question(
+            raw,
+            node,
+            1,
+            len(questions) + 1,
+            question_bank=question_bank,
+            exact_question_id_match=False,
+        )
+        if not question or not _is_valid_question(question):
+            continue
+        question["source"] = "question_bank.topic_match"
+        question["exam_question_index"] = len(questions) + 1
+        questions.append(question)
+        used_source_question_ids.add(source_question_id)
+        if len(questions) >= requested_count:
+            break
+
+    available_count = len(questions)
+    warnings: list[str] = []
+    if available_count < requested_count:
+        warnings.append(
+            f"Only {available_count} verified question-bank questions are available for the requested topic."
+        )
+
+    return {
+        "schema_version": "learning.topic_quiz.v1",
+        "exam_id": f"topic_quiz_{session_id}",
+        "session_id": session_id,
+        "user_id": session.get("user_id"),
+        "topic": normalized_topic,
+        "status": "ready" if questions else "failed",
+        "source": {
+            "question_sources": _source_counts(questions),
+            "question_bank_path": str(_FULL_QUESTION_BANK_PATH),
+            "kag_question_bank_path": str(_KAG_QUESTION_BANK_PATH),
+        },
+        "questions": questions,
+        "summary": {
+            "question_count": available_count,
+            "requested_question_count": requested_count,
+            "section_count": 1,
+            "submitted": False,
+        },
+        "warnings": warnings,
+        "error": None if questions else "No verified question-bank questions matched the requested topic.",
+    }
+
+
 def generate_stage_exam(
     memory: LearningMemory,
     session_id: str,
@@ -101,7 +194,7 @@ def generate_stage_exam(
 ) -> dict[str, Any]:
     """Build or load the session-level stage exam."""
     existing = load_stage_exam(session_id, resource_root)
-    if existing and not force:
+    if existing and not force and not _contains_legacy_fallback_question(existing):
         return existing
 
     session = memory.get_session(session_id)
@@ -136,10 +229,6 @@ def generate_stage_exam(
                 node_index=node_index,
                 resource_root=resource_root,
             )
-        if not candidates:
-            candidates = [_fallback_question(session_id, node, node_index, resource_root)]
-            warnings.append(f"{node_id}: used fallback stage-exam question")
-
         section_count[node_id] = 0
         for candidate in candidates:
             if section_count[node_id] >= per_section:
@@ -152,11 +241,7 @@ def generate_stage_exam(
             section_count[node_id] += 1
 
         if section_count[node_id] <= 0:
-            fallback = _fallback_question(session_id, node, node_index, resource_root)
-            fallback["exam_question_index"] = len(questions) + 1
-            questions.append(fallback)
-            section_count[node_id] = 1
-            warnings.append(f"{node_id}: no usable bank/tutor question, used fallback")
+            warnings.append(f"{node_id}: no usable bank or tutor question")
 
     if not questions:
         raise ValueError("No valid stage exam questions could be generated")
@@ -181,7 +266,7 @@ def generate_stage_exam(
         "questions": questions,
         "summary": {
             "question_count": len(questions),
-            "section_count": len(nodes),
+            "section_count": sum(1 for count in section_count.values() if count > 0),
             "submitted": False,
         },
         "warnings": warnings,
@@ -490,7 +575,11 @@ def _questions_from_question_bank(
     for qid in target_question_ids:
         item = by_id.get(qid)
         dedupe_id = _question_bank_dedupe_id(item)
-        if item and dedupe_id not in used_source_question_ids:
+        if (
+            item
+            and dedupe_id not in used_source_question_ids
+            and _question_bank_item_matches_node_kg(item, kg_node_ids)
+        ):
             ordered.append(item)
             seen.add(dedupe_id)
 
@@ -510,6 +599,7 @@ def _questions_from_question_bank(
         for item in rows
         if _question_bank_dedupe_id(item) not in seen
         and _question_bank_dedupe_id(item) not in used_source_question_ids
+        and _question_bank_item_matches_node_kg(item, kg_node_ids)
         and _question_bank_item_matches_node_text(item, node)
     ]
     lexical_matches.sort(key=_question_bank_sort_key)
@@ -572,6 +662,30 @@ def _question_bank_sort_key(item: dict[str, Any]) -> tuple[int, int, int, str]:
     match = 0 if item.get("match_status") in {"exact_match", "strong_match"} else 1
     authority = -int(item.get("authority_level") or 0)
     return (verification, match, authority, str(item.get("question_id") or ""))
+
+
+def _question_bank_item_matches_node_kg(
+    item: dict[str, Any],
+    kg_node_ids: set[str],
+) -> bool:
+    """Keep stage-exam questions bound to the outline node's KG identity."""
+    if not kg_node_ids:
+        return True
+    primary_node_id = str(item.get("primary_node_id") or "").strip()
+    return bool(primary_node_id) and primary_node_id in kg_node_ids
+
+
+def _question_bank_item_matches_topic(item: dict[str, Any], topic: str) -> bool:
+    if item.get("verification_status") != "linked":
+        return False
+    normalized_topic = "".join(str(topic or "").lower().split())
+    if not normalized_topic:
+        return False
+    haystack = "".join(
+        "".join(str(item.get(key) or "").lower().split())
+        for key in ("chapter", "primary_knowledge_point", "stem", "subject")
+    )
+    return normalized_topic in haystack
 
 
 def _question_bank_item_matches_node_text(item: dict[str, Any], node: dict[str, Any]) -> bool:

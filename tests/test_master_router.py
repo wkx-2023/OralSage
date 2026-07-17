@@ -26,6 +26,8 @@ from backend.services.router.master_router import (
     MasterRouter,
     _build_candidate_whitelist,
     _build_classifier_messages,
+    _extract_standalone_topic,
+    _requested_quiz_question_count,
     _validate_route,
 )
 
@@ -64,6 +66,14 @@ def sample_plan_item() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Unit tests — helpers
 # ---------------------------------------------------------------------------
+
+
+class TestStandaloneQuizParsing:
+    def test_topic_and_count_are_extracted_from_natural_language_request(self):
+        message = "\u9488\u5bf9\u7259\u5468\u708e\u51fa 5 \u9053\u9898"
+        assert _extract_standalone_topic(message, "quiz") == "\u7259\u5468\u708e"
+        assert _requested_quiz_question_count(message) == 5
+        assert _requested_quiz_question_count("\u9488\u5bf9\u7259\u5468\u708e\u51fa 1 \u9053\u9898") == 1
 
 
 class TestValidateRoute:
