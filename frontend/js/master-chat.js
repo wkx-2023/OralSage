@@ -600,6 +600,9 @@
 
   function renderLearningResult(routerResult, step) {
     const final = routerResult?.final_result || {};
+    if (final.standalone_generation) {
+      return renderStandaloneGenerationResult(routerResult);
+    }
     const session = final.session || {};
     const sessionId = session.id || step?.session_id || '';
     const nodeId = step?.outline_node_id || final.current_outline_node_id || '';
@@ -652,6 +655,40 @@
           </section>
           ${step?.stage_exam ? renderStageExamHtml(step.stage_exam) : ''}
         </div>
+        ${renderRouteDetails(routerResult)}
+      </section>
+    `;
+  }
+
+  function renderStandaloneGenerationResult(routerResult) {
+    const final = routerResult?.final_result || {};
+    const route = routerResult?.route || {};
+    const session = final.session || {};
+    const operation = final.operation || {};
+    const target = String(route.target || 'resource');
+    const targetLabels = {
+      handout: '\u8bb2\u4e49',
+      slides: '\u5e7b\u706f\u7247',
+      ppt: 'PPT',
+      lecture_script: '\u8bb2\u7a3f',
+      voice: '\u8bed\u97f3',
+      quiz: '\u7ec3\u4e60\u9898',
+    };
+    const label = targetLabels[target] || '\u5b66\u4e60\u8d44\u6e90';
+    const sessionId = String(session.id || '');
+    const statusLink = target === 'ppt' && sessionId
+      ? `<a class="learning-action" href="/api/learning/session/${encodeURIComponent(sessionId)}/ppt-status" target="_blank" rel="noreferrer"><i data-lucide="presentation"></i><span>\u67e5\u770b PPT \u72b6\u6001</span></a>`
+      : '';
+    const quiz = final.stage_exam || (target === 'quiz' ? operation : null);
+
+    return `
+      <section class="learning-response standalone-generation-response">
+        <div class="learning-section-head">
+          <div><span class="mode-label">\u72ec\u7acb\u751f\u6210</span><h2>${escapeHtml(label)}</h2></div>
+        </div>
+        <div class="assistant-markdown">${formatMarkdown(resultAnswer(routerResult))}</div>
+        ${statusLink ? `<div class="learning-actions">${statusLink}</div>` : ''}
+        ${quiz ? renderStageExamHtml(quiz) : ''}
         ${renderRouteDetails(routerResult)}
       </section>
     `;
@@ -1076,7 +1113,8 @@
       found.message.statusText = '已完成';
       delete found.message.streamText;
       const backendId = event.data?.router_result?.final_result?.session?.id;
-      if (backendId) found.session.backendSessionId = backendId;
+      const standaloneGeneration = Boolean(event.data?.router_result?.final_result?.standalone_generation);
+      if (backendId && !standaloneGeneration) found.session.backendSessionId = backendId;
       const routerResult = event.data?.router_result;
       if (routerResult?.ok && routerResult?.route?.intent === 'study_plan') {
         const planDraftId = routerResult?.final_result?.plan_draft_id;

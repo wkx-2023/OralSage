@@ -35,6 +35,13 @@ from backend.services.llm_client import (
 )
 from backend.services.learning.study_plan import recommend_study_plan
 from backend.services.learning.llm_policy import decide_next_action_with_llm
+from backend.services.learning.planner import plan_lesson
+from backend.services.learning.skills import (
+    LEARNING_AGENT_ALIASES,
+    LEARN_KNOWLEDGE_POINT_SKILL,
+    learning_skill_catalog,
+    run_learn_knowledge_point,
+)
 from backend.services.literature.agent import run_literature_search
 from backend.services.qa.direct_qa import answer_direct_question
 
@@ -64,6 +71,29 @@ INTENT_TO_NEXT_ACTION: dict[str, str] = {
     "direct_qa": "show_direct_answer",
 }
 
+CONVERSATIONAL_LEARNING_AGENTS: frozenset[str] = frozenset({
+    "planner",
+    "handout",
+    "slides",
+    "ppt",
+    "tutor",
+    "lecture_script",
+    "voice",
+    "qa",
+    "quiz",
+    "assessment",
+    "continue",
+})
+
+STANDALONE_BOOTSTRAP_AGENTS: frozenset[str] = frozenset({
+    "handout",
+    "slides",
+    "ppt",
+    "lecture_script",
+    "voice",
+    "quiz",
+})
+
 CLASSIFIER_SYSTEM_PROMPT = (
     "你是一个学习需求分类器。根据用户的消息内容，判断用户意图属于以下五类中的哪一类：\n"
     "\n"
@@ -88,6 +118,16 @@ CLASSIFIER_SYSTEM_PROMPT = (
     '{"intent": "<learning|direct_qa|study_plan|literature|clarification>", '
     '"plan_item_requested": <true|false>, "topic": "<学习主题或空字符串>", '
     '"reason": "<简短中文说明>"}'
+)
+
+CLASSIFIER_SYSTEM_PROMPT += (
+    "\nFor a learning request, also decide whether it is a complete workflow or "
+    "an explicit single capability request. When the user explicitly asks to "
+    "only generate/rebuild a handout, slides/PPT, lecture script, voice, quiz, "
+    "or asks to re-explain the current section, include: "
+    '"dispatch_type": "agent" and "target_agent": one of '
+    "planner|handout|slides|ppt|tutor|lecture_script|voice|qa|quiz|assessment|continue. "
+    "Otherwise omit both fields and use the complete learning workflow."
 )
 
 PLAN_ITEM_MATCHER_SYSTEM_PROMPT = (
@@ -151,6 +191,16 @@ def _validate_route(parsed: dict[str, Any]) -> dict[str, Any] | None:
     topic = str(parsed.get("topic") or "").strip()
     if intent == "learning" and topic:
         route["topic"] = topic
+    dispatch_type = str(parsed.get("dispatch_type") or "").strip().lower()
+    target_agent = str(parsed.get("target_agent") or "").strip().lower()
+    if dispatch_type or target_agent:
+        if intent != "learning" or dispatch_type != "agent":
+            return None
+        target_agent = LEARNING_AGENT_ALIASES.get(target_agent, target_agent)
+        if target_agent not in CONVERSATIONAL_LEARNING_AGENTS:
+            return None
+        route["dispatch_type"] = "agent"
+        route["target_agent"] = target_agent
     return route
 
 
@@ -272,8 +322,102 @@ def _deterministic_learning_route(message: str) -> dict[str, Any] | None:
     }
 
 
+def _detect_conversational_agent(message: str) -> str | None:
+    """Recognize clear single-capability commands without an LLM.
+
+    This intentionally requires both a generation/control verb and a resource
+    marker, so a factual question mentioning PPT or audio is not hijacked from
+    Direct QA.
+    """
+    text = "".join(str(message or "").lower().split())
+    if not text:
+        return None
+
+    action_markers = (
+        "\u53ea\u751f\u6210", "\u751f\u6210", "\u91cd\u65b0\u751f\u6210", "\u91cd\u5efa",
+        "\u505a\u4e00\u4efd", "\u51fa", "\u518d\u8bb2\u4e00\u904d", "\u91cd\u65b0\u8bb2",
+        "\u7b80\u5355\u4e00\u70b9", "\u8be6\u7ec6\u4e00\u70b9", "\u7ee7\u7eed\u4e0b\u4e00\u8282",
+    )
+    if not any(marker in text for marker in action_markers):
+        return None
+    if any(marker in text for marker in ("ppt", "\u5e7b\u706f\u7247", "\u8bfe\u4ef6")):
+        return "ppt"
+    if any(marker in text for marker in ("\u8bed\u97f3", "\u97f3\u9891", "\u6717\u8bfb")):
+        return "voice"
+    if "\u8bb2\u7a3f" in text:
+        return "lecture_script"
+    if "\u8bb2\u4e49" in text:
+        return "handout"
+    if (
+        any(marker in text for marker in ("\u51fa\u9898", "\u7ec3\u4e60\u9898", "\u5c0f\u6d4b", "\u6d4b\u9a8c\u9898"))
+        or ("\u51fa" in text and ("\u9053\u9898" in text or "\u4e2a\u9898" in text))
+    ):
+        return "quiz"
+    if any(marker in text for marker in ("\u91cd\u65b0\u8bb2", "\u518d\u8bb2\u4e00\u904d", "\u7b80\u5355\u4e00\u70b9", "\u8be6\u7ec6\u4e00\u70b9")):
+        return "tutor"
+    if "\u7ee7\u7eed\u4e0b\u4e00\u8282" in text:
+        return "continue"
+    return None
+
+
+def _deterministic_agent_route(message: str) -> dict[str, Any] | None:
+    target_agent = _detect_conversational_agent(message)
+    if not target_agent:
+        return None
+    return {
+        "intent": "learning",
+        "target": target_agent,
+        "target_agent": target_agent,
+        "dispatch_type": "agent",
+        "plan_item_requested": False,
+        "reason": "Explicit single-capability request recognized from the conversation.",
+        "source": "deterministic_agent_route",
+    }
+
+
+def _agent_dispatch_answer(target: str, next_action: str) -> str:
+    labels = {
+        "handout": "\u8bb2\u4e49\u751f\u6210",
+        "slides": "\u5e7b\u706f\u7247\u751f\u6210",
+        "ppt": "PPT \u751f\u6210",
+        "tutor": "\u8bfe\u7a0b\u8bb2\u89e3",
+        "lecture_script": "\u8bb2\u7a3f\u751f\u6210",
+        "voice": "\u8bed\u97f3\u751f\u6210",
+        "qa": "\u5f53\u524d\u8bfe\u7a0b\u7b54\u7591",
+        "quiz": "\u51fa\u9898",
+        "assessment": "\u7b54\u6848\u8bc4\u4f30",
+        "continue": "\u8fdb\u5165\u4e0b\u4e00\u8282",
+    }
+    label = labels.get(target, target)
+    suffix = "\u5df2\u5b8c\u6210" if next_action in {"continue_session", "show_stage_exam"} else "\u5df2\u5f00\u59cb\u5904\u7406"
+    return f"\u5df2\u8c03\u5ea6 {label}\uff0c{suffix}\u3002"
+
+
+def _extract_standalone_topic(message: str, target: str) -> str:
+    """Extract a topic from a short resource-generation command."""
+    text = " ".join(str(message or "").split()).strip()
+    if not text:
+        return ""
+    patterns = [
+        r"\u8bf7", r"\u5e2e\u6211", r"\u7ed9\u6211", r"\u53ea", r"\u751f\u6210", r"\u91cd\u65b0\u751f\u6210",
+        r"\u91cd\u5efa", r"\u5236\u4f5c", r"\u505a\u4e00\u4efd", r"\u5f53\u524d\u8bfe\u7a0b", r"\u5f53\u524d",
+        r"PPT", r"ppt", r"\u5e7b\u706f\u7247", r"\u8bfe\u4ef6", r"\u8bb2\u4e49", r"\u8bb2\u7a3f",
+        r"\u8bed\u97f3", r"\u97f3\u9891", r"\u6717\u8bfb", r"\u7ec3\u4e60\u9898", r"\u6d4b\u9a8c\u9898",
+    ]
+    for pattern in patterns:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+    if target == "quiz":
+        text = re.sub(r"\u51fa\s*\d*\s*(?:\u9053|\u4e2a)?\s*\u9898", "", text)
+        text = re.sub(r"\u51fa\u9898|\u5c0f\u6d4b", "", text)
+    return _normalize_learning_topic(text.strip(" \uff0c\u3002\uff1a:,-"))
+
+
 def _deterministic_route(message: str) -> dict[str, Any] | None:
-    return _deterministic_literature_route(message) or _deterministic_learning_route(message)
+    return (
+        _deterministic_literature_route(message)
+        or _deterministic_agent_route(message)
+        or _deterministic_learning_route(message)
+    )
 
 
 def _coerce_int(value: Any, *, minimum: int, maximum: int) -> int | None:
@@ -397,6 +541,19 @@ class MasterRouter:
         """
         ctx = context or {}
 
+        # An explicit target is a controlled escape hatch for clients that
+        # already know which registered capability they need. It never
+        # resolves arbitrary object methods from user input.
+        requested_agent = str(ctx.get("target_agent") or "").strip().lower()
+        if requested_agent:
+            return await self.dispatch_agent(
+                requested_agent,
+                message=message,
+                user_id=user_id,
+                history=history,
+                context=ctx,
+            )
+
         # --- explicit plan_item_id — deterministic, no LLM -------------------
         plan_item_id = ctx.get("plan_item_id")
         if plan_item_id:
@@ -411,6 +568,15 @@ class MasterRouter:
             )
 
         session_id = str(ctx.get("session_id") or "").strip()
+        conversational_agent = _detect_conversational_agent(message)
+        if session_id and conversational_agent:
+            return await self.dispatch_agent(
+                conversational_agent,
+                message=message,
+                user_id=user_id,
+                history=history,
+                context={**ctx, "session_id": session_id},
+            )
         if session_id and self._is_continue_message(message):
             return await self._handle_session_continue(
                 user_id,
@@ -430,7 +596,7 @@ class MasterRouter:
 
         # --- dispatch --------------------------------------------------------
         if route["intent"] == "learning":
-            return await self._handle_learning(user_id, message, route)
+            return await self._handle_learning(user_id, message, route, ctx)
         elif route["intent"] == "direct_qa":
             return await self._handle_direct_qa(message, user_id, route, history)
         elif route["intent"] == "study_plan":
@@ -439,6 +605,207 @@ class MasterRouter:
             return await self._handle_literature(message, route, ctx)
         else:
             return self._respond_clarification(message, route)
+
+    async def dispatch_agent(
+        self,
+        agent_name: str,
+        *,
+        message: str = "",
+        user_id: str = "demo",
+        history: list[dict[str, Any]] | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Dispatch one registered workflow or leaf capability."""
+        ctx = context or {}
+        normalized = str(agent_name or "").strip().lower()
+        target = LEARNING_AGENT_ALIASES.get(normalized, normalized)
+        route = {
+            "intent": "learning",
+            "target": target,
+            "source": "explicit_agent_dispatch",
+            "reason": f"Explicitly dispatched registered capability: {target}",
+        }
+
+        if target in {"study_plan", "literature", "direct_qa"}:
+            if target == "study_plan":
+                return await self._handle_study_plan(user_id, message, {**route, "intent": "study_plan"}, ctx)
+            if target == "literature":
+                return await self._handle_literature(message, {**route, "intent": "literature"}, ctx)
+            return await self._handle_direct_qa(message, user_id, {**route, "intent": "direct_qa"}, history)
+
+        if target == LEARN_KNOWLEDGE_POINT_SKILL:
+            topic = _normalize_learning_topic(ctx.get("topic") or message)
+            if not topic:
+                return self._dispatch_error(route, "A topic is required for learn_knowledge_point.")
+            try:
+                result = await asyncio.to_thread(
+                    run_learn_knowledge_point,
+                    self.learning_orchestrator,
+                    user_id=user_id,
+                    topic=topic,
+                    profile_input=ctx.get("profile_input") if isinstance(ctx.get("profile_input"), dict) else None,
+                    learning_scope=ctx.get("learning_scope") if isinstance(ctx.get("learning_scope"), dict) else None,
+                    deliver_first_section=bool(ctx.get("deliver_first_section", False)),
+                )
+            except Exception as exc:
+                logger.exception("learning skill failed for topic=%s", topic)
+                return self._dispatch_error(route, f"Learning skill failed: {exc}")
+            return {"ok": True, "route": route, "final_result": result, "next_action": "start_session"}
+
+        if target == "planner":
+            topic = _normalize_learning_topic(ctx.get("topic") or message)
+            if not topic:
+                return self._dispatch_error(route, "A topic is required for planner.")
+            profile = ctx.get("profile_input") if isinstance(ctx.get("profile_input"), dict) else self.learning_orchestrator.memory.get_or_create_profile(user_id)
+            try:
+                result = await asyncio.to_thread(plan_lesson, topic, user_profile=profile)
+            except Exception as exc:
+                logger.exception("planner dispatch failed for topic=%s", topic)
+                return self._dispatch_error(route, f"Planner failed: {exc}")
+            return {"ok": bool(result.get("ok", False)), "route": route, "final_result": result, "next_action": "review_outline"}
+
+        session_id = str(ctx.get("session_id") or "").strip()
+        leaf_agents = {"handout", "slides", "ppt", "tutor", "lecture_script", "voice", "qa", "quiz", "assessment", "continue"}
+        if target not in leaf_agents:
+            return self._dispatch_error(route, f"Unknown registered capability: {agent_name}")
+        if not session_id:
+            if target in STANDALONE_BOOTSTRAP_AGENTS:
+                topic = _normalize_learning_topic(ctx.get("topic") or _extract_standalone_topic(message, target))
+                if topic:
+                    try:
+                        bootstrap = await asyncio.to_thread(
+                            run_learn_knowledge_point,
+                            self.learning_orchestrator,
+                            user_id=user_id,
+                            topic=topic,
+                            session_mode="standalone_generation",
+                        )
+                    except Exception as exc:
+                        logger.exception("standalone %s bootstrap failed for topic=%s", target, topic)
+                        return self._dispatch_error(route, f"Standalone {target} setup failed: {exc}")
+                    standalone_session = bootstrap.get("session") if isinstance(bootstrap, dict) else {}
+                    standalone_session_id = str((standalone_session or {}).get("id") or "")
+                    if not standalone_session_id:
+                        return self._dispatch_error(route, "Standalone generation did not create a session.")
+                    nested = await self.dispatch_agent(
+                        target,
+                        message=message,
+                        user_id=user_id,
+                        history=history,
+                        context={**ctx, "session_id": standalone_session_id},
+                    )
+                    if not nested.get("ok"):
+                        return nested
+                    operation = nested.get("final_result") or {}
+                    final_result = {
+                        "session": standalone_session,
+                        "standalone_generation": True,
+                        "profile_impact": bootstrap.get("knowledge_profile_write"),
+                        "operation": operation,
+                        "answer": operation.get("answer") if isinstance(operation, dict) else "",
+                    }
+                    if target == "quiz":
+                        final_result["stage_exam"] = operation
+                    return {
+                        "ok": True,
+                        "route": {
+                            **route,
+                            "execution_mode": "standalone_generation",
+                            "topic": topic,
+                        },
+                        "final_result": final_result,
+                        "next_action": nested.get("next_action"),
+                    }
+            return {
+                "ok": True,
+                "route": {
+                    "intent": "clarification",
+                    "target": "none",
+                    "source": "missing_learning_session",
+                    "requested_target_agent": target,
+                    "reason": f"{target} \u9700\u8981\u5f53\u524d\u5b66\u4e60\u4f1a\u8bdd\u4e0a\u4e0b\u6587\u3002",
+                },
+                "final_result": {
+                    "message": "\u8fd9\u4e2a\u8bf7\u6c42\u9700\u8981\u5f53\u524d\u5b66\u4e60\u8bfe\u7a0b\u3002"
+                    "\u8bf7\u5148\u8bf4\u201c\u7cfb\u7edf\u5b66\u4e60<\u77e5\u8bc6\u70b9>\u201d\u521b\u5efa\u8bfe\u7a0b\uff0c"
+                    "\u518d\u5728\u8be5\u8bfe\u7a0b\u4e2d\u8bf7\u6c42\u8fd9\u9879\u80fd\u529b\u3002",
+                },
+                "next_action": "start_session",
+            }
+        try:
+            session = self.learning_orchestrator.memory.get_session(session_id)
+        except KeyError:
+            return self._dispatch_error(route, f"Learning session not found: {session_id}")
+        if str(session.get("user_id") or "") != user_id:
+            return self._dispatch_error(route, "Learning session access denied.")
+
+        try:
+            if target == "handout":
+                result = await asyncio.to_thread(self.learning_orchestrator.retry_failed_resources, session_id)
+                next_action = "wait_for_resources"
+            elif target in {"slides", "ppt"}:
+                result = await asyncio.to_thread(self.learning_orchestrator.rebuild_ppt_resources, session_id)
+                next_action = "wait_for_resources"
+            elif target == "tutor":
+                result = await asyncio.to_thread(self.learning_orchestrator.next_step, session_id)
+                next_action = "continue_session"
+            elif target == "lecture_script":
+                result = await asyncio.to_thread(
+                    self.learning_orchestrator.generate_current_section_lecture_script,
+                    session_id,
+                )
+                next_action = "show_resource"
+            elif target == "voice":
+                result = await asyncio.to_thread(
+                    self.learning_orchestrator.generate_current_section_voice,
+                    session_id,
+                )
+                next_action = "wait_for_resources"
+            elif target == "quiz":
+                result = await asyncio.to_thread(
+                    self.learning_orchestrator.ensure_stage_exam_for_interaction,
+                    session_id,
+                )
+                next_action = "show_stage_exam"
+            elif target == "qa":
+                question = str(ctx.get("question") or message).strip()
+                if not question:
+                    return self._dispatch_error(route, "A question is required for qa.")
+                result = await asyncio.to_thread(self.learning_orchestrator.handle_interruption, session_id, question)
+                next_action = "continue_session"
+            elif target == "assessment":
+                question = ctx.get("question")
+                answer = str(ctx.get("answer") or "").strip()
+                if not isinstance(question, dict) or not answer:
+                    return self._dispatch_error(route, "assessment requires context.question (object) and context.answer.")
+                result = await asyncio.to_thread(self.learning_orchestrator.submit_answer, session_id, question, answer)
+                next_action = "continue_session"
+            else:
+                result = await asyncio.to_thread(self.learning_orchestrator.continue_to_next_section, session_id)
+                next_action = "continue_session"
+        except Exception as exc:
+            logger.exception("registered agent dispatch failed: %s", target)
+            return self._dispatch_error(route, f"{target} failed: {exc}")
+
+        if isinstance(result, dict):
+            result = {
+                **result,
+                "answer": _agent_dispatch_answer(target, next_action),
+            }
+        return {"ok": True, "route": route, "final_result": result, "next_action": next_action}
+
+    @staticmethod
+    def _dispatch_error(route: dict[str, Any], error: str) -> dict[str, Any]:
+        return {"ok": False, "route": route, "final_result": None, "next_action": None, "error": error}
+
+    @staticmethod
+    def capability_catalog() -> list[dict[str, Any]]:
+        return [
+            *learning_skill_catalog(),
+            {"name": "study_plan", "kind": "agent", "description": "Generate a study-plan recommendation."},
+            {"name": "literature", "kind": "agent", "description": "Search and summarize literature."},
+            {"name": "direct_qa", "kind": "agent", "description": "Answer a direct medical learning question."},
+        ]
 
     # ------------------------------------------------------------------
     # Classification
@@ -493,6 +860,13 @@ class MasterRouter:
         if validated is None:
             logger.warning("LLM classifier returned invalid route: %s", parsed)
             return fallback_route or self._clarification_route("分类器返回了无效的意图值。")
+        if (
+            fallback_route is not None
+            and fallback_route.get("dispatch_type") == "agent"
+            and validated.get("dispatch_type") != "agent"
+        ):
+            logger.info("Using deterministic explicit-agent route over generic LLM learning route.")
+            return fallback_route
         if fallback_route is not None and validated["intent"] == "clarification":
             logger.info(
                 "LLM classified an obvious request as clarification; using deterministic route."
@@ -695,7 +1069,11 @@ class MasterRouter:
         return await self._start_learning(user_id, topic, route, learning_scope=learning_scope)
 
     async def _handle_learning(
-        self, user_id: str, message: str, route: dict[str, Any]
+        self,
+        user_id: str,
+        message: str,
+        route: dict[str, Any],
+        context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Start free study or match an explicitly requested study-plan item.
 
@@ -703,6 +1081,16 @@ class MasterRouter:
         lookup is entered only when the intent classifier explicitly sets
         ``plan_item_requested=true``.
         """
+        if route.get("dispatch_type") == "agent":
+            target_agent = str(route.get("target_agent") or "").strip()
+            if target_agent:
+                return await self.dispatch_agent(
+                    target_agent,
+                    message=message,
+                    user_id=user_id,
+                    context=context,
+                )
+
         if route.get("plan_item_requested") is not True:
             topic = _normalize_learning_topic(route.get("topic") or message)
             return await self._start_learning(user_id, topic, route)
@@ -992,7 +1380,8 @@ class MasterRouter:
             start_kwargs["learning_scope"] = learning_scope
         try:
             result = await asyncio.to_thread(
-                self.learning_orchestrator.start_lesson,
+                run_learn_knowledge_point,
+                self.learning_orchestrator,
                 **start_kwargs,
             )
         except Exception as exc:

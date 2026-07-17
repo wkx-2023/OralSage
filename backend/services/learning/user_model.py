@@ -154,6 +154,34 @@ def merge_profile(existing: dict[str, Any], patch: dict[str, Any]) -> dict[str, 
                     deduped.append(s)
             result[key] = deduped
 
+    # Standalone generation records topic interest only. It must not be
+    # converted into a weak point, mastery record, or completed plan item.
+    interests: dict[str, dict[str, Any]] = {}
+    for source in (result, existing, patch):
+        for item in source.get("topic_interests", []):
+            if not isinstance(item, dict):
+                continue
+            topic = " ".join(str(item.get("topic") or "").split()).strip()
+            if not topic:
+                continue
+            previous = interests.get(topic, {})
+            interests[topic] = {
+                "topic": topic,
+                "request_count": max(
+                    int(previous.get("request_count") or 0),
+                    int(item.get("request_count") or 0),
+                ),
+                "confidence": max(
+                    float(previous.get("confidence") or 0.0),
+                    float(item.get("confidence") or 0.0),
+                ),
+                "source": str(item.get("source") or previous.get("source") or "standalone_generation"),
+            }
+    result["topic_interests"] = sorted(
+        interests.values(),
+        key=lambda item: (-int(item["request_count"]), item["topic"]),
+    )[:12]
+
     # --- confidence ---------------------------------------------------
     existing_conf = float(existing.get("confidence", 0.2))
     patch_conf = float(patch.get("confidence", 0.2))

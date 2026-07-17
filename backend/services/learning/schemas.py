@@ -26,6 +26,7 @@ DEFAULT_PROFILE: dict[str, Any] = {
     "assessment_skipped": False,
     "last_assessed_at": None,
     "assessment_source": None,
+    "topic_interests": [],
     "confidence": 0.2,
 }
 
@@ -90,6 +91,10 @@ class LearningProfile(BaseModel):
     assessment_source: str | None = Field(
         default=None,
         description="Assessment instrument name/version used most recently",
+    )
+    topic_interests: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Low-confidence topics inferred from standalone resource requests",
     )
     confidence: float = Field(
         default=0.2,

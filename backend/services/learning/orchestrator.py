@@ -201,6 +201,8 @@ class LearningOrchestrator:
         display_name: str | None = None,
         profile_input: dict[str, Any] | None = None,
         learning_scope: dict[str, Any] | None = None,
+        session_mode: str = "course_learning",
+        profile_memory_enabled: bool = True,
     ) -> dict[str, Any]:
         """Begin a new learning session.
 
@@ -230,7 +232,7 @@ class LearningOrchestrator:
             profile = self.memory.save_profile(user_id, profile)
 
         # --- session --------------------------------------------------------
-        session = self.memory.create_session(user_id, topic)
+        session = self.memory.create_session(user_id, topic, mode=session_mode)
         session_id: str = session["id"]
 
         # --- plan lesson ----------------------------------------------------
@@ -293,6 +295,7 @@ class LearningOrchestrator:
         event_payload: dict[str, Any] = {
             "surface": "planning",
             "topic": topic,
+            "session_mode": session_mode,
             "strategy": source_trace.get("strategy"),
             "node_count": len(nodes),
             "resource_count": len(resources),
@@ -306,17 +309,21 @@ class LearningOrchestrator:
             outline_node_id=first_node_id,
             payload=event_payload,
         )
-        lesson_memory_update = self._update_learner_memory_for_event(
-            user_id=user_id,
-            session_id=session_id,
-            event_id=lesson_started_event_id,
-            surface="planning",
-            context={
-                "topic": topic,
-                "outline_node_id": first_node_id,
-                "kg_node_ids": nodes[0].get("kg_node_ids", []),
-                "node_count": len(nodes),
-            },
+        lesson_memory_update = (
+            self._update_learner_memory_for_event(
+                user_id=user_id,
+                session_id=session_id,
+                event_id=lesson_started_event_id,
+                surface="planning",
+                context={
+                    "topic": topic,
+                    "outline_node_id": first_node_id,
+                    "kg_node_ids": nodes[0].get("kg_node_ids", []),
+                    "node_count": len(nodes),
+                },
+            )
+            if profile_memory_enabled
+            else {"updated": False, "reason": "profile_memory_disabled_for_session_mode"}
         )
 
         # --- generate first handout section synchronously ------------------
@@ -566,6 +573,75 @@ class LearningOrchestrator:
             lecture_script=lecture_script,
             force=force,
         )
+
+    def generate_current_section_lecture_script(self, session_id: str) -> dict[str, Any]:
+        """Create a lecture script from the current handout without teaching progress.
+
+        This is used by standalone material generation. It deliberately does
+        not call Tutor, record exposure, update mastery, or advance a course.
+        """
+        session = self.memory.get_session(session_id)
+        node_id = str(session.get("current_outline_node_id") or "")
+        cache = get_handout_cache(
+            session_id,
+            node_id,
+            resource_root=self.resource_root,
+        ) if node_id else {}
+        handout_section = cache.get("handout_section") if isinstance(cache, dict) else None
+        if not node_id or not isinstance(handout_section, dict):
+            return {
+                "status": "pending",
+                "session_id": session_id,
+                "error": "current_handout_section_not_ready",
+            }
+        try:
+            script = build_and_save_lecture_script(
+                session_id=session_id,
+                outline_node_id=node_id,
+                handout_section=handout_section,
+                resource_root=self.resource_root,
+            )
+        except Exception as exc:  # resource generation should report, not crash dispatch
+            return {
+                "status": "failed",
+                "session_id": session_id,
+                "outline_node_id": node_id,
+                "error": f"lecture_script_generation_raised: {exc}",
+            }
+        return {**script, "session_id": session_id, "outline_node_id": node_id}
+
+    def generate_current_section_voice(self, session_id: str) -> dict[str, Any]:
+        """Schedule voice from a handout-derived script without learning side effects."""
+        session = self.memory.get_session(session_id)
+        node_id = str(session.get("current_outline_node_id") or "")
+        cache = get_handout_cache(
+            session_id,
+            node_id,
+            resource_root=self.resource_root,
+        ) if node_id else {}
+        handout_section = cache.get("handout_section") if isinstance(cache, dict) else None
+        script = self.generate_current_section_lecture_script(session_id)
+        if not node_id or not isinstance(handout_section, dict) or script.get("status") != "ready":
+            return {
+                "status": script.get("status", "pending"),
+                "session_id": session_id,
+                "outline_node_id": node_id or None,
+                "error": script.get("error", "current_handout_section_not_ready"),
+            }
+        schedule = self._schedule_audio_generation(
+            session_id=session_id,
+            outline_node_id=node_id,
+            handout_section=handout_section,
+            source="direct_voice_dispatch",
+            lecture_script=script,
+        )
+        return {
+            "status": schedule.get("status", "generating"),
+            "session_id": session_id,
+            "outline_node_id": node_id,
+            "lecture_script": script,
+            "audio_schedule": schedule,
+        }
 
     def _schedule_audio_generation(
         self,

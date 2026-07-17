@@ -76,6 +76,7 @@ from .services.stats.dashboard import run_stats_filter, stats_options
 from .services.stats import run_stats_query
 from .services.learning.orchestrator import LearningOrchestrator, decide_next_action
 from .services.router.master_router import MasterRouter
+from .services.learning.skills import LEARNING_AGENT_ALIASES
 from .services.router.jobs import RouterJobManager
 from .services.learning.audio import get_audio_manifest
 from .services.learning.ppt_pipeline import ensure_pin_and_paper_previews
@@ -2458,6 +2459,19 @@ async def invoke_agent(agent_name: str, req: GenericAgentRequest, response: Resp
             context=req.context,
         )
         return GenericAgentResponse(agent=agent_name, ok=result.get("ok", True), result=result)
+    if agent_name in LEARNING_AGENT_ALIASES or agent_name in {"study_plan", "literature", "direct_qa"}:
+        context = {**req.data, **req.context}
+        if req.question and "question" not in context:
+            context["question"] = req.question
+        result = await master_router.dispatch_agent(
+            agent_name,
+            message=req.message or req.query or req.task or req.text or req.question or "",
+            user_id=str(context.get("user_id") or "demo"),
+            history=context.get("history") if isinstance(context.get("history"), list) else [],
+            context=context,
+        )
+        response.status_code = 200 if result.get("ok", False) else 422
+        return GenericAgentResponse(agent=agent_name, ok=result.get("ok", False), result=result)
     if agent_name in {"oral_pathology_assistant", "pathology_qa", "oral_pathology"}:
         question = req.question or req.query or req.task or req.message or req.text or ""
         result = await run_pathology_ask(question, req.top_k or 8, True if req.allow_web is None else req.allow_web)
@@ -2498,6 +2512,12 @@ async def invoke_agent(agent_name: str, req: GenericAgentRequest, response: Resp
         ok=False,
         result={"message": INTERFACE_REMOVED_MESSAGE, "payload": req.model_dump()},
     )
+
+
+@app.get("/api/learning/capabilities")
+async def learning_capabilities() -> JSONResponse:
+    """List the registered learning workflow and individually dispatchable agents."""
+    return JSONResponse({"ok": True, "capabilities": master_router.capability_catalog()})
 
 
 @app.post("/api/agents/{agent_name}/stream")

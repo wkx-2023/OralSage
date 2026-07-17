@@ -195,9 +195,11 @@ class RouterJobManager:
             route = route_result.get("route") or {}
             final_result = route_result.get("final_result") or {}
             session_id = str((final_result.get("session") or {}).get("id") or "")
+            standalone_generation = bool(final_result.get("standalone_generation"))
             if not session_id and route.get("source") in {
                 "session_context",
                 "learning_session_policy",
+                "explicit_agent_dispatch",
             }:
                 session_id = str((context or {}).get("session_id") or "").strip()
             self._emit(
@@ -207,7 +209,7 @@ class RouterJobManager:
                 {
                     "route": route,
                     "next_action": route_result.get("next_action"),
-                    "session_id": session_id or None,
+                    "session_id": None if standalone_generation else (session_id or None),
                 },
             )
 
@@ -218,7 +220,16 @@ class RouterJobManager:
                     "continue_session",
                     "show_stage_exam",
                 } or isinstance(final_result.get("tutor_step"), dict)
-                if route.get("source") == "session_context" or already_advanced:
+                if route.get("source") == "explicit_agent_dispatch":
+                    target = str(route.get("target") or "")
+                    if target in {"tutor", "lecture_script"} and isinstance(final_result, dict):
+                        learning_step = {**final_result, "session_id": session_id}
+                    elif target == "quiz" and isinstance(final_result, dict):
+                        learning_step = {
+                            "session_id": session_id,
+                            "stage_exam": final_result.get("stage_exam") or final_result,
+                        }
+                elif route.get("source") == "session_context" or already_advanced:
                     nested_step = final_result.get("tutor_step")
                     learning_step = dict(nested_step) if isinstance(nested_step, dict) else {}
                     learning_step.update(
@@ -357,6 +368,8 @@ def _compact_router_result(result: dict[str, Any]) -> dict[str, Any]:
     if route.get("intent") != "learning" or not isinstance(final, dict):
         return result
     if result.get("next_action") == "select_plan" or final.get("candidates"):
+        return result
+    if route.get("source") == "explicit_agent_dispatch":
         return result
     if route.get("source") == "learning_session_policy":
         return result
