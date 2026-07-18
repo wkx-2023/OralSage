@@ -1228,16 +1228,16 @@ def _map_draft_items_to_recommendations(
 ) -> list[dict[str, Any]]:
     """Map draft payload items to study-plan recommendation cards.
 
-    Every field in the returned cards comes exclusively from the draft
-    *items* — nothing is recalculated or invented.  The
-    ``recommendation_id`` is bound to *draft_id* + index so each card
-    is stable and traceable.
+    Execution fields come exclusively from the draft *items*. Public text
+    fields are normalized through the shared display guard so legacy KG
+    identifiers cannot leak into cards. The ``recommendation_id`` is bound
+    to *draft_id* + index so each card is stable and traceable.
     """
     recommendations: list[dict[str, Any]] = []
     for i, item in enumerate(items):
         scope = item.get("learning_scope") or {}
         recommendations.append(
-            {
+            _sanitize_study_plan_display_item({
                 "recommendation_id": f"{draft_id}:{i}",
                 "title": item["learning_target"],
                 "task_type": item["task_type"],
@@ -1250,7 +1250,7 @@ def _map_draft_items_to_recommendations(
                 else [],
                 "learning_scope": item.get("learning_scope"),
                 "evidence_source": item["evidence_source"],
-            }
+            })
         )
     return recommendations
 
@@ -6667,6 +6667,16 @@ def _generate_deterministic_weakness_plan(
 
         book_title: str = str(w.get("book_title", "")).strip()
         ch_title: str = str(w.get("chapter_title", "")).strip()
+        weak_label = _study_plan_display_label({
+            "learning_target": weak_label,
+            "kg_node_ids": list(w.get("kg_node_ids") or [scope_ref]),
+            "learning_scope": {
+                "kg_node_ids": list(w.get("kg_node_ids") or [scope_ref]),
+                "kg_node_names": dict(w.get("kg_node_names") or {}),
+                "book_title": book_title,
+                "chapter_title": ch_title,
+            },
+        })
         # Build location suffix from real metadata
         location_parts: list[str] = []
         if book_title:
@@ -7654,6 +7664,220 @@ def month_bounds(year: int, month: int) -> tuple[str, str, int]:
     return start, end, days
 
 
+_INTERNAL_KG_REFERENCE_RE = re.compile(
+    r"(?:kg://|core:)[^\s，。；;、：:！？!?（）()\[\]【】《》<>\"']+",
+    re.IGNORECASE,
+)
+_KG_DISPLAY_NAME_INDEX: dict[str, str] | None = None
+_KG_DISPLAY_NAME_INDEX_LOCK = threading.Lock()
+_PLAN_DISPLAY_FIELDS = (
+    "title",
+    "learning_target",
+    "reason",
+    "notes",
+    "linked_course_title",
+)
+
+
+def _contains_internal_kg_reference(value: Any) -> bool:
+    return bool(_INTERNAL_KG_REFERENCE_RE.search(str(value or "")))
+
+
+def _human_display_text(value: Any) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    return "" if _contains_internal_kg_reference(text) else text
+
+
+def _get_kg_display_name_index() -> dict[str, str]:
+    """Return a cached raw/stable KG-ID to canonical-name display index."""
+    global _KG_DISPLAY_NAME_INDEX
+    if _KG_DISPLAY_NAME_INDEX is not None:
+        return _KG_DISPLAY_NAME_INDEX
+
+    with _KG_DISPLAY_NAME_INDEX_LOCK:
+        if _KG_DISPLAY_NAME_INDEX is not None:
+            return _KG_DISPLAY_NAME_INDEX
+        try:
+            from backend.services.learning.planner import load_kg_nodes
+            nodes = load_kg_nodes()
+        except Exception:
+            nodes = []
+        try:
+            from backend.services.knowledge_graph.agent import (
+                canonical_book_title,
+                stable_core_identity,
+            )
+        except Exception:
+            canonical_book_title = None
+            stable_core_identity = None
+
+        index: dict[str, str] = {}
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            node_id = str(node.get("node_id") or "").strip()
+            name = _human_display_text(
+                node.get("canonical_name") or node.get("name")
+            )
+            if node_id.startswith("kg://") and name:
+                index.setdefault(node_id, name)
+            if name and canonical_book_title and stable_core_identity:
+                book_title = str(node.get("book_title") or "").strip()
+                node_type = str(node.get("node_type") or "").strip()
+                metadata = node.get("metadata")
+                document_id = (
+                    str(metadata.get("document_id") or "").strip()
+                    if isinstance(metadata, dict)
+                    else ""
+                )
+                if book_title and node_type:
+                    canonical_title = canonical_book_title(
+                        document_id,
+                        book_title,
+                    )
+                    stable_id = stable_core_identity(
+                        canonical_title,
+                        node_type,
+                        name,
+                    )
+                    index.setdefault(stable_id, name)
+        _KG_DISPLAY_NAME_INDEX = index
+        return index
+
+
+def _study_plan_kg_display_names(item: dict[str, Any]) -> dict[str, str]:
+    scope = item.get("learning_scope")
+    if not isinstance(scope, dict):
+        scope = {}
+
+    display_names: dict[str, str] = {}
+    for raw_mapping in (item.get("kg_node_names"), scope.get("kg_node_names")):
+        if not isinstance(raw_mapping, dict):
+            continue
+        for node_id, raw_name in raw_mapping.items():
+            clean_id = str(node_id or "").strip()
+            clean_name = _human_display_text(raw_name)
+            if clean_id and clean_name:
+                display_names.setdefault(clean_id, clean_name)
+
+    node_ids: list[str] = []
+    for raw_ids in (item.get("kg_node_ids"), scope.get("kg_node_ids")):
+        if not isinstance(raw_ids, list):
+            continue
+        for raw_id in raw_ids:
+            node_id = str(raw_id or "").strip()
+            if node_id and node_id not in node_ids:
+                node_ids.append(node_id)
+    for field in _PLAN_DISPLAY_FIELDS:
+        for node_id in _INTERNAL_KG_REFERENCE_RE.findall(
+            str(item.get(field) or "")
+        ):
+            if node_id not in node_ids:
+                node_ids.append(node_id)
+
+    unresolved_ids = [
+        node_id
+        for node_id in node_ids
+        if node_id.startswith(("kg://", "core:"))
+        and node_id not in display_names
+    ]
+    if unresolved_ids:
+        index = _get_kg_display_name_index()
+        for node_id in unresolved_ids:
+            name = _human_display_text(index.get(node_id))
+            if name:
+                display_names[node_id] = name
+    return display_names
+
+
+def _study_plan_display_label(
+    item: dict[str, Any],
+    *,
+    default: str = "相关知识点",
+) -> str:
+    display_names = _study_plan_kg_display_names(item)
+    scope = item.get("learning_scope")
+    if not isinstance(scope, dict):
+        scope = {}
+
+    ordered_ids: list[str] = []
+    for raw_ids in (item.get("kg_node_ids"), scope.get("kg_node_ids")):
+        if isinstance(raw_ids, list):
+            ordered_ids.extend(str(value or "").strip() for value in raw_ids)
+    for node_id in ordered_ids:
+        if display_names.get(node_id):
+            return display_names[node_id]
+    if display_names:
+        return next(iter(display_names.values()))
+
+    for candidate in (
+        item.get("learning_target"),
+        scope.get("chapter_title"),
+        item.get("linked_course_title"),
+        scope.get("book_title"),
+    ):
+        text = _human_display_text(candidate)
+        if text:
+            return text
+    return default
+
+
+def _replace_internal_kg_references(
+    value: Any,
+    *,
+    display_names: dict[str, str],
+    fallback: str,
+) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text or not _contains_internal_kg_reference(text):
+        return text
+    for node_id in sorted(display_names, key=len, reverse=True):
+        text = text.replace(node_id, display_names[node_id])
+    text = _INTERNAL_KG_REFERENCE_RE.sub(fallback, text)
+    return text.strip()
+
+
+def _sanitize_study_plan_display_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Return a display-safe copy while preserving internal KG scope fields."""
+    safe = copy.deepcopy(item)
+    if not any(
+        _contains_internal_kg_reference(item.get(field))
+        for field in _PLAN_DISPLAY_FIELDS
+    ):
+        return safe
+
+    display_names = _study_plan_kg_display_names(item)
+    fallback = _study_plan_display_label(item)
+    safe["title"] = _replace_internal_kg_references(
+        item.get("title"),
+        display_names=display_names,
+        fallback=fallback,
+    ) or "学习任务"
+    for field in ("learning_target", "reason", "notes"):
+        if field in item:
+            safe[field] = _replace_internal_kg_references(
+                item.get(field),
+                display_names=display_names,
+                fallback=fallback,
+            ) or None
+
+    if "linked_course_title" in item:
+        scope = item.get("learning_scope")
+        if not isinstance(scope, dict):
+            scope = {}
+        course_fallback = (
+            _human_display_text(scope.get("book_title"))
+            or _human_display_text(scope.get("chapter_title"))
+            or "相关课程"
+        )
+        safe["linked_course_title"] = _replace_internal_kg_references(
+            item.get("linked_course_title"),
+            display_names=display_names,
+            fallback=course_fallback,
+        ) or None
+    return safe
+
+
 def get_study_plan_month(
     memory: LearningMemory,
     *,
@@ -7663,7 +7887,10 @@ def get_study_plan_month(
 ) -> dict[str, Any]:
     """Return month-level study-plan data grouped by day."""
     start, end, day_count = month_bounds(year, month)
-    items = memory.list_study_plan_items(user_id, start, end)
+    items = [
+        _sanitize_study_plan_display_item(item)
+        for item in memory.list_study_plan_items(user_id, start, end)
+    ]
     days = {
         date(year, month, day).isoformat(): {
             "date": date(year, month, day).isoformat(),
@@ -7717,7 +7944,10 @@ def get_study_plan_day(
     plan_date: str,
 ) -> dict[str, Any]:
     """Return one day's study-plan items."""
-    items = memory.list_study_plan_items_for_day(user_id, plan_date)
+    items = [
+        _sanitize_study_plan_display_item(item)
+        for item in memory.list_study_plan_items_for_day(user_id, plan_date)
+    ]
     completed = sum(1 for item in items if item.get("status") == "completed")
     return {
         "user_id": user_id,
@@ -7749,15 +7979,23 @@ def create_study_plan_item(
     session_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a plan item and record a lightweight plan event."""
+    display_item = _sanitize_study_plan_display_item({
+        "title": title,
+        "notes": notes,
+        "linked_course_title": linked_course_title,
+        "learning_target": learning_target,
+        "kg_node_ids": list(kg_node_ids or []),
+        "learning_scope": learning_scope,
+    })
     item = memory.create_study_plan_item(
         user_id=user_id,
         plan_date=plan_date,
-        title=title,
-        notes=notes,
+        title=display_item["title"],
+        notes=display_item.get("notes"),
         linked_course_id=linked_course_id,
-        linked_course_title=linked_course_title,
+        linked_course_title=display_item.get("linked_course_title"),
         task_type=task_type,
-        learning_target=learning_target,
+        learning_target=display_item.get("learning_target"),
         kg_node_ids=kg_node_ids,
         learning_scope=learning_scope,
         dependency=dependency,
@@ -7786,7 +8024,18 @@ def update_study_plan_item(
     updates: dict[str, Any],
 ) -> dict[str, Any]:
     """Update editable item fields."""
-    return {"item": memory.update_study_plan_item(item_id, user_id=user_id, updates=updates)}
+    current = memory.get_study_plan_item(item_id, user_id=user_id)
+    safe_candidate = _sanitize_study_plan_display_item({**current, **updates})
+    safe_updates = dict(updates)
+    for field in _PLAN_DISPLAY_FIELDS:
+        if field in safe_updates:
+            safe_updates[field] = safe_candidate.get(field)
+    item = memory.update_study_plan_item(
+        item_id,
+        user_id=user_id,
+        updates=safe_updates,
+    )
+    return {"item": _sanitize_study_plan_display_item(item)}
 
 
 def complete_study_plan_item(
@@ -7803,6 +8052,7 @@ def complete_study_plan_item(
         user_id=user_id,
         completed=completed,
     )
+    display_item = _sanitize_study_plan_display_item(item)
     event_id: str | None = None
     learner_memory_update: dict[str, Any] | None = None
     if completed and before.get("status") != "completed":
@@ -7812,21 +8062,21 @@ def complete_study_plan_item(
             event_type="study_plan_item_completed",
             outline_node_id=None,
             payload={
-                **_event_payload_from_item(item),
+                **_event_payload_from_item(display_item),
                 "surface": "study_plan",
                 "status": "completed",
-                "completed_at": item.get("completed_at"),
-                "feedback_text": f"用户已完成计划中的：{item['title']}",
+                "completed_at": display_item.get("completed_at"),
+                "feedback_text": f"用户已完成计划中的：{display_item['title']}",
             },
         )
         learner_memory_update = _apply_completion_memory(
             memory,
             user_id=user_id,
             event_id=event_id,
-            item=item,
+            item=display_item,
         )
     return {
-        "item": item,
+        "item": display_item,
         "event_id": event_id,
         "learner_memory_update": learner_memory_update,
     }
@@ -7845,20 +8095,21 @@ def defer_study_plan_item(
     if not target:
         target = (date.fromisoformat(before["plan_date"]) + timedelta(days=1)).isoformat()
     item = memory.defer_study_plan_item(item_id, user_id=user_id, to_date=target)
+    display_item = _sanitize_study_plan_display_item(item)
     event_id = memory.record_event(
         session_id=STUDY_PLAN_SESSION_ID,
         user_id=user_id,
         event_type="study_plan_item_deferred",
         outline_node_id=None,
         payload={
-            **_event_payload_from_item(item),
+            **_event_payload_from_item(display_item),
             "surface": "study_plan",
             "status": "open",
             "deferred_from": before.get("plan_date"),
-            "deferred_to": item.get("plan_date"),
+            "deferred_to": display_item.get("plan_date"),
         },
     )
-    return {"item": item, "event_id": event_id}
+    return {"item": display_item, "event_id": event_id}
 
 
 def delete_study_plan_item(
@@ -7868,7 +8119,8 @@ def delete_study_plan_item(
     user_id: str,
 ) -> dict[str, Any]:
     """Delete a study-plan item."""
-    return {"item": memory.delete_study_plan_item(item_id, user_id=user_id)}
+    item = memory.delete_study_plan_item(item_id, user_id=user_id)
+    return {"item": _sanitize_study_plan_display_item(item)}
 
 
 def recommend_study_plan(
@@ -7889,7 +8141,9 @@ def recommend_study_plan(
     Two modes:
 
     * **Deterministic** (default / when *request_text* is ``None`` or empty):
-      lightweight, no LLM, no KG, no side-effects.
+      lightweight, no LLM and no side-effects. It only reads the KG when a
+      legacy learner-memory label contains an internal KG identifier that
+      must be converted to user-facing text.
     * **Custom draft** (when *request_text* is a non-empty string): parses
       the user's text, resolves KG chapter scope, persists a real plan draft,
       and returns cards mapped from the draft items.
@@ -7988,7 +8242,10 @@ def recommend_study_plan(
     recommendations.sort(
         key=lambda item: (-float(item.get("priority", 0.0)), str(item.get("title") or "")),
     )
-    recommendations = recommendations[:item_limit]
+    recommendations = [
+        _sanitize_study_plan_display_item(item)
+        for item in recommendations[:item_limit]
+    ]
 
     return {
         "user_id": user_id,
@@ -8268,9 +8525,14 @@ def _recommend_weakness_reviews(
         ),
     )
     for item in weakness_items[:2]:
-        label = _clean_text(item.get("label") or item.get("text"), limit=72)
-        if not label:
+        raw_label = _clean_text(item.get("label") or item.get("text"), limit=180)
+        if not raw_label:
             continue
+        label = _study_plan_display_label({
+            "learning_target": raw_label,
+            "kg_node_ids": list(item.get("kg_node_ids") or []),
+            "kg_node_names": dict(item.get("kg_node_names") or {}),
+        })[:72]
         results.append(
             _recommendation(
                 recommendation_id=f"weakness:{label}",
@@ -8289,7 +8551,8 @@ def _recommend_weakness_reviews(
         return results
 
     weak_points = [str(item).strip() for item in profile.get("known_weak_points", []) if str(item).strip()]
-    for label in weak_points[:2]:
+    for raw_label in weak_points[:2]:
+        label = _study_plan_display_label({"learning_target": raw_label})[:72]
         results.append(
             _recommendation(
                 recommendation_id=f"profile-weakness:{label}",

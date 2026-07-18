@@ -989,14 +989,23 @@
   }
 
   function renderClarificationResult(routerResult) {
-    return `
-      <section class="clarification-response">
-        <div class="assistant-markdown">${formatMarkdown(resultAnswer(routerResult))}</div>
-        <div class="clarification-actions">
+    const final = routerResult?.final_result || {};
+    const configuredActions = Array.isArray(final.clarification_options)
+      ? final.clarification_options.filter((item) => (
+        item && typeof item === 'object' && item.label && (item.prompt || item.fill)
+      ))
+      : [];
+    const actions = configuredActions.length
+      ? renderPlanClarificationActions(configuredActions)
+      : `
           <button type="button" data-chat-prompt="我想系统学习一个口腔医学主题">学习主题</button>
           <button type="button" data-chat-prompt="请推荐今天的学习计划">学习计划</button>
           <button type="button" data-chat-prompt="我想检索一个口腔医学主题的最新文献">文献检索</button>
-        </div>
+        `;
+    return `
+      <section class="clarification-response">
+        <div class="assistant-markdown">${formatMarkdown(resultAnswer(routerResult))}</div>
+        <div class="clarification-actions">${actions}</div>
         ${renderRouteDetails(routerResult)}
       </section>
     `;
@@ -1006,7 +1015,7 @@
     const routerResult = payload?.router_result || {};
     const intent = routerResult.route?.intent;
     if (!routerResult.ok) {
-      return `<section class="error-response"><h3>处理失败</h3><p>${escapeHtml(routerResult.error || '请求处理失败')}</p></section>`;
+      return `<section class="error-response"><h3>处理失败</h3><p>${escapeHtml(routerResult.user_message || routerResult.error || '请求处理失败')}</p></section>`;
     }
     if (routerResult.next_action === 'select_plan' && Array.isArray(routerResult.final_result?.candidates)) {
       return `
@@ -2151,6 +2160,8 @@
       formatMarkdown: formatMarkdown,
       resumePendingJobs: resumePendingJobs,
       renderStudyPlanResult: renderStudyPlanResult,
+      renderClarificationResult: renderClarificationResult,
+      renderJobResult: renderJobResult,
       resultAnswer: resultAnswer,
       appendMessageToSession: appendMessageToSession,
       resizeComposerInput: resizeComposerInput,

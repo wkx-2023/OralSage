@@ -37,6 +37,7 @@ from backend.services.learning.study_plan import (
     _map_orchestration_items_to_draft_items,
     _recommend_weakness_reviews,
     _resolve_scope_selector,
+    _sanitize_study_plan_display_item,
     _should_use_deterministic_weakness_plan_generator,
     _validate_scope_selector_fields,
     build_orchestration_context,
@@ -44,6 +45,7 @@ from backend.services.learning.study_plan import (
     create_plan_draft_from_text,
     create_study_plan_item,
     get_draft_from_default_store,
+    get_study_plan_month,
     normalize_plan_request,
     parse_plan_request_text,
     parse_scope_selector_from_text,
@@ -260,6 +262,106 @@ class StudyPlanTaskSemanticsTests(unittest.TestCase):
         self.assertEqual(item["task_type"], "review_weakness")
         self.assertEqual(item["learning_target"], "宿主-微生物互作机制理解缺失")
         self.assertEqual(item["linked_course_title"], "口腔溃疡")
+
+    def test_weakness_recommendation_resolves_raw_kg_label(self) -> None:
+        raw_id = "kg://儿童口腔医学/015-儿童口腔医学实习教程/core_1"
+        with unittest.mock.patch(
+            "backend.services.learning.study_plan._get_kg_display_name_index",
+            return_value={raw_id: "牙髓切断术"},
+        ):
+            recommendations = _recommend_weakness_reviews(
+                profile={},
+                learner_memory={
+                    "weaknesses": {
+                        "items": [{
+                            "label": raw_id,
+                            "severity": 0.9,
+                            "kg_node_ids": [raw_id],
+                        }]
+                    }
+                },
+                active_session={"topic": "根尖周炎"},
+            )
+
+        self.assertEqual(len(recommendations), 1)
+        item = recommendations[0]
+        self.assertEqual(item["title"], "复习薄弱点：牙髓切断术")
+        self.assertEqual(item["learning_target"], "牙髓切断术")
+        self.assertEqual(item["kg_node_ids"], [raw_id])
+        self.assertNotIn("kg://", item["title"])
+        self.assertNotIn("kg://", item["learning_target"])
+
+    def test_unresolved_kg_reference_uses_neutral_display_fallback(self) -> None:
+        raw_id = "kg://不存在的教材/不存在的章节/core_999"
+        with unittest.mock.patch(
+            "backend.services.learning.study_plan._get_kg_display_name_index",
+            return_value={},
+        ):
+            item = _sanitize_study_plan_display_item({
+                "title": f"复习薄弱点：{raw_id}",
+                "learning_target": raw_id,
+                "reason": f"近期反复混淆 {raw_id}",
+                "kg_node_ids": [raw_id],
+            })
+
+        self.assertEqual(item["title"], "复习薄弱点：相关知识点")
+        self.assertEqual(item["learning_target"], "相关知识点")
+        self.assertNotIn("kg://", item["reason"])
+        self.assertEqual(item["kg_node_ids"], [raw_id])
+
+    def test_stable_core_reference_resolves_without_exposing_identifier(self) -> None:
+        core_id = "core:abc123def4567890"
+        with unittest.mock.patch(
+            "backend.services.learning.study_plan._get_kg_display_name_index",
+            return_value={core_id: "慢性牙周炎"},
+        ):
+            item = _sanitize_study_plan_display_item({
+                "title": f"复习薄弱点：{core_id}",
+                "learning_target": core_id,
+                "kg_node_ids": [core_id],
+            })
+
+        self.assertEqual(item["title"], "复习薄弱点：慢性牙周炎")
+        self.assertEqual(item["learning_target"], "慢性牙周炎")
+        self.assertNotIn("core:", item["title"])
+        self.assertEqual(item["kg_node_ids"], [core_id])
+
+    def test_month_view_sanitizes_legacy_title_without_rewriting_storage(self) -> None:
+        raw_id = "kg://儿童口腔医学/015-儿童口腔医学实习教程/core_1"
+        today = date.today().isoformat()
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = LearningMemory(Path(tmp) / "learning.sqlite3")
+            try:
+                memory.create_study_plan_item(
+                    user_id="legacy-user",
+                    plan_date=today,
+                    title=f"复习薄弱点：{raw_id}",
+                    task_type="review_weakness",
+                    learning_target=raw_id,
+                    kg_node_ids=[raw_id],
+                )
+                with unittest.mock.patch(
+                    "backend.services.learning.study_plan._get_kg_display_name_index",
+                    return_value={raw_id: "牙髓切断术"},
+                ):
+                    result = get_study_plan_month(
+                        memory,
+                        user_id="legacy-user",
+                        year=date.today().year,
+                        month=date.today().month,
+                    )
+
+                display_item = result["days"][today]["items"][0]
+                self.assertEqual(display_item["title"], "复习薄弱点：牙髓切断术")
+                self.assertEqual(display_item["learning_target"], "牙髓切断术")
+                self.assertEqual(display_item["kg_node_ids"], [raw_id])
+
+                stored_item = memory.list_study_plan_items_for_day(
+                    "legacy-user", today,
+                )[0]
+                self.assertIn(raw_id, stored_item["title"])
+            finally:
+                memory._conn.close()
 
     def test_existing_database_is_migrated_with_task_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

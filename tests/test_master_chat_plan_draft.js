@@ -106,6 +106,8 @@ function loadModule() {
     formatMarkdown: api.formatMarkdown,
     resumePendingJobs: api.resumePendingJobs,
     renderStudyPlanResult: api.renderStudyPlanResult,
+    renderClarificationResult: api.renderClarificationResult,
+    renderJobResult: api.renderJobResult,
     resultAnswer: api.resultAnswer,
     appendMessageToSession: api.appendMessageToSession,
     resizeComposerInput: api.resizeComposerInput,
@@ -884,6 +886,49 @@ console.log('\n13. renderStudyPlanResult: clarification_needed rendering');
 })();
 
 // ============================================================================
+// 13b. Quiz clarification and safe error rendering
+// ============================================================================
+
+console.log('\n13b. Quiz clarification and safe error rendering');
+
+(function () {
+  var api = loadModule();
+
+  test('quiz clarification renders its configured topic action', function () {
+    var html = api.renderClarificationResult({
+      ok: true,
+      route: { intent: 'clarification', source: 'missing_quiz_topic' },
+      final_result: {
+        message: '请告诉我想考查的具体口腔医学主题。',
+        clarification_options: [
+          { label: '填写出题主题', fill: '请针对__生成5道题' },
+        ],
+      },
+    });
+    ok(html.indexOf('请告诉我想考查的具体口腔医学主题') !== -1);
+    ok(html.indexOf('data-chat-fill="请针对__生成5道题"') !== -1,
+      'quiz clarification must offer an actionable topic template');
+    ok(html.indexOf('请推荐今天的学习计划') === -1,
+      'quiz clarification must not show unrelated default actions');
+  });
+
+  test('safe user_message hides an internal backend error', function () {
+    var html = api.renderJobResult({
+      router_result: {
+        ok: false,
+        route: { intent: 'learning', target: 'quiz' },
+        user_message: '题目暂时无法生成，请稍后重试。',
+        error: 'No verified question-bank questions matched the requested topic.',
+      },
+    });
+    ok(html.indexOf('题目暂时无法生成') !== -1,
+      'safe user-facing message must be rendered');
+    ok(html.indexOf('No verified question-bank') === -1,
+      'internal backend error must not be rendered');
+  });
+})();
+
+// ============================================================================
 // 14. Entry point cache version — HTML must reference current script version
 // ============================================================================
 
@@ -894,8 +939,8 @@ console.log('\n14. Entry point cache version — HTML must reference current scr
   var htmlSrc = fs.readFileSync(htmlPath, 'utf-8');
 
   test('HTML script tag references canonical renderer path with current query version', function () {
-    ok(htmlSrc.indexOf('/js/master-chat.js?v=20260718-oralsage-avatar-v1') !== -1,
-      'master-chat.html must reference canonical path /js/master-chat.js?v=20260718-oralsage-avatar-v1');
+    ok(htmlSrc.indexOf('/js/master-chat.js?v=20260718-quiz-routing-v1') !== -1,
+      'master-chat.html must reference canonical path /js/master-chat.js?v=20260718-quiz-routing-v1');
   });
 
   test('HTML script tag does NOT reference versioned duplicate path', function () {
@@ -989,6 +1034,9 @@ console.log('\n15. learning-plan.js data logic — draft mapping and payload cor
       renderTodoItem: api.renderTodoItem,
       renderItemEditor: api.renderItemEditor,
       taskTypeLabel: api.taskTypeLabel,
+      normalizePlanDisplayItem: api.normalizePlanDisplayItem,
+      planDisplayLabel: api.planDisplayLabel,
+      publicPlanText: api.publicPlanText,
       recommendationPayload: api.recommendationPayload,
       _topologicalOrder: api._topologicalOrder,
       _resolveFormalDependency: api._resolveFormalDependency,
@@ -1067,6 +1115,68 @@ console.log('\n15. learning-plan.js data logic — draft mapping and payload cor
     ok(payload.learning_scope && payload.learning_scope.chapter_key,
       'learning_scope must remain available to the backend');
     state.editingId = '';
+  });
+
+  test('raw KG label is replaced by a readable node name in every plan surface', function () {
+    var rawId = 'kg://儿童口腔医学/015-儿童口腔医学实习教程/core_1';
+    var item = {
+      id: 'plan-legacy-kg',
+      recommendation_id: 'weakness:牙髓切断术',
+      status: 'open',
+      title: '复习薄弱点：' + rawId,
+      learning_target: rawId,
+      reason: '近期反复混淆 ' + rawId,
+      linked_course_title: '根尖周炎',
+      task_type: 'review_weakness',
+      category: 'review_weakness',
+      kg_node_ids: [rawId],
+      learning_scope: {
+        kg_node_ids: [rawId],
+        kg_node_names: {},
+        book_title: '儿童口腔医学',
+        chapter_title: '第十五章 儿童口腔医学实习教程',
+      },
+    };
+    item.learning_scope.kg_node_names[rawId] = '牙髓切断术';
+
+    var normalized = lp.normalizePlanDisplayItem(item);
+    equal(normalized.title, '复习薄弱点：牙髓切断术');
+    equal(normalized.learning_target, '牙髓切断术');
+    ok(normalized.reason.indexOf('牙髓切断术') !== -1,
+      'reason should retain the readable knowledge-point name');
+
+    state.editingId = item.id;
+    var cardHtml = lp.renderRecommendationCard(item, true);
+    var todoHtml = lp.renderTodoItem(item, true);
+    var editorHtml = lp.renderItemEditor(item);
+    [cardHtml, todoHtml, editorHtml].forEach(function (html) {
+      ok(html.indexOf('牙髓切断术') !== -1, 'readable node name should remain visible');
+      ok(html.indexOf('kg://') === -1, 'raw KG URI must not be rendered');
+      ok(html.indexOf('core_1') === -1, 'raw KG node suffix must not be rendered');
+    });
+
+    var payload = lp.recommendationPayload(item);
+    equal(payload.title, '复习薄弱点：牙髓切断术');
+    equal(payload.learning_target, '牙髓切断术');
+    assert.deepStrictEqual(Array.from(payload.kg_node_ids), [rawId],
+      'internal KG IDs remain available to backend execution');
+    state.editingId = '';
+  });
+
+  test('unresolved raw KG label uses a neutral fallback instead of leaking', function () {
+    var rawId = 'kg://不存在的教材/不存在章节/core_999';
+    var item = {
+      id: 'plan-unresolved-kg',
+      status: 'open',
+      title: '复习薄弱点：' + rawId,
+      learning_target: rawId,
+      kg_node_ids: [rawId],
+    };
+    var normalized = lp.normalizePlanDisplayItem(item);
+    equal(normalized.title, '复习薄弱点：相关知识点');
+    equal(normalized.learning_target, '相关知识点');
+    ok(lp.renderTodoItem(item, true).indexOf('kg://') === -1,
+      'unresolved URI must still be hidden');
   });
 
   test('unknown internal task enum falls back to a neutral user label', function () {
@@ -2186,6 +2296,11 @@ console.log('\n19. Learning Plan CSS contract — text containment and ellipsis'
   var cssSrc = fs.readFileSync(cssPath, 'utf-8');
   var htmlPath = path.resolve(__dirname, '..', 'frontend', 'pages', 'learning-plan.html');
   var htmlSrc = fs.readFileSync(htmlPath, 'utf-8');
+
+  test('HTML cache-busts the KG display sanitization script', function () {
+    ok(htmlSrc.indexOf('/js/learning-plan.js?v=20260718-hide-internal-sources-v2') !== -1,
+      'learning-plan.html must load the v2 display-sanitization script');
+  });
 
   // Helper: extract the body of a CSS rule (text between { and })
   function extractCssBlock(css, selector) {

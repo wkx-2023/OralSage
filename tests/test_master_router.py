@@ -28,6 +28,7 @@ from backend.services.router.master_router import (
     MasterRouter,
     _build_candidate_whitelist,
     _build_classifier_messages,
+    _detect_conversational_agent,
     _extract_standalone_topic,
     _extract_requested_limit,
     _extract_requested_months,
@@ -85,6 +86,35 @@ class TestStandaloneQuizParsing:
         assert _extract_standalone_topic(message, "quiz") == "\u7259\u5468\u708e"
         assert _requested_quiz_question_count(message) == 5
 
+    @pytest.mark.parametrize(
+        ("message", "topic", "count"),
+        [
+            ("出一份根尖周炎的题目", "根尖周炎", 5),
+            ("来一份龋病试卷", "龋病", 5),
+            ("生成关于根尖周炎的七道题目", "根尖周炎", 7),
+            ("针对牙周炎出5道题", "牙周炎", 5),
+        ],
+    )
+    def test_natural_quiz_commands_extract_topic_and_count(
+        self, message, topic, count
+    ):
+        assert _detect_conversational_agent(message) == "quiz"
+        assert _extract_standalone_topic(message, "quiz") == topic
+        assert _requested_quiz_question_count(message) == count
+
+    def test_generic_stage_exam_request_has_no_fake_topic(self):
+        message = "出一份阶段卷"
+        assert _detect_conversational_agent(message) == "quiz"
+        assert _extract_standalone_topic(message, "quiz") == ""
+        assert _requested_quiz_question_count(message) == 5
+
+    def test_question_explanation_is_not_hijacked_by_quiz_agent(self):
+        for message in (
+            "根尖周炎这道题目为什么选B",
+            "如何做这道根尖周炎题目",
+        ):
+            assert _detect_conversational_agent(message) is None
+
     def test_explicit_resource_topic_is_available_for_standalone_dispatch(self):
         assert _extract_standalone_topic("\u751f\u6210\u7259\u5468\u708e\u8bb2\u4e49", "handout") == "\u7259\u5468\u708e"
 
@@ -135,6 +165,119 @@ class TestStandaloneQuizParsing:
         assert args[0] == "handout"
         assert kwargs["context"]["session_id"] == ""
         assert kwargs["context"]["topic"] == "\u7259\u5468\u708e"
+
+    @pytest.mark.asyncio
+    async def test_explicit_topic_question_command_generates_quiz_not_course(
+        self, mock_orchestrator
+    ):
+        mock_orchestrator.memory.get_session.return_value = {"user_id": "demo"}
+        mock_orchestrator.generate_topic_quiz_for_interaction.return_value = {
+            "status": "ready",
+            "questions": [{"id": "q-root-apical"}],
+        }
+        bootstrap = {
+            "session": {"id": "standalone-root-apical"},
+            "knowledge_profile_write": {"impact": "topic_interest_only"},
+        }
+        router = MasterRouter(mock_orchestrator)
+
+        with patch(
+            "backend.services.router.master_router.run_learn_knowledge_point",
+            return_value=bootstrap,
+        ) as run_skill:
+            result = await router.route("出一份根尖周炎的题目", "demo")
+
+        assert result["ok"] is True
+        assert result["route"]["target"] == "quiz"
+        assert result["route"]["execution_mode"] == "standalone_generation"
+        assert result["route"]["topic"] == "根尖周炎"
+        assert result["final_result"]["standalone_generation"] is True
+        assert run_skill.call_args.kwargs["topic"] == "根尖周炎"
+        mock_orchestrator.generate_topic_quiz_for_interaction.assert_called_once_with(
+            "standalone-root-apical",
+            topic="根尖周炎",
+            question_count=5,
+        )
+        mock_orchestrator.start_lesson.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_missing_topic_returns_clarification_without_bootstrap(
+        self, mock_orchestrator
+    ):
+        router = MasterRouter(mock_orchestrator)
+
+        with patch(
+            "backend.services.router.master_router.is_llm_configured",
+            return_value=True,
+        ), patch(
+            "backend.services.router.master_router.chat_completion",
+            return_value=json.dumps({
+                "intent": "learning",
+                "plan_item_requested": False,
+                "reason": "generic learning misclassification",
+            }),
+        ), patch(
+            "backend.services.router.master_router.run_learn_knowledge_point",
+        ) as run_skill:
+            result = await router.route("出一份阶段卷", "demo")
+
+        assert result["ok"] is True
+        assert result["route"]["intent"] == "clarification"
+        assert result["final_result"]["clarification_reason"] == "quiz_topic_required"
+        assert "具体" in result["final_result"]["message"]
+        run_skill.assert_not_called()
+        mock_orchestrator.start_lesson.assert_not_called()
+        mock_orchestrator.generate_topic_quiz_for_interaction.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_generic_stage_exam_uses_current_session(self, mock_orchestrator):
+        mock_orchestrator.memory.get_session.return_value = {"user_id": "demo"}
+        mock_orchestrator.ensure_stage_exam_for_interaction.return_value = {
+            "status": "ready",
+            "questions": [{"id": "q-current"}],
+        }
+        router = MasterRouter(mock_orchestrator)
+
+        result = await router.route(
+            "出一份阶段卷",
+            "demo",
+            context={"session_id": "formal-session"},
+        )
+
+        assert result["ok"] is True
+        assert result["next_action"] == "show_stage_exam"
+        mock_orchestrator.ensure_stage_exam_for_interaction.assert_called_once_with(
+            "formal-session"
+        )
+        mock_orchestrator.generate_topic_quiz_for_interaction.assert_not_called()
+        mock_orchestrator.start_lesson.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_question_bank_coverage_returns_safe_clarification(
+        self, mock_orchestrator
+    ):
+        mock_orchestrator.memory.get_session.return_value = {"user_id": "demo"}
+        mock_orchestrator.generate_topic_quiz_for_interaction.return_value = {
+            "status": "failed",
+            "questions": [],
+            "error": "No verified question-bank questions matched the requested topic.",
+        }
+        router = MasterRouter(mock_orchestrator)
+
+        result = await router.dispatch_agent(
+            "quiz",
+            message="出一份不存在主题的题目",
+            user_id="demo",
+            context={
+                "session_id": "standalone-no-coverage",
+                "standalone_topic": "不存在主题",
+            },
+        )
+
+        assert result["ok"] is True
+        assert result["route"]["intent"] == "clarification"
+        assert result["final_result"]["clarification_reason"] == "quiz_topic_unavailable"
+        assert "No verified" not in json.dumps(result, ensure_ascii=False)
 
 
 class TestValidateRoute:

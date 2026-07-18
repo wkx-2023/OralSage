@@ -160,7 +160,12 @@ CLASSIFIER_SYSTEM_PROMPT += (
     "planner|handout|slides|ppt|tutor|lecture_script|voice|qa|quiz|assessment|continue. "
     "Otherwise omit both fields and use the complete learning workflow. "
     "For an independent quiz request, set target_agent to quiz and include "
-    '"topic" as the requested subject plus "question_count" as an integer from 1 to 20. '
+    '"topic" as the requested subject. Treat natural commands such as '
+    '"出一份根尖周炎的题目" or "来一份龋病试卷" as quiz requests, not as '
+    "requests to start a complete learning course. If the user did not provide "
+    'a subject, use an empty "topic" and never use generic words such as '
+    '"阶段卷", "试卷", or "题目" as the topic. Include "question_count" as '
+    "an integer from 1 to 20 only when the user states a count; otherwise omit it. "
     "Extract these fields from meaning rather than word order. For example, "
     "a request equivalent to asking for five questions about periodontitis must return "
     '{"intent":"learning","dispatch_type":"agent","target_agent":"quiz",'
@@ -513,7 +518,8 @@ def _detect_conversational_agent(message: str) -> str | None:
 
     action_markers = (
         "\u53ea\u751f\u6210", "\u751f\u6210", "\u91cd\u65b0\u751f\u6210", "\u91cd\u5efa",
-        "\u505a\u4e00\u4efd", "\u51fa", "\u518d\u8bb2\u4e00\u904d", "\u91cd\u65b0\u8bb2",
+        "制作", "创建", "编写", "拟定", "准备", "来一份", "\u505a\u4e00\u4efd", "\u51fa",
+        "\u518d\u8bb2\u4e00\u904d", "\u91cd\u65b0\u8bb2",
         "\u7b80\u5355\u4e00\u70b9", "\u8be6\u7ec6\u4e00\u70b9", "\u7ee7\u7eed\u4e0b\u4e00\u8282",
     )
     if not any(marker in text for marker in action_markers):
@@ -526,10 +532,19 @@ def _detect_conversational_agent(message: str) -> str | None:
         return "lecture_script"
     if "\u8bb2\u4e49" in text:
         return "handout"
+    quiz_generation_command = bool(re.search(
+        r"(?:出|生成|制作|创建|编写|拟定|准备|来一份|来一套|做一份|做一套)"
+        r"(?:一份|一套|一些|几道|几个)?"
+        r".{0,40}?"
+        r"(?:练习题|测验题|题目|测试卷|试卷|阶段卷|小测|题)"
+        r"[？?。！!]*$",
+        text,
+    ))
     if (
         any(marker in text for marker in ("\u51fa\u9898", "\u7ec3\u4e60\u9898", "\u5c0f\u6d4b", "\u6d4b\u9a8c\u9898"))
         or ("\u51fa" in text and ("\u9053\u9898" in text or "\u4e2a\u9898" in text))
         or bool(re.search(r"\u51fa\s*\d*\s*(?:\u9053|\u4e2a).{0,40}\u9898", text))
+        or quiz_generation_command
     ):
         return "quiz"
     if any(marker in text for marker in ("\u91cd\u65b0\u8bb2", "\u518d\u8bb2\u4e00\u904d", "\u7b80\u5355\u4e00\u70b9", "\u8be6\u7ec6\u4e00\u70b9")):
@@ -572,8 +587,77 @@ def _agent_dispatch_answer(target: str, next_action: str) -> str:
     return f"\u5df2\u8c03\u5ea6 {label}\uff0c{suffix}\u3002"
 
 
+_GENERIC_QUIZ_TOPICS = frozenset({
+    "", "题", "题目", "练习题", "测验题", "测试题", "小测",
+    "试卷", "测试卷", "阶段卷", "阶段试卷", "一份题", "一份试卷",
+    "一份", "一套", "一些", "几道", "几个",
+})
+
+
+def _is_generic_quiz_topic(value: Any) -> bool:
+    compact = "".join(str(value or "").lower().split())
+    if compact in _GENERIC_QUIZ_TOPICS:
+        return True
+    return bool(re.fullmatch(
+        r"(?:一份|一套|一些|几道|几个|"
+        r"\d{1,2}(?:道|个)?|"
+        r"[零〇一二两三四五六七八九十百]{1,4}(?:道|个)?)",
+        compact,
+    ))
+
+
+def _extract_quiz_topic(message: str) -> str:
+    """Extract an explicit medical topic without treating quiz nouns as one."""
+    raw = "".join(str(message or "").split()).strip(" ，。！？?:：,-")
+    if not raw:
+        return ""
+
+    # Consume courtesy prefixes before matching. Leaving them optional inside
+    # the regex allows backtracking to reinterpret "给我" as the topic.
+    raw = re.sub(
+        r"^(?:(?:请|麻烦|劳驾)(?:帮我|给我)?|帮我|给我)",
+        "",
+        raw,
+    )
+    if not raw:
+        return ""
+
+    action = r"(?:出|生成|制作|创建|编写|拟定|准备|来一份|来一套|做一份|做一套)"
+    quantity = r"(?:\d{1,2}|[零〇一二两三四五六七八九十百]{1,4})(?:道|个)"
+    resource = r"(?:练习题|测验题|测试题|题目|测试卷|阶段试卷|试卷|阶段卷|小测|题)"
+    patterns = (
+        # 针对牙周炎出5道题 / 牙周炎生成一份试卷
+        rf"^(?:针对|围绕|关于)?(?P<topic>.+?){action}"
+        rf"(?:一份|一套)?(?:{quantity})?(?:的)?{resource}$",
+        # 帮我出5道牙周炎的题
+        rf"^{action}(?:一份|一套)?(?:关于|针对|围绕)?"
+        rf"{quantity}(?P<topic>.+?)(?:的)?{resource}$",
+        # 出一份根尖周炎的题目 / 生成关于根尖周炎的5道题
+        rf"^{action}(?:一份|一套)?(?:关于|针对|围绕)?"
+        rf"(?P<topic>.+?)(?:的)?(?:{quantity})?(?:的)?{resource}$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, raw, flags=re.IGNORECASE)
+        if not match:
+            continue
+        topic = _normalize_learning_topic(match.group("topic").strip(" 的，。！？?:：,-"))
+        return "" if _is_generic_quiz_topic(topic) else topic
+
+    normalized = _normalize_learning_topic(raw)
+    if _is_generic_quiz_topic(normalized):
+        return ""
+    if _detect_conversational_agent(raw) == "quiz":
+        # An unparsed quiz command is not a safe topic. Clarify instead of
+        # searching the bank with the complete command text.
+        return ""
+    return normalized
+
+
 def _extract_standalone_topic(message: str, target: str) -> str:
     """Extract a topic from a short resource-generation command."""
+    if target == "quiz":
+        return _extract_quiz_topic(message)
+
     text = " ".join(str(message or "").split()).strip()
     if not text:
         return ""
@@ -586,25 +670,100 @@ def _extract_standalone_topic(message: str, target: str) -> str:
     ]
     for pattern in patterns:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
-    if target == "quiz":
-        text = re.sub(r"\u51fa\s*\d*\s*(?:\u9053|\u4e2a)?\s*\u9898", "", text)
-        text = re.sub(r"^\u51fa\s*\d*\s*(?:\u9053|\u4e2a)\s*", "", text)
-        text = re.sub(r"(?:\u7684)?\u9898$", "", text)
-        text = re.sub(r"\u51fa\u9898|\u5c0f\u6d4b", "", text)
-        text = re.sub(r"^\u9488\u5bf9\s*", "", text)
     if text.strip() == "\u7684":
         return ""
     return _normalize_learning_topic(text.strip(" \uff0c\u3002\uff1a:,-"))
+
+
+def _extract_explicit_quiz_question_count(value: Any) -> int | None:
+    text = str(value or "")
+    match = re.search(
+        r"(\d{1,2})\s*(?:道|个)(?:.{0,40}?)(?:题目|练习题|测验题|题)",
+        text,
+    )
+    if match:
+        return _coerce_int(match.group(1), minimum=1, maximum=20)
+
+    chinese_match = re.search(
+        r"([零〇一二两三四五六七八九十]{1,3})\s*(?:道|个)"
+        r"(?:.{0,40}?)(?:题目|练习题|测验题|题)",
+        text,
+    )
+    if chinese_match:
+        return _coerce_int(
+            _parse_chinese_integer(chinese_match.group(1)),
+            minimum=1,
+            maximum=20,
+        )
+    return None
 
 
 def _requested_quiz_question_count(value: Any) -> int:
     direct_count = _coerce_int(value, minimum=1, maximum=20)
     if direct_count is not None:
         return direct_count
-    match = re.search(r"(\d{1,2})\s*(?:\u9053|\u4e2a)(?:.{0,40}?\u9898)", str(value or ""))
-    if not match:
-        return 5
-    return max(1, min(int(match.group(1)), 20))
+    explicit_count = _extract_explicit_quiz_question_count(value)
+    return explicit_count if explicit_count is not None else 5
+
+
+def _quiz_topic_clarification(route: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "route": {
+            **route,
+            "intent": "clarification",
+            "target": "none",
+            "source": "missing_quiz_topic",
+            "requested_target_agent": "quiz",
+            "reason": "出题请求缺少可执行的医学主题。",
+        },
+        "final_result": {
+            "message": (
+                "请告诉我想考查的具体口腔医学主题，例如“根尖周炎 5 题”"
+                "或“龋病阶段卷”。"
+            ),
+            "clarification_needed": True,
+            "clarification_reason": "quiz_topic_required",
+            "clarification_options": [
+                {"label": "填写出题主题", "fill": "请针对__生成5道题"},
+            ],
+        },
+        "next_action": "provide_quiz_topic",
+    }
+
+
+def _quiz_unavailable_clarification(
+    route: dict[str, Any],
+    *,
+    topic: str = "",
+) -> dict[str, Any]:
+    clean_topic = _extract_quiz_topic(topic)
+    message = (
+        f"当前题库暂时没有与“{clean_topic}”匹配的已验证题目。"
+        "请换一个更具体或相近的口腔医学主题。"
+        if clean_topic
+        else "当前课程范围暂时没有可用的已验证题目。请换一个具体主题重新出题。"
+    )
+    return {
+        "ok": True,
+        "route": {
+            **route,
+            "intent": "clarification",
+            "target": "none",
+            "source": "quiz_topic_unavailable",
+            "requested_target_agent": "quiz",
+            "reason": "当前题库没有可用于该范围的已验证题目。",
+        },
+        "final_result": {
+            "message": message,
+            "clarification_needed": True,
+            "clarification_reason": "quiz_topic_unavailable",
+            "clarification_options": [
+                {"label": "更换出题主题", "fill": "请针对__生成5道题"},
+            ],
+        },
+        "next_action": "provide_quiz_topic",
+    }
 
 
 def _deterministic_route(message: str) -> dict[str, Any] | None:
@@ -1077,7 +1236,12 @@ class MasterRouter:
             return self._dispatch_error(route, f"Unknown registered capability: {agent_name}")
         if not session_id:
             if target in STANDALONE_BOOTSTRAP_AGENTS:
-                topic = _normalize_learning_topic(ctx.get("topic") or _extract_standalone_topic(message, target))
+                raw_topic = ctx.get("topic") or _extract_standalone_topic(message, target)
+                topic = (
+                    _extract_quiz_topic(raw_topic)
+                    if target == "quiz"
+                    else _normalize_learning_topic(raw_topic)
+                )
                 if topic:
                     try:
                         bootstrap = await asyncio.to_thread(
@@ -1089,7 +1253,15 @@ class MasterRouter:
                         )
                     except Exception as exc:
                         logger.exception("standalone %s bootstrap failed for topic=%s", target, topic)
-                        return self._dispatch_error(route, f"Standalone {target} setup failed: {exc}")
+                        return self._dispatch_error(
+                            route,
+                            f"Standalone {target} setup failed: {exc}",
+                            user_message=(
+                                "题目暂时无法生成，请稍后重试。"
+                                if target == "quiz"
+                                else None
+                            ),
+                        )
                     standalone_session = bootstrap.get("session") if isinstance(bootstrap, dict) else {}
                     standalone_session_id = str((standalone_session or {}).get("id") or "")
                     if not standalone_session_id:
@@ -1103,10 +1275,16 @@ class MasterRouter:
                             **ctx,
                             "session_id": standalone_session_id,
                             "standalone_topic": topic,
-                            "quiz_question_count": _requested_quiz_question_count(message),
+                            "quiz_question_count": _requested_quiz_question_count(
+                                ctx.get("quiz_question_count")
+                                if ctx.get("quiz_question_count") is not None
+                                else message
+                            ),
                         },
                     )
                     if not nested.get("ok"):
+                        return nested
+                    if (nested.get("route") or {}).get("intent") == "clarification":
                         return nested
                     operation = nested.get("final_result") or {}
                     final_result = {
@@ -1128,6 +1306,8 @@ class MasterRouter:
                         "final_result": final_result,
                         "next_action": nested.get("next_action"),
                     }
+            if target == "quiz":
+                return _quiz_topic_clarification(route)
             return {
                 "ok": True,
                 "route": {
@@ -1213,14 +1393,28 @@ class MasterRouter:
                 next_action = "continue_session"
         except Exception as exc:
             logger.exception("registered agent dispatch failed: %s", target)
-            return self._dispatch_error(route, f"{target} failed: {exc}")
+            return self._dispatch_error(
+                route,
+                f"{target} failed: {exc}",
+                user_message=(
+                    "题目暂时无法生成，请稍后重试。"
+                    if target == "quiz"
+                    else None
+                ),
+            )
 
         if target == "quiz" and (
             result.get("status") != "ready" or not result.get("questions")
         ):
-            return self._dispatch_error(
+            logger.warning(
+                "quiz generation returned no usable questions: session=%s topic=%s error=%s",
+                session_id,
+                ctx.get("standalone_topic") or session.get("topic"),
+                result.get("error"),
+            )
+            return _quiz_unavailable_clarification(
                 route,
-                str(result.get("error") or "No usable quiz questions were generated."),
+                topic=str(ctx.get("standalone_topic") or ""),
             )
 
         if isinstance(result, dict):
@@ -1231,8 +1425,22 @@ class MasterRouter:
         return {"ok": True, "route": route, "final_result": result, "next_action": next_action}
 
     @staticmethod
-    def _dispatch_error(route: dict[str, Any], error: str) -> dict[str, Any]:
-        return {"ok": False, "route": route, "final_result": None, "next_action": None, "error": error}
+    def _dispatch_error(
+        route: dict[str, Any],
+        error: str,
+        *,
+        user_message: str | None = None,
+    ) -> dict[str, Any]:
+        response = {
+            "ok": False,
+            "route": route,
+            "final_result": None,
+            "next_action": None,
+            "error": error,
+        }
+        if user_message:
+            response["user_message"] = user_message
+        return response
 
     @staticmethod
     def capability_catalog() -> list[dict[str, Any]]:
@@ -1888,7 +2096,14 @@ class MasterRouter:
                 dispatch_context = dict(context or {})
                 if route.get("topic"):
                     dispatch_context["topic"] = route["topic"]
-                if route.get("question_count") is not None:
+                if target_agent == "quiz":
+                    # The source message is authoritative for whether the user
+                    # stated a count. This prevents an inferred classifier
+                    # default from changing again during nested dispatch.
+                    dispatch_context["quiz_question_count"] = (
+                        _requested_quiz_question_count(message)
+                    )
+                elif route.get("question_count") is not None:
                     dispatch_context["quiz_question_count"] = route["question_count"]
                 dispatched = await self.dispatch_agent(
                     target_agent,

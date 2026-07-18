@@ -144,6 +144,103 @@
     return /^[a-z0-9_-]+$/i.test(key) ? '学习任务' : key;
   }
 
+  const INTERNAL_KG_REFERENCE_RE = /(?:kg:\/\/|core:)[^\s，。；;、：:！？!?（）()\[\]【】《》<>"']+/gi;
+  const HAS_INTERNAL_KG_REFERENCE_RE = /(?:kg:\/\/|core:)[^\s，。；;、：:！？!?（）()\[\]【】《》<>"']+/i;
+
+  function safeDisplayText(value) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    return HAS_INTERNAL_KG_REFERENCE_RE.test(text) ? '' : text;
+  }
+
+  function planKnowledgeDisplayNames(item) {
+    const source = item && typeof item === 'object' ? item : {};
+    const scope = source.learning_scope && typeof source.learning_scope === 'object'
+      ? source.learning_scope
+      : {};
+    const names = {};
+    [source.kg_node_names, scope.kg_node_names].forEach((mapping) => {
+      if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) return;
+      Object.keys(mapping).forEach((nodeId) => {
+        const name = safeDisplayText(mapping[nodeId]);
+        if (nodeId && name && !names[nodeId]) names[nodeId] = name;
+      });
+    });
+    return names;
+  }
+
+  function planDisplayLabel(item) {
+    const source = item && typeof item === 'object' ? item : {};
+    const scope = source.learning_scope && typeof source.learning_scope === 'object'
+      ? source.learning_scope
+      : {};
+    const names = planKnowledgeDisplayNames(source);
+    const nodeIds = [];
+    [source.kg_node_ids, scope.kg_node_ids].forEach((values) => {
+      if (!Array.isArray(values)) return;
+      values.forEach((value) => {
+        const nodeId = String(value || '').trim();
+        if (nodeId && nodeIds.indexOf(nodeId) === -1) nodeIds.push(nodeId);
+      });
+    });
+    for (const nodeId of nodeIds) {
+      if (names[nodeId]) return names[nodeId];
+    }
+    const mappedNames = Object.values(names);
+    if (mappedNames.length) return mappedNames[0];
+    const candidates = [
+      source.learning_target,
+      scope.chapter_title,
+      source.linked_course_title,
+      scope.book_title,
+    ];
+    for (const candidate of candidates) {
+      const text = safeDisplayText(candidate);
+      if (text) return text;
+    }
+    return '相关知识点';
+  }
+
+  function publicPlanText(value, item, fallback) {
+    let text = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!text || !HAS_INTERNAL_KG_REFERENCE_RE.test(text)) return text;
+    const names = planKnowledgeDisplayNames(item);
+    Object.keys(names)
+      .sort((a, b) => b.length - a.length)
+      .forEach((nodeId) => {
+        text = text.split(nodeId).join(names[nodeId]);
+      });
+    return text.replace(
+      INTERNAL_KG_REFERENCE_RE,
+      fallback || planDisplayLabel(item),
+    ).trim();
+  }
+
+  function normalizePlanDisplayItem(item) {
+    const source = item && typeof item === 'object' ? item : {};
+    const normalized = { ...source };
+    const fallback = planDisplayLabel(source);
+    normalized.title = publicPlanText(source.title, source, fallback) || '学习任务';
+    ['learning_target', 'reason', 'notes'].forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(source, field)) {
+        normalized[field] = publicPlanText(source[field], source, fallback) || null;
+      }
+    });
+    if (Object.prototype.hasOwnProperty.call(source, 'linked_course_title')) {
+      const scope = source.learning_scope && typeof source.learning_scope === 'object'
+        ? source.learning_scope
+        : {};
+      const courseFallback = safeDisplayText(scope.book_title)
+        || safeDisplayText(scope.chapter_title)
+        || '相关课程';
+      normalized.linked_course_title = publicPlanText(
+        source.linked_course_title,
+        source,
+        courseFallback,
+      ) || null;
+    }
+    return normalized;
+  }
+
   function buildStartLearningUrl(itemId) {
     return `/pages/master-chat.html?plan_item_id=${encodeURIComponent(itemId)}&user_id=${encodeURIComponent(state.userId || 'demo')}`;
   }
@@ -179,7 +276,7 @@
         practice_level: item.practice_level || null,
         session_id: item.session_id || null,
       };
-      return rec;
+      return normalizePlanDisplayItem(rec);
     });
   }
 
@@ -410,28 +507,30 @@
   }
 
   function recommendationMeta(item) {
+    const displayItem = normalizePlanDisplayItem(item);
     return [
-      item.linked_course_title ? `关联课程：${item.linked_course_title}` : '',
-      item.estimated_minutes ? `预计 ${item.estimated_minutes} 分钟` : '',
+      displayItem.linked_course_title ? `关联课程：${displayItem.linked_course_title}` : '',
+      displayItem.estimated_minutes ? `预计 ${displayItem.estimated_minutes} 分钟` : '',
     ].filter(Boolean).join(' · ');
   }
 
   function renderRecommendationCard(item, editable) {
-    const meta = recommendationMeta(item);
+    const displayItem = normalizePlanDisplayItem(item);
+    const meta = recommendationMeta(displayItem);
     const disabled = !editable ? ' disabled' : '';
     return `
       <article class="recommend-card">
         <div class="recommend-top">
           <div>
-            <p class="recommend-title">${escapeHtml(item.title || '推荐计划')}</p>
-            <p class="recommend-reason">${escapeHtml(item.reason || '')}</p>
+            <p class="recommend-title">${escapeHtml(displayItem.title || '推荐计划')}</p>
+            <p class="recommend-reason">${escapeHtml(displayItem.reason || '')}</p>
           </div>
-          <span class="recommend-chip">${escapeHtml(taskTypeLabel(item.category || item.task_type))}</span>
+          <span class="recommend-chip">${escapeHtml(taskTypeLabel(displayItem.category || displayItem.task_type))}</span>
         </div>
         ${meta ? `<div class="recommend-meta">${escapeHtml(meta)}</div>` : ''}
         <div class="recommend-tools">
-          <button class="recommend-action" type="button" data-recommend-action="dismiss" data-recommend-id="${escapeHtml(item.recommendation_id || '')}"${disabled}>忽略</button>
-          <button class="recommend-action primary" type="button" data-recommend-action="accept" data-recommend-id="${escapeHtml(item.recommendation_id || '')}"${disabled}>采纳</button>
+          <button class="recommend-action" type="button" data-recommend-action="dismiss" data-recommend-id="${escapeHtml(displayItem.recommendation_id || '')}"${disabled}>忽略</button>
+          <button class="recommend-action primary" type="button" data-recommend-action="accept" data-recommend-id="${escapeHtml(displayItem.recommendation_id || '')}"${disabled}>采纳</button>
         </div>
       </article>
     `;
@@ -603,14 +702,15 @@
   }
 
   function renderTodoItem(item, editable) {
-    const completed = item.status === 'completed';
+    const displayItem = normalizePlanDisplayItem(item);
+    const completed = displayItem.status === 'completed';
     const linkMeta = [
-      item.linked_course_title ? `课程：${item.linked_course_title}` : '',
-      item.deferred_count ? `延期 ${item.deferred_count} 次` : '',
+      displayItem.linked_course_title ? `课程：${displayItem.linked_course_title}` : '',
+      displayItem.deferred_count ? `延期 ${displayItem.deferred_count} 次` : '',
     ].filter(Boolean).join(' · ');
-    const isEditing = editable && state.editingId === item.id;
+    const isEditing = editable && state.editingId === displayItem.id;
     const checkControl = editable ? `
-      <button class="todo-check-button${completed ? ' checked' : ''}" type="button" data-action="complete" data-id="${escapeHtml(item.id)}" data-completed="${completed ? 'false' : 'true'}" aria-label="${completed ? '标记为未完成' : '标记为完成'}">
+      <button class="todo-check-button${completed ? ' checked' : ''}" type="button" data-action="complete" data-id="${escapeHtml(displayItem.id)}" data-completed="${completed ? 'false' : 'true'}" aria-label="${completed ? '标记为未完成' : '标记为完成'}">
         ${completed ? '<i data-lucide="check"></i>' : ''}
       </button>
     ` : `
@@ -619,74 +719,76 @@
       </span>
     `;
     const startLearningLink = !completed
-      ? `<a class="todo-tool start-learning-link" href="${buildStartLearningUrl(item.id)}" title="开始学习" aria-label="开始学习"><i data-lucide="play-circle"></i></a>`
+      ? `<a class="todo-tool start-learning-link" href="${buildStartLearningUrl(displayItem.id)}" title="开始学习" aria-label="开始学习"><i data-lucide="play-circle"></i></a>`
       : '';
     const tools = editable ? `
       <div class="todo-tools">
-        <button class="todo-tool" type="button" data-action="edit" data-id="${escapeHtml(item.id)}" title="修改计划" aria-label="修改计划">
+        <button class="todo-tool" type="button" data-action="edit" data-id="${escapeHtml(displayItem.id)}" title="修改计划" aria-label="修改计划">
           <i data-lucide="pencil"></i>
         </button>
-        <button class="todo-tool danger" type="button" data-action="delete" data-id="${escapeHtml(item.id)}" title="删除计划" aria-label="删除计划">
+        <button class="todo-tool danger" type="button" data-action="delete" data-id="${escapeHtml(displayItem.id)}" title="删除计划" aria-label="删除计划">
           <i data-lucide="trash-2"></i>
         </button>
       </div>
     ` : '';
     return `
-      <article class="todo-item${completed ? ' completed' : ''}" data-id="${escapeHtml(item.id)}">
+      <article class="todo-item${completed ? ' completed' : ''}" data-id="${escapeHtml(displayItem.id)}">
         <div class="todo-line">
           ${checkControl}
           <div class="todo-copy">
-            <div class="todo-title">${escapeHtml(item.title)}</div>
+            <div class="todo-title">${escapeHtml(displayItem.title)}</div>
             ${linkMeta ? `<div class="todo-meta">${escapeHtml(linkMeta)}</div>` : ''}
           </div>
           ${startLearningLink}
           ${tools}
         </div>
-        ${isEditing ? renderItemEditor(item) : ''}
+        ${isEditing ? renderItemEditor(displayItem) : ''}
       </article>
     `;
   }
 
   function renderItemEditor(item) {
+    const displayItem = normalizePlanDisplayItem(item);
     return `
-      <div class="link-editor" data-editor-id="${escapeHtml(item.id)}">
-        <input type="text" data-link-title value="${escapeHtml(item.title || '')}" placeholder="计划内容">
-        <input type="text" data-link-course value="${escapeHtml(item.linked_course_title || '')}" placeholder="关联课程">
+      <div class="link-editor" data-editor-id="${escapeHtml(displayItem.id)}">
+        <input type="text" data-link-title value="${escapeHtml(displayItem.title || '')}" placeholder="计划内容">
+        <input type="text" data-link-course value="${escapeHtml(displayItem.linked_course_title || '')}" placeholder="关联课程">
         <div class="link-editor-actions">
-          <button class="link-cancel" type="button" data-action="cancel-edit" data-id="${escapeHtml(item.id)}">取消</button>
-          <button class="link-save" type="button" data-action="save-edit" data-id="${escapeHtml(item.id)}">保存</button>
+          <button class="link-cancel" type="button" data-action="cancel-edit" data-id="${escapeHtml(displayItem.id)}">取消</button>
+          <button class="link-save" type="button" data-action="save-edit" data-id="${escapeHtml(displayItem.id)}">保存</button>
         </div>
       </div>
     `;
   }
 
   function recommendationPayload(item) {
-    const planDate = (item.day_offset != null && state.draftBaseDate)
-      ? addDays(state.draftBaseDate, item.day_offset)
+    const displayItem = normalizePlanDisplayItem(item);
+    const planDate = (displayItem.day_offset != null && state.draftBaseDate)
+      ? addDays(state.draftBaseDate, displayItem.day_offset)
       : state.selectedDate;
     const payload = {
       user_id: state.userId,
       plan_date: planDate,
-      title: String(item.title || '').trim(),
-      notes: item.notes || item.reason || null,
-      linked_course_id: item.linked_course_id || null,
-      linked_course_title: item.linked_course_title || null,
-      task_type: item.task_type || item.category || 'topic_learning',
-      learning_target: item.learning_target || null,
-      kg_node_ids: Array.isArray(item.kg_node_ids) ? item.kg_node_ids : [],
+      title: String(displayItem.title || '').trim(),
+      notes: displayItem.notes || displayItem.reason || null,
+      linked_course_id: displayItem.linked_course_id || null,
+      linked_course_title: displayItem.linked_course_title || null,
+      task_type: displayItem.task_type || displayItem.category || 'topic_learning',
+      learning_target: displayItem.learning_target || null,
+      kg_node_ids: Array.isArray(displayItem.kg_node_ids) ? displayItem.kg_node_ids : [],
     };
-    if (item.learning_scope) {
-      payload.learning_scope = item.learning_scope;
+    if (displayItem.learning_scope) {
+      payload.learning_scope = displayItem.learning_scope;
     }
-    const formalDep = _resolveFormalDependency(item);
+    const formalDep = _resolveFormalDependency(displayItem);
     if (formalDep) {
       payload.dependency = formalDep;
     }
-    if (item.practice_level) {
-      payload.practice_level = item.practice_level;
+    if (displayItem.practice_level) {
+      payload.practice_level = displayItem.practice_level;
     }
-    if (item.session_id) {
-      payload.session_id = item.session_id;
+    if (displayItem.session_id) {
+      payload.session_id = displayItem.session_id;
     }
     return payload;
   }
@@ -810,7 +912,9 @@
         max_items: 4,
       });
       const result = body.result || {};
-      state.recommendations = Array.isArray(result.recommendations) ? result.recommendations : [];
+      state.recommendations = Array.isArray(result.recommendations)
+        ? result.recommendations.map((item) => normalizePlanDisplayItem(item))
+        : [];
       state.recommendationDate = state.selectedDate;
       if (state.recommendations.length) {
         setStatus('');
@@ -1227,6 +1331,9 @@
     renderTodoItem,
     renderItemEditor,
     taskTypeLabel,
+    normalizePlanDisplayItem,
+    planDisplayLabel,
+    publicPlanText,
     recommendationPayload,
     acceptRecommendation,
     acceptAllRecommendations,
