@@ -107,6 +107,8 @@ function loadModule() {
     resumePendingJobs: api.resumePendingJobs,
     renderStudyPlanResult: api.renderStudyPlanResult,
     resultAnswer: api.resultAnswer,
+    appendMessageToSession: api.appendMessageToSession,
+    resizeComposerInput: api.resizeComposerInput,
   };
 }
 
@@ -149,6 +151,19 @@ console.log('\n0. Markdown loose ordered lists');
     var html = api.formatMarkdown('1. First\n\n1. Second\n\n1. Third');
     equal((html.match(/<ol>/g) || []).length, 1, 'must render one ordered list');
     equal((html.match(/<li>/g) || []).length, 3, 'must render all three list items');
+  });
+
+  test('ordered numbering resumes after a mixed bullet list', function () {
+    var html = api.formatMarkdown('1. First\n- detail\n2. Second\n\n3. Third');
+    ok(html.indexOf('<ol start="2">') !== -1,
+      'an explicit second item must not restart from one after bullets');
+    equal((html.match(/<li>/g) || []).length, 4, 'all list items must remain visible');
+  });
+
+  test('visible markdown removes internal evidence identifiers', function () {
+    var html = api.formatMarkdown('结论（chunk:abc-123）[依据1]');
+    ok(html.indexOf('chunk:') === -1, 'internal chunk IDs must be hidden');
+    ok(html.indexOf('[依据1]') !== -1, 'public citation markers must remain');
   });
 })();
 
@@ -241,6 +256,62 @@ console.log('\n2. resetSession clears currentPlanDraftId');
     api.resetSession();
     state = api.getState();
     equal(state.currentPlanDraftId, null, 'resetSession must clear currentPlanDraftId');
+  });
+})();
+
+// ============================================================================
+// 2b. In-flight jobs stay bound to the conversation that submitted them
+// ============================================================================
+
+console.log('\n2b. In-flight job session isolation');
+
+(function () {
+  var api = loadModule();
+  test('a delayed job message is appended to its original session', function () {
+    var state = api.getState();
+    var originalId = state.activeSessionId;
+    var originalMessages = [{ role: 'user', content: '原会话问题' }];
+    state.messages = originalMessages;
+    state.sessions.unshift({
+      id: originalId, title: '原会话问题', time: '00:00',
+      messages: originalMessages, backendSessionId: null,
+      currentPlanDraftId: null,
+    });
+
+    api.resetSession();
+    var newSessionId = api.getState().activeSessionId;
+    api.appendMessageToSession(originalId, {
+      role: 'assistant', kind: 'job', jobId: 'job-delayed', content: '',
+    });
+
+    var original = api.getState().sessions.find(function (item) {
+      return item.id === originalId;
+    });
+    equal(original.messages.length, 2, 'original session receives the delayed job');
+    equal(original.messages[1].jobId, 'job-delayed');
+    equal(api.getState().activeSessionId, newSessionId, 'active new session is unchanged');
+    equal(api.getState().messages.length, 0, 'new session must not receive the old workflow');
+  });
+})();
+
+// ============================================================================
+// 2c. Composer grows until its maximum, then scrolls internally
+// ============================================================================
+
+console.log('\n2c. Composer auto-resize');
+
+(function () {
+  var api = loadModule();
+  test('composer expands before enabling internal scrolling', function () {
+    var input = { scrollHeight: 96, style: {} };
+    api.resizeComposerInput(input);
+    equal(input.style.height, '96px');
+    equal(input.style.overflowY, 'hidden');
+
+    input.scrollHeight = 260;
+    api.resizeComposerInput(input);
+    equal(input.style.height, '180px');
+    equal(input.style.overflowY, 'auto');
   });
 })();
 
@@ -722,6 +793,29 @@ console.log('\n13. renderStudyPlanResult: clarification_needed rendering');
       'must NOT show plan mode header');
   });
 
+  test('book clarification renders executable scope actions', function () {
+    var html = api.renderStudyPlanResult({
+      ok: true,
+      route: { intent: 'study_plan' },
+      final_result: {
+        clarification_needed: true,
+        clarification_message: '已识别到《牙周病学》，请选择范围。',
+        clarification_options: [
+          { label: '按薄弱点安排', prompt: '请根据我的真实薄弱点制定复习计划' },
+          { label: '填写具体章节', fill: '请为《牙周病学》第__章制定学习计划' },
+          { label: '规划整本教材', prompt: '请为整本《牙周病学》制定学习计划' },
+        ],
+        recommendations: [],
+      },
+    });
+    ok(html.indexOf('data-chat-fill="请为《牙周病学》第__章制定学习计划"') !== -1,
+      'chapter action must fill an actionable request instead of sending a vague reply');
+    ok(html.indexOf('data-chat-prompt="请为整本《牙周病学》制定学习计划"') !== -1,
+      'whole-book action must explicitly confirm complete coverage');
+    ok(html.indexOf('我想系统学习一个口腔医学主题') === -1,
+      'old vague action must not trigger another clarification loop');
+  });
+
   test('clarification_needed=false with items shows normal plan card', function () {
     var routerResult = {
       ok: true,
@@ -752,6 +846,27 @@ console.log('\n13. renderStudyPlanResult: clarification_needed rendering');
       'normal plan must NOT show clarification section');
   });
 
+  test('multi-day recommendations are grouped by day with daily totals', function () {
+    var html = api.renderStudyPlanResult({
+      ok: true,
+      route: { intent: 'study_plan' },
+      final_result: {
+        plan_date: '2026-07-16',
+        plan_draft_id: 'draft_multi_day',
+        recommendations: [
+          { title: '第一天学习', estimated_minutes: 30, day_offset: 0 },
+          { title: '第一天练习', estimated_minutes: 20, day_offset: 0 },
+          { title: '第二天复习', estimated_minutes: 25, day_offset: 1 },
+        ],
+      },
+    });
+    ok(html.indexOf('2 天 · 75 分钟') !== -1, 'header must identify multi-day total');
+    ok(html.indexOf('第 1 天') !== -1 && html.indexOf('2026-07-16') !== -1);
+    ok(html.indexOf('第 2 天') !== -1 && html.indexOf('2026-07-17') !== -1);
+    ok(html.indexOf('50 分钟') !== -1, 'first day total must be shown');
+    ok(html.indexOf('25 分钟') !== -1, 'second day total must be shown');
+  });
+
   test('old result without clarification_needed and empty items uses legacy path', function () {
     var routerResult = {
       ok: true,
@@ -779,8 +894,8 @@ console.log('\n14. Entry point cache version — HTML must reference current scr
   var htmlSrc = fs.readFileSync(htmlPath, 'utf-8');
 
   test('HTML script tag references canonical renderer path with current query version', function () {
-    ok(htmlSrc.indexOf('/js/master-chat.js?v=20260718-plan-smart-routing-v1') !== -1,
-      'master-chat.html must reference canonical path /js/master-chat.js?v=20260718-plan-smart-routing-v1');
+    ok(htmlSrc.indexOf('/js/master-chat.js?v=20260718-agent-routing-fixes-v1') !== -1,
+      'master-chat.html must reference canonical path /js/master-chat.js?v=20260718-agent-routing-fixes-v1');
   });
 
   test('HTML script tag does NOT reference versioned duplicate path', function () {

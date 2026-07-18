@@ -132,7 +132,8 @@ CLASSIFIER_SYSTEM_PROMPT = (
     "请严格只返回一个 JSON 对象，格式如下，不要附带任何其他文本：\n"
     '{"intent": "<learning|direct_qa|study_plan|literature|clarification>", '
     '"plan_item_requested": <true|false>, "topic": "<学习主题或空字符串>", '
-    '"reason": "<简短中文说明>"}'
+    '"reason": "<简短中文说明>", "query": "<文献核心检索主题或空字符串>", '
+    '"limit": <文献篇数整数或null>, "months": <文献时间窗月数整数或null>}'
 )
 
 CLASSIFIER_SYSTEM_PROMPT += (
@@ -149,6 +150,12 @@ CLASSIFIER_SYSTEM_PROMPT += (
     "a request equivalent to asking for five questions about periodontitis must return "
     '{"intent":"learning","dispatch_type":"agent","target_agent":"quiz",'
     '"topic":"periodontitis","question_count":5,"plan_item_requested":false,"reason":"..."}.'
+    " For a literature request, extract the subject-only search focus into "
+    '"query" (omit request wording, count, and time-window phrases), the desired '
+    'paper count into "limit" (1-30), and the recency window into "months" '
+    "(1-120). Convert years to months. When the user asks for recent/latest/"
+    "frontier literature without a numeric period, use 12 months. Use null only "
+    "when that slot is genuinely unspecified."
 )
 
 PLAN_ITEM_MATCHER_SYSTEM_PROMPT = (
@@ -319,6 +326,18 @@ def _validate_route(parsed: dict[str, Any]) -> dict[str, Any] | None:
     topic = str(parsed.get("topic") or "").strip()
     if intent == "learning" and topic:
         route["topic"] = topic
+    if intent == "literature":
+        query = str(parsed.get("query") or parsed.get("literature_query") or "").strip()
+        if query:
+            route["query"] = query
+        for field in ("limit", "months"):
+            if parsed.get(field) is None:
+                continue
+            maximum = 30 if field == "limit" else 120
+            value = _coerce_int(parsed.get(field), minimum=1, maximum=maximum)
+            if value is None:
+                return None
+            route[field] = value
     dispatch_type = str(parsed.get("dispatch_type") or "").strip().lower()
     target_agent = str(parsed.get("target_agent") or "").strip().lower()
     if dispatch_type or target_agent:
@@ -415,13 +434,20 @@ def _deterministic_literature_route(message: str) -> dict[str, Any] | None:
     if not (has_strong_literature_marker or has_temporal_research_marker):
         return None
 
-    return {
+    route: dict[str, Any] = {
         "intent": "literature",
         "target": INTENT_TO_TARGET["literature"],
         "plan_item_requested": False,
         "reason": "根据文献检索相关表述进入文献模式。",
         "source": "deterministic_literature_route",
     }
+    requested_limit = _extract_requested_limit(message)
+    requested_months = _extract_requested_months(message)
+    if requested_limit is not None:
+        route["limit"] = requested_limit
+    if requested_months is not None:
+        route["months"] = requested_months
+    return route
 
 
 def _deterministic_learning_route(message: str) -> dict[str, Any] | None:
@@ -585,21 +611,110 @@ def _coerce_int(value: Any, *, minimum: int, maximum: int) -> int | None:
 def _extract_requested_limit(message: str) -> int | None:
     text = str(message or "")
     patterns = (
-        r"(?:前|top\s*)(\d{1,2})\s*(?:篇|条|个)?",
-        r"(\d{1,2})\s*(?:篇|条)\s*(?:文献|论文|研究)",
+        r"(?:前\s*)(\d{1,2})\s*(?:篇|条)(?:\s*(?:文献|论文|研究))?",
+        r"(?:前\s*)(\d{1,2})\s*个\s*(?:文献|论文|研究)",
+        r"top\s*(\d{1,2})\b",
+        r"(\d{1,2})\s*(?:篇|条)(?:\s*(?:文献|论文|研究))?",
+        r"(\d{1,2})\s*个\s*(?:文献|论文|研究)",
     )
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
             return _coerce_int(match.group(1), minimum=1, maximum=30)
+
+    chinese_patterns = (
+        r"(?:前|找|查|检索|推荐|给我|要)?\s*"
+        r"([零〇一二两三四五六七八九十]{1,3})\s*(?:篇|条)"
+        r"(?:\s*(?:文献|论文|研究))?",
+        r"(?:前|找|查|检索|推荐|给我|要)?\s*"
+        r"([零〇一二两三四五六七八九十]{1,3})\s*个\s*(?:文献|论文|研究)",
+    )
+    for pattern in chinese_patterns:
+        chinese_match = re.search(pattern, text, flags=re.IGNORECASE)
+        if chinese_match:
+            value = _parse_chinese_integer(chinese_match.group(1))
+            return _coerce_int(value, minimum=1, maximum=30)
+    return None
+
+
+def _parse_chinese_integer(value: str) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    digits = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3,
+              "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    if "十" in text:
+        left, right = text.split("十", 1)
+        tens = digits.get(left, 1) if left else 1
+        ones = digits.get(right, 0) if right else 0
+        return tens * 10 + ones
+    if all(char in digits for char in text):
+        number = 0
+        for char in text:
+            number = number * 10 + digits[char]
+        return number
+    return None
+
+
+def _extract_requested_months(message: str) -> int | None:
+    text = str(message or "").strip()
+    if not text:
+        return None
+
+    numeric_patterns = (
+        (r"(?:近|最近|过去|近来)\s*(\d{1,3})\s*(?:个)?月", 1),
+        (r"(\d{1,3})\s*(?:个)?月(?:内|以来)", 1),
+        (r"(?:近|最近|过去|近来)\s*(\d{1,2})\s*年", 12),
+        (r"(\d{1,2})\s*年(?:内|以来)", 12),
+        (r"(?:近|最近|过去|近来)\s*(\d{1,3})\s*(?:天|日)", 1 / 30),
+        (r"(\d{1,3})\s*(?:天|日)(?:内|以来)", 1 / 30),
+        (r"(?:近|最近|过去|近来)\s*(\d{1,2})\s*(?:周|星期)", 7 / 30),
+        (r"(\d{1,2})\s*(?:周|星期)(?:内|以来)", 7 / 30),
+    )
+    for pattern, multiplier in numeric_patterns:
+        match = re.search(pattern, text)
+        if match:
+            raw = int(match.group(1)) * multiplier
+            months = max(1, int(raw) if float(raw).is_integer() else int(raw) + 1)
+            return _coerce_int(months, minimum=1, maximum=120)
+
+    chinese_match = re.search(
+        r"(?:近|最近|过去|近来)\s*([一二两三四五六七八九十]{1,3})\s*(个?月|年|天|日|周|星期)",
+        text,
+    ) or re.search(
+        r"([一二两三四五六七八九十]{1,3})\s*(个?月|年|天|日|周|星期)(?:内|以来)",
+        text,
+    )
+    if chinese_match:
+        number = _parse_chinese_integer(chinese_match.group(1))
+        if number is not None:
+            unit = chinese_match.group(2)
+            if "年" in unit:
+                months = number * 12
+            elif "月" in unit:
+                months = number
+            elif unit in {"周", "星期"}:
+                months = max(1, (number * 7 + 29) // 30)
+            else:
+                months = max(1, (number + 29) // 30)
+            return _coerce_int(months, minimum=1, maximum=120)
+
+    if re.search(r"(?:近|最近|过去)?\s*半年", text):
+        return 6
+    if "近年" in text:
+        return 36
+    if any(marker in text for marker in ("最近", "最新", "近期", "前沿", "新近")):
+        return 12
     return None
 
 
 def _literature_options_from_context(
     message: str,
     context: dict[str, Any] | None,
+    route: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ctx = context or {}
+    classified = route or {}
     fields = ctx.get("fields") if isinstance(ctx.get("fields"), dict) else {}
     data = ctx.get("data") if isinstance(ctx.get("data"), dict) else {}
 
@@ -610,12 +725,24 @@ def _literature_options_from_context(
                     return source.get(name)
         return None
 
+    query = str(first_value("query", "literature_query") or "").strip()
+    if not query:
+        query = str(classified.get("query") or "").strip()
+
     months = _coerce_int(first_value("months", "month_window"), minimum=1, maximum=120)
+    if months is None:
+        months = _coerce_int(classified.get("months"), minimum=1, maximum=120)
+    if months is None:
+        months = _extract_requested_months(message)
+
     limit = _coerce_int(first_value("limit", "top_k"), minimum=1, maximum=30)
+    if limit is None:
+        limit = _coerce_int(classified.get("limit"), minimum=1, maximum=30)
     if limit is None:
         limit = _extract_requested_limit(message)
 
     return {
+        "query": query or str(message or "").strip(),
         "months": months,
         "limit": limit or 5,
     }
@@ -1894,8 +2021,8 @@ class MasterRouter:
         self, message: str, route: dict[str, Any], context: dict[str, Any] | None
     ) -> dict[str, Any]:
         """Call the existing literature search service."""
-        query = message.strip()
-        options = _literature_options_from_context(query, context)
+        options = _literature_options_from_context(message, context, route)
+        query = options["query"]
         try:
             parameters = inspect.signature(self._literature_service).parameters.values()
             accepts_args = any(param.kind is inspect.Parameter.VAR_POSITIONAL for param in parameters)

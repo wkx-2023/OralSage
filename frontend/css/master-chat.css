@@ -868,7 +868,8 @@
   background: transparent;
   padding: 2px 4px 0;
   resize: none;
-  overflow: auto;
+  overflow-y: hidden;
+  box-sizing: border-box;
   font-size: 15px;
   line-height: 1.7;
   box-shadow: none;
@@ -2053,6 +2054,39 @@
   gap: 12px;
 }
 
+.plan-day-group {
+  min-width: 0;
+  border-bottom: 1px solid var(--chat-line);
+}
+
+.plan-day-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0 4px;
+}
+
+.plan-day-heading div {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+}
+
+.plan-day-heading span,
+.plan-day-heading strong {
+  color: var(--chat-action);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.plan-day-heading h3 {
+  margin: 0;
+  color: var(--chat-ink);
+  font-size: 13px;
+}
+
 .result-heading {
   padding-bottom: 14px;
   border-bottom: 1px solid var(--chat-line);
@@ -2069,7 +2103,11 @@
   gap: 12px;
   align-items: center;
   padding: 12px 0;
-  border-bottom: 1px solid var(--chat-line);
+  border-bottom: 1px solid rgba(223, 219, 238, 0.62);
+}
+
+.plan-day-group .plan-recommendation:last-child {
+  border-bottom: 0;
 }
 
 .plan-index {

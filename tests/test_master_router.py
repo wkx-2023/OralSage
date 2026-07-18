@@ -28,6 +28,9 @@ from backend.services.router.master_router import (
     _build_candidate_whitelist,
     _build_classifier_messages,
     _extract_standalone_topic,
+    _extract_requested_limit,
+    _extract_requested_months,
+    _literature_options_from_context,
     _requested_quiz_question_count,
     _validate_route,
 )
@@ -185,6 +188,20 @@ class TestValidateRoute:
         assert _validate_route(
             {"intent": "study_plan", "plan_item_requested": True}
         ) is None
+
+    def test_literature_route_preserves_structured_search_slots(self):
+        result = _validate_route({
+            "intent": "literature",
+            "plan_item_requested": False,
+            "query": "龋病微生物组研究",
+            "limit": 3,
+            "months": 12,
+            "reason": "检索近期文献",
+        })
+        assert result is not None
+        assert result["query"] == "龋病微生物组研究"
+        assert result["limit"] == 3
+        assert result["months"] == 12
 
 
 class TestBuildClassifierMessages:
@@ -707,6 +724,23 @@ class TestStudyPlanIntent:
 
 
 class TestLiteratureIntent:
+    def test_chinese_count_and_recency_are_parsed(self):
+        assert _extract_requested_limit("给我找三篇龋病相关文献") == 3
+        assert _extract_requested_limit("检索二十五篇论文") == 25
+        assert _extract_requested_months("近三个月的研究") == 3
+        assert _extract_requested_months("最近的前沿文献") == 12
+        assert _extract_requested_months("过去两年文献") == 24
+        assert _extract_requested_months("五年生存率相关文献") is None
+        assert _extract_requested_limit("近三个月的研究") is None
+
+    def test_literature_option_priority_is_context_then_route_then_text(self):
+        options = _literature_options_from_context(
+            "找三篇最近的龋病文献",
+            {"limit": 8, "months": 6, "query": "context query"},
+            {"limit": 4, "months": 24, "query": "route query"},
+        )
+        assert options == {"query": "context query", "months": 6, "limit": 8}
+
     @pytest.mark.asyncio
     async def test_literature_result_passthrough(self, mock_orchestrator):
         """Literature results must be passed through from the real service."""
@@ -771,7 +805,7 @@ class TestLiteratureIntent:
         assert result["route"]["intent"] == "literature"
         assert result["route"]["source"] == "deterministic_literature_route"
         assert result["next_action"] == "show_literature"
-        assert seen["args"] == ("我想要阅读阻生牙近三个月的文献", None, 5)
+        assert seen["args"] == ("我想要阅读阻生牙近三个月的文献", 3, 5)
         assert seen["kwargs"] == {"include_chat_translations": True}
         mock_orchestrator.start_lesson.assert_not_called()
 
@@ -817,7 +851,7 @@ class TestLiteratureIntent:
         assert result["ok"] is True
         assert result["route"]["intent"] == "literature"
         assert result["route"]["source"] == "deterministic_literature_route"
-        assert seen["args"] == ("我想要阅读阻生牙近三个月的文献", None, 5)
+        assert seen["args"] == ("我想要阅读阻生牙近三个月的文献", 3, 5)
         assert seen["kwargs"] == {"include_chat_translations": True}
 
     @pytest.mark.asyncio
@@ -885,6 +919,67 @@ class TestLiteratureIntent:
         assert result["ok"] is True
         assert seen["args"] == ("帮我检索阻生牙前7篇文献", None, 7)
         assert seen["kwargs"] == {"include_chat_translations": True}
+
+    @pytest.mark.asyncio
+    async def test_literature_handler_understands_chinese_count_and_latest(self, mock_orchestrator):
+        seen: dict[str, Any] = {}
+
+        async def _lit_mock(*args, **kwargs):
+            seen["args"] = args
+            return {
+                "ok": True,
+                "module": "frontier_literature",
+                "query": args[0],
+                "terms": {"recommended_months": args[1]},
+                "articles": [],
+                "review": "",
+                "sources": [],
+                "errors": [],
+            }
+
+        router = MasterRouter(
+            mock_orchestrator,
+            classifier=_make_classifier("literature", "用户需要查文献"),
+            literature_service=_lit_mock,
+        )
+        result = await router.route("给我找三篇龋病相关的最近前沿文献", "demo")
+
+        assert result["ok"] is True
+        assert seen["args"] == ("给我找三篇龋病相关的最近前沿文献", 12, 3)
+
+    @pytest.mark.asyncio
+    async def test_literature_handler_uses_llm_search_focus_and_slots(self, mock_orchestrator):
+        seen: dict[str, Any] = {}
+
+        async def _lit_mock(*args, **kwargs):
+            seen["args"] = args
+            return {
+                "ok": True,
+                "module": "frontier_literature",
+                "query": args[0],
+                "terms": {"recommended_months": args[1]},
+                "articles": [],
+                "review": "",
+                "sources": [],
+                "errors": [],
+            }
+
+        router = MasterRouter(
+            mock_orchestrator,
+            classifier=lambda *_args: {
+                "intent": "literature",
+                "plan_item_requested": False,
+                "query": "龋病微生物组前沿研究",
+                "limit": 4,
+                "months": 18,
+                "reason": "提取结构化检索需求",
+            },
+            literature_service=_lit_mock,
+        )
+        result = await router.route("帮我找相关论文", "demo")
+
+        assert result["ok"] is True
+        assert seen["args"] == ("龋病微生物组前沿研究", 18, 4)
 
     @pytest.mark.asyncio
     async def test_literature_service_error(self, mock_orchestrator):

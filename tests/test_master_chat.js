@@ -1118,6 +1118,20 @@ test('boot reconnects pending jobs without restoring their old conversation', fu
     'stale in-memory backend jobs must be removed after a backend restart');
 });
 
+test('router jobs keep the session ID captured before the async request', function () {
+  var source = fs.readFileSync(
+    path.join(__dirname, '..', 'frontend', 'js', 'master-chat.js'),
+    'utf8',
+  );
+
+  ok(source.indexOf('const requestSessionId = state.activeSessionId;') >= 0,
+    'send flow must capture the active session before awaiting job creation');
+  ok(source.indexOf('}, requestSessionId);') >= 0,
+    'captured session ID must be passed into startRouterJob');
+  ok(source.indexOf('sessionId: state.activeSessionId') < 0,
+    'startRouterJob must not bind a returned job to whichever session is active later');
+});
+
 // ============================================================================
 // Summary
 // ============================================================================

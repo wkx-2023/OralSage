@@ -30,6 +30,7 @@ import re
 import time
 from typing import Any
 
+from backend.services.display_text import sanitize_display_text
 from backend.services.llm_client import chat_completion, is_llm_configured
 
 # ---------------------------------------------------------------------------
@@ -89,6 +90,8 @@ _ANSWER_SYSTEM = """你是一名口腔医学循证问答助手。
 - false：用户只是询问一个扩展性问题，并非基础薄弱（大多数问题属于此类）
 
 **重要：不要将历史回答当作医学证据来源。只使用本次提供的 evidence 中的内容。**
+answer 只允许使用[依据1]这类公开引用标记，不得出现 chunk_id、chunk:、core:、
+chapter:、document. 等内部存储标识；内部 ID 只能放在 used_evidence 字段。
 
 输出必须包含以下完整结构：
 {
@@ -383,7 +386,7 @@ def answer_direct_question(
         return result
 
     # -- Extract answer fields --
-    answer_text = str(answer_parsed.get("answer", "")).strip()
+    answer_text = sanitize_display_text(answer_parsed.get("answer", ""))
     if not answer_text:
         result = _unavailable_result("answer_empty")
         result["trace"]["resolve_seconds"] = resolve_seconds

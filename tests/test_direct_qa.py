@@ -152,6 +152,44 @@ class FirstQuestionHappyPathTests(unittest.TestCase):
         self.assertNotIn("outline", result)
         self.assertNotIn("ppt", result)
 
+    def test_visible_answer_hides_internal_ids_but_keeps_structured_evidence(self) -> None:
+        mock_chunks = [
+            _make_evidence_chunk(
+                "chunk:visible-001",
+                "Evidence text.",
+                metadata={"core_node_ids": ["core:visible-001"]},
+            ),
+        ]
+        call_count = [0]
+
+        def mock_llm(messages, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return _resolution_json(
+                    resolved_question="测试问题",
+                    search_queries=[{"query": "测试问题", "purpose": "检索"}],
+                )
+            return _answer_json(
+                answer="1. 可见结论（chunk:visible-001）。\n2. 补充结论 core:visible-001 [依据1]。",
+                used_evidence=[{"chunk_id": "chunk:visible-001", "source": "教材"}],
+            )
+
+        with patch(
+            "backend.services.qa.direct_qa.chat_completion", side_effect=mock_llm
+        ), patch(
+            "backend.services.retrieval.search_knowledge_base", return_value=mock_chunks
+        ), patch(
+            "backend.services.qa.direct_qa.is_llm_configured", return_value=True
+        ):
+            from backend.services.qa.direct_qa import answer_direct_question
+
+            result = answer_direct_question("测试问题")
+
+        self.assertNotIn("chunk:", result["answer"])
+        self.assertNotIn("core:", result["answer"])
+        self.assertIn("[依据1]", result["answer"])
+        self.assertEqual(result["used_evidence"][0]["chunk_id"], "chunk:visible-001")
+
     def test_first_question_with_confusion_detection(self) -> None:
         mock_chunks = [
             _make_evidence_chunk(

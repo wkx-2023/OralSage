@@ -1436,13 +1436,10 @@ class RealKGR10ClarificationRejectionTests(unittest.TestCase):
                 self.assertEqual(scope["chapter_key"], target["key"])
                 self.assertEqual(scope["book_title"], target["book_title"])
 
-    # -- 7e. R10: book name only after clarification → whole-book plan -------
+    # -- 7e. Book name only after clarification → explicit scope choice ------
 
-    def test_book_name_only_after_clarification_generates_whole_book_plan(self):
-        """R10 scenario step 1-2: after a vague request gets clarification,
-        the user replies with ONLY a book name (no chapter, no plan verb).
-        The system MUST generate a deterministic whole-book plan covering
-        >=2 real chapters.  LLM orchestration is bypassed — only parse runs."""
+    def test_book_name_only_after_clarification_requests_scope_confirmation(self):
+        """A bare real-KG book name must not silently select every chapter."""
 
         chapters = _real_chapters()
         # Find a book with >=2 chapters for whole-book validation
@@ -1458,7 +1455,8 @@ class RealKGR10ClarificationRejectionTests(unittest.TestCase):
         # Only test with first 3 chapters (or fewer) — keeps plan manageable
         test_chapters = book_chapters[:min(3, len(book_chapters))]
 
-        # Parse: user just said the book name — whole-book intent
+        # The parser recognizes the real book, but product semantics require
+        # an explicit chapter or whole-book confirmation before scheduling.
         parse_json = _make_whole_book_selector(
             book_title, book_chapters[0]["document_id"], days=7, daily_minutes=30,
         )
@@ -1489,54 +1487,16 @@ class RealKGR10ClarificationRejectionTests(unittest.TestCase):
                         f"Deterministic: expected 1 LLM call (parse only), "
                         f"got {call_count}")
 
-        # ── Must NOT be clarification ──────────────────────────────────
-        self.assertFalse(
-            record["payload"].get("clarification_needed"),
-            "Book name after clarification must generate plan, not clarification",
-        )
+        payload = record["payload"]
+        self.assertTrue(payload.get("clarification_needed"))
+        self.assertEqual(payload["items"], [])
+        self.assertIn(book_title, payload["clarification_message"])
+        options = payload["clarification_options"]
+        self.assertEqual(len(options), 3)
+        self.assertIn(f"整本《{book_title}》", options[2]["prompt"])
 
-        # ── Request reflects whole-book scope ──────────────────────────
-        req = record["payload"]["request"]
-        self.assertEqual(req["book_title"], book_title)
-        self.assertIsNone(req["chapter_key"],
-                         "Whole-book request must have null chapter_key")
-        self.assertEqual(req["intent"], "learn_chapter")
-
-        # ── Items span multiple real chapters ──────────────────────────
-        items = record["payload"]["items"]
-        self.assertGreaterEqual(len(items), 2,
-                               "Whole-book plan must have >=2 items")
-
-        chapter_keys = {
-            item["learning_scope"]["chapter_key"]
-            for item in items if item.get("learning_scope")
-        }
-        self.assertGreaterEqual(
-            len(chapter_keys), 2,
-            f"Whole-book plan must span >=2 different chapters, "
-            f"got {len(chapter_keys)}: {chapter_keys}",
-        )
-
-        # ── All items from the same book, with real KG data ────────────
-        for item in items:
-            scope = item.get("learning_scope")
-            self.assertIsNotNone(scope,
-                                "Every whole-book item must have learning_scope")
-            self.assertEqual(scope["book_title"], book_title)
-            self.assertIsNotNone(scope.get("document_id"))
-            self.assertGreater(len(scope.get("kg_node_ids", [])), 0)
-            # Deterministic source
-            self.assertEqual(item["evidence_source"],
-                           "chapter_sequence_v1")
-
-        # ── No advanced_practice ───────────────────────────────────────
-        task_types = {item["task_type"] for item in items}
-        self.assertNotIn("advanced_practice", task_types)
-
-    def test_second_book_name_only_also_generates_whole_book_plan(self):
-        """R10 generalization: a second structurally different book (also
-        with >=2 chapters) must also produce a deterministic whole-book plan
-        — proving the flow does not depend on a single book sample."""
+    def test_second_book_name_only_also_requests_scope_confirmation(self):
+        """The bare-book safeguard generalizes to a second real textbook."""
         chapters = _real_chapters()
         from collections import Counter
         book_counts = Counter(ch["book_title"] for ch in chapters)
@@ -1576,36 +1536,14 @@ class RealKGR10ClarificationRejectionTests(unittest.TestCase):
             history=history,
         )
 
-        # Must generate plan, not clarification
-        self.assertFalse(record["payload"].get("clarification_needed"))
+        payload = record["payload"]
+        self.assertTrue(payload.get("clarification_needed"))
         self.assertEqual(len(call_count), 1,
                        f"Deterministic: expected 1 LLM call (parse only), "
                        f"got {call_count}")
-
-        # Whole-book scope
-        req = record["payload"]["request"]
-        self.assertEqual(req["book_title"], book_title)
-        self.assertIsNone(req["chapter_key"])
-
-        # Multiple chapters
-        items = record["payload"]["items"]
-        chapter_keys = {
-            item["learning_scope"]["chapter_key"]
-            for item in items if item.get("learning_scope")
-        }
-        self.assertGreaterEqual(len(chapter_keys), 2,
-                               f"Second book must also span >=2 chapters, "
-                               f"got {len(chapter_keys)}: {chapter_keys}")
-
-        # All from the correct book
-        for item in items:
-            self.assertEqual(item["learning_scope"]["book_title"], book_title)
-            self.assertEqual(item["evidence_source"],
-                           "chapter_sequence_v1")
-
-        # No advanced_practice
-        task_types = {item["task_type"] for item in items}
-        self.assertNotIn("advanced_practice", task_types)
+        self.assertEqual(payload["items"], [])
+        self.assertIn(book_title, payload["clarification_message"])
+        self.assertIn(f"整本《{book_title}》", payload["clarification_options"][2]["prompt"])
 
     # -- 7f. R10: deadline correction preserves whole-book scope -------------
 

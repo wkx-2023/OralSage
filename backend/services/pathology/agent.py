@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any
 
+from backend.services.display_text import sanitize_display_text
 from backend.services.literature import run_literature_search
 from backend.services.llm_client import LLMConfigurationError, LLMRequestError, chat_completion, is_llm_configured
 
@@ -28,6 +29,7 @@ def _build_messages(question: str, plan: dict[str, Any], evidence: list[Evidence
         "区分教材/指南中的稳定知识和文献中的研究性结论。"
         "引用依据只写清洗后的来源名称和证据支持点，不要输出'已压缩'、'全彩(OCR)'、学习交流/禁止商业用途等无关文本。"
         "遇到脱敏门诊病例时，只能使用摘要化、分析后的证据，不要复述原始门诊字段、编号、医生名或流水号。"
+        "可见回答不得输出chunk/core/chapter/document等内部存储ID，只使用[依据N]/[文献N]公开标记。"
         "输出 Markdown，严格包含这些一级小节：核心结论、病理机制、典型表现、诊断与鉴别要点、临床处理原则、证据不足或争议点、引用依据、免责声明。"
     )
     user = {
@@ -193,7 +195,7 @@ async def run_pathology_ask(question: str, top_k: int = 8, allow_web: bool = Tru
         errors.append(f"LLM answer fallback used: {exc}")
         answer = _fallback_answer(question, evidence, plan)
 
-    answer = _ensure_disclaimer(_strip_emoji(answer))
+    answer = _ensure_disclaimer(_strip_emoji(sanitize_display_text(answer)))
 
     return {
         "ok": True,

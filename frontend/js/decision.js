@@ -1,5 +1,9 @@
 (() => {
   const { byId, escapeHtml, apiPost } = window.oralUi;
+  const sanitizeDisplayText = window.oralUi.sanitizeDisplayText || ((value) => String(value || '')
+    .replace(/\b(?:chunk(?:_id)?|core|chapter|node|scope(?:_ref)?|document|kg)\s*[.:=]\s*[A-Za-z0-9][A-Za-z0-9._:/-]*/gi, '')
+    .replace(/[\(\[（【]\s*[\)\]）】]/g, '')
+    .trim());
   let historyPanel = null;
 
   function value(id) {
@@ -65,20 +69,24 @@
   }
 
   function renderMarkdown(markdown) {
-    const lines = String(markdown || '').split(/\r?\n/);
+    const lines = sanitizeDisplayText(markdown).split(/\r?\n/);
     const html = [];
-    let inList = false;
+    let listType = null;
 
     function closeList() {
-      if (inList) {
-        html.push('</ul>');
-        inList = false;
+      if (listType) {
+        html.push(`</${listType}>`);
+        listType = null;
       }
     }
 
-    for (const rawLine of lines) {
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const rawLine = lines[lineIndex];
       const line = rawLine.trim();
       if (!line) {
+        const nextLine = lines.slice(lineIndex + 1).find((candidate) => candidate.trim());
+        if (listType === 'ul' && nextLine && /^\s*[-*]\s+/.test(nextLine)) continue;
+        if (listType === 'ol' && nextLine && /^\s*\d+[.)、]\s*/.test(nextLine)) continue;
         closeList();
         continue;
       }
@@ -92,11 +100,24 @@
 
       const bullet = line.match(/^[-*]\s+(.+)$/);
       if (bullet) {
-        if (!inList) {
+        if (listType !== 'ul') {
+          closeList();
           html.push('<ul>');
-          inList = true;
+          listType = 'ul';
         }
         html.push(`<li>${formatInline(bullet[1])}</li>`);
+        continue;
+      }
+
+      const ordered = line.match(/^(\d+)[.)、]\s*(.+)$/);
+      if (ordered) {
+        if (listType !== 'ol') {
+          closeList();
+          const start = Number(ordered[1]) || 1;
+          html.push(start > 1 ? `<ol start="${start}">` : '<ol>');
+          listType = 'ol';
+        }
+        html.push(`<li>${formatInline(ordered[2])}</li>`);
         continue;
       }
 
@@ -266,6 +287,8 @@
       button.addEventListener('click', runDecision);
     }
   }
+
+  window.oralUi.decisionInternals = { renderMarkdown };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);

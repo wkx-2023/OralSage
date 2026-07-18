@@ -1,5 +1,9 @@
 (() => {
   const { byId, escapeHtml, apiPost } = window.oralUi;
+  const sanitizeDisplayText = window.oralUi.sanitizeDisplayText || ((value) => String(value || '')
+    .replace(/\b(?:chunk(?:_id)?|core|chapter|node|scope(?:_ref)?|document|kg)\s*[.:=]\s*[A-Za-z0-9][A-Za-z0-9._:/-]*/gi, '')
+    .replace(/[\(\[（【]\s*[\)\]）】]/g, '')
+    .trim());
   const STORAGE_KEY = 'oralsage.history.master-chat';
   const PENDING_KEY = 'oralsage.pending.master-chat';
   const DEFAULT_USER_ID = 'demo';
@@ -9,6 +13,8 @@
   const pptViewerIndices = new Map();
   const audioQueues = new Map();
   const quizQuestions = new Map();
+  const COMPOSER_MIN_HEIGHT = 28;
+  const COMPOSER_MAX_HEIGHT = 180;
   let activeAudio = null;
   let activeStorageUserId = DEFAULT_USER_ID;
 
@@ -109,7 +115,7 @@
   }
 
   function normalizeMarkdownText(text) {
-    let value = String(text || '').trim();
+    let value = sanitizeDisplayText(text);
     if (/^```(?:markdown|md)?\s*[\s\S]*```$/i.test(value)) {
       value = value.replace(/^```(?:markdown|md)?\s*/i, '').replace(/\s*```$/i, '').trim();
     }
@@ -162,10 +168,10 @@
       }
     }
 
-    function openList(type) {
+    function openList(type, start = 1) {
       if (listType === type) return;
       closeList();
-      html.push(`<${type}>`);
+      html.push(type === 'ol' && start > 1 ? `<ol start="${start}">` : `<${type}>`);
       listType = type;
     }
 
@@ -260,9 +266,10 @@
         html.push(`<li>${inlineMarkdown(line.replace(/^\s*[-*+•]\s+/, ''))}</li>`);
         continue;
       }
-      if (/^\s*\d+[.)、]\s*/.test(line)) {
-        openList('ol');
-        html.push(`<li>${inlineMarkdown(line.replace(/^\s*\d+[.)、]\s*/, ''))}</li>`);
+      const orderedItem = line.match(/^\s*(\d+)[.)、]\s*(.*)$/);
+      if (orderedItem) {
+        openList('ol', Number(orderedItem[1]) || 1);
+        html.push(`<li>${inlineMarkdown(orderedItem[2])}</li>`);
         continue;
       }
       if (!line.trim()) {
@@ -525,11 +532,11 @@
       <details class="qa-evidence">
         <summary>相关证据 <span>${evidence.length}</span></summary>
         <div class="qa-evidence-list">
-          ${evidence.map((item) => `
+          ${evidence.map((item, index) => `
             <article>
-              <strong>${escapeHtml(item.title || item.source || item.chunk_id || '知识库证据')}</strong>
-              ${item.text_excerpt ? `<p>${escapeHtml(item.text_excerpt)}</p>` : ''}
-              <small>${escapeHtml(item.source || item.chunk_id || '')}</small>
+              <strong>${escapeHtml(sanitizeDisplayText(item.title || item.source || `知识库证据 ${index + 1}`))}</strong>
+              ${item.text_excerpt ? `<p>${escapeHtml(sanitizeDisplayText(item.text_excerpt))}</p>` : ''}
+              ${item.source ? `<small>${escapeHtml(sanitizeDisplayText(item.source))}</small>` : ''}
             </article>
           `).join('')}
         </div>
@@ -873,6 +880,34 @@
     );
   }
 
+  function renderPlanClarificationActions(options) {
+    const configured = Array.isArray(options) ? options.filter((item) => (
+      item && typeof item === 'object' && item.label && (item.prompt || item.fill)
+    )) : [];
+    const actions = configured.length ? configured : [
+      { label: '按薄弱点安排', prompt: '请根据我的真实薄弱点制定复习计划' },
+      { label: '填写教材章节', fill: '请为《教材名》第__章制定学习计划' },
+      { label: '填写整本计划', fill: '请为整本《教材名》制定学习计划' },
+    ];
+    return actions.map((item) => {
+      const attribute = item.prompt
+        ? `data-chat-prompt="${escapeHtml(item.prompt)}"`
+        : `data-chat-fill="${escapeHtml(item.fill)}"`;
+      return `<button type="button" ${attribute}>${escapeHtml(item.label)}</button>`;
+    }).join('');
+  }
+
+  function planDateAtOffset(baseDate, offset) {
+    const match = String(baseDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return String(baseDate || '');
+    const value = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    value.setDate(value.getDate() + Number(offset || 0));
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
   function renderStudyPlanResult(routerResult) {
     const final = routerResult?.final_result || {};
 
@@ -889,9 +924,7 @@
         <section class="clarification-response">
           <div class="assistant-markdown">${formatMarkdown(clarificationMsg || '请告诉我您想学习的教材章节或主题，也可以直接说"薄弱点"，我会根据您的学习情况安排复习。目前支持《牙周病学》《口腔颌面外科学》等口腔医学教材。')}</div>
           <div class="clarification-actions">
-            <button type="button" data-chat-prompt="我想系统学习一个口腔医学主题">学习主题</button>
-            <button type="button" data-chat-prompt="请推荐今天的学习计划">学习计划</button>
-            <button type="button" data-chat-prompt="我想检索一个口腔医学主题的最新文献">文献检索</button>
+            ${renderPlanClarificationActions(final.clarification_options)}
           </div>
         </section>
       `;
@@ -900,6 +933,14 @@
     const items = Array.isArray(final.recommendations) ? final.recommendations : [];
     if (!items.length) return `<div class="assistant-markdown">${formatMarkdown(resultAnswer(routerResult))}</div>${renderRouteDetails(routerResult)}`;
     const totalMinutes = items.reduce((sum, item) => sum + Number(item.estimated_minutes || 0), 0);
+    const grouped = new Map();
+    items.forEach((item, index) => {
+      const rawOffset = Number(item.day_offset);
+      const dayOffset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+      if (!grouped.has(dayOffset)) grouped.set(dayOffset, []);
+      grouped.get(dayOffset).push({ item, index });
+    });
+    const dayGroups = [...grouped.entries()].sort((left, right) => left[0] - right[0]);
     const draftId = final.plan_draft_id || '';
     const planPageHref = draftId
       ? `/pages/learning-plan.html?plan_draft_id=${encodeURIComponent(draftId)}&user_id=${encodeURIComponent(state.userId || 'demo')}`
@@ -908,24 +949,38 @@
       <section class="plan-response">
         <header class="result-heading">
           <div><span class="mode-label">计划模式</span><h2>${escapeHtml(final.plan_date || '学习安排')}</h2></div>
-          <strong>${escapeHtml(String(totalMinutes))} 分钟</strong>
+          <strong>${escapeHtml(String(dayGroups.length))} 天 · ${escapeHtml(String(totalMinutes))} 分钟</strong>
         </header>
         <div class="plan-recommendation-list">
-          ${items.map((item, index) => `
-            <article class="plan-recommendation">
-              <div class="plan-index">${String(index + 1).padStart(2, '0')}</div>
-              <div><h3>${escapeHtml(item.title || '学习任务')}</h3><p>${escapeHtml(item.reason || item.notes || '')}</p></div>
-              <div class="plan-item-actions">
-                <span><i data-lucide="clock-3"></i>${escapeHtml(String(item.estimated_minutes || 0))} 分钟</span>
-                ${draftId ? '' : `<button
-                  type="button"
-                  data-start-recommendation="${escapeHtml(item.recommendation_id || '')}"
-                  data-plan-date="${escapeHtml(final.plan_date || '')}"
-                  data-recommendation-title="${escapeHtml(item.title || '学习任务')}"
-                >开始学习</button>`}
-              </div>
-            </article>
-          `).join('')}
+          ${dayGroups.map(([dayOffset, entries]) => {
+            const groupMinutes = entries.reduce((sum, entry) => (
+              sum + Number(entry.item.estimated_minutes || 0)
+            ), 0);
+            const groupDate = entries[0]?.item?.plan_date || planDateAtOffset(final.plan_date, dayOffset);
+            return `
+              <section class="plan-day-group">
+                <header class="plan-day-heading">
+                  <div><span>第 ${dayOffset + 1} 天</span><h3>${escapeHtml(groupDate || '待定日期')}</h3></div>
+                  <strong>${escapeHtml(String(groupMinutes))} 分钟</strong>
+                </header>
+                ${entries.map(({ item, index }) => `
+                  <article class="plan-recommendation">
+                    <div class="plan-index">${String(index + 1).padStart(2, '0')}</div>
+                    <div><h3>${escapeHtml(item.title || '学习任务')}</h3><p>${escapeHtml(item.reason || item.notes || '')}</p></div>
+                    <div class="plan-item-actions">
+                      <span><i data-lucide="clock-3"></i>${escapeHtml(String(item.estimated_minutes || 0))} 分钟</span>
+                      ${draftId ? '' : `<button
+                        type="button"
+                        data-start-recommendation="${escapeHtml(item.recommendation_id || '')}"
+                        data-plan-date="${escapeHtml(groupDate || final.plan_date || '')}"
+                        data-recommendation-title="${escapeHtml(item.title || '学习任务')}"
+                      >开始学习</button>`}
+                    </div>
+                  </article>
+                `).join('')}
+              </section>
+            `;
+          }).join('')}
         </div>
         <a class="open-plan-link" href="${planPageHref}"><i data-lucide="calendar-days"></i><span>打开学习计划</span></a>
         ${renderRouteDetails(routerResult)}
@@ -1041,11 +1096,46 @@
     refreshIcons();
   }
 
+  function resizeComposerInput(input = byId('agent-message')) {
+    if (!input) return;
+    input.style.height = 'auto';
+    const scrollHeight = Math.max(Number(input.scrollHeight) || 0, COMPOSER_MIN_HEIGHT);
+    const nextHeight = Math.min(scrollHeight, COMPOSER_MAX_HEIGHT);
+    input.style.height = `${nextHeight}px`;
+    input.style.overflowY = scrollHeight > COMPOSER_MAX_HEIGHT ? 'auto' : 'hidden';
+  }
+
+  function resetComposerInput({ clear = false } = {}) {
+    const input = byId('agent-message');
+    if (!input) return;
+    if (clear) input.value = '';
+    input.style.height = `${COMPOSER_MIN_HEIGHT}px`;
+    input.style.overflowY = 'hidden';
+  }
+
   function appendMessage(message) {
     state.messages.push(message);
     renderMessage(message);
     setEmptyState();
     updateSessionTitle();
+  }
+
+  function appendMessageToSession(sessionId, message) {
+    if (sessionId === state.activeSessionId) {
+      appendMessage(message);
+      return state.sessions.find((item) => item.id === sessionId) || null;
+    }
+
+    const session = state.sessions.find((item) => item.id === sessionId);
+    if (!session) return null;
+    if (!Array.isArray(session.messages)) session.messages = [];
+    session.messages.push(message);
+    const firstUser = session.messages.find((item) => item.role === 'user');
+    session.title = firstUser?.content?.slice(0, 28) || session.title || '新建对话';
+    session.time = sessionTime();
+    saveSessions();
+    renderSessions();
+    return session;
   }
 
   function optionText(question, letter) {
@@ -1164,8 +1254,7 @@
     state.messages = [];
     const log = byId('agent-chat-log');
     if (log) log.innerHTML = '';
-    const input = byId('agent-message');
-    if (input) input.value = '';
+    resetComposerInput({ clear: true });
     setEmptyState();
     renderSessions();
     setBusy(false);
@@ -1178,6 +1267,7 @@
     state.messages = Array.isArray(session.messages) ? session.messages : [];
     state.backendSessionId = session.backendSessionId || null;
     state.currentPlanDraftId = session.currentPlanDraftId || null;
+    resetComposerInput({ clear: true });
     renderMessages();
     renderSessions();
     const pending = Object.values(state.pendingJobs).some((item) => item.sessionId === session.id);
@@ -1386,11 +1476,11 @@
     };
   }
 
-  async function startRouterJob(payload) {
+  async function startRouterJob(payload, sessionId) {
     const snapshot = await createRouterJob(payload);
     const jobId = snapshot.job_id;
     if (!jobId) throw new Error('后端没有返回任务 ID。');
-    appendMessage({
+    const targetSession = appendMessageToSession(sessionId, {
       role: 'assistant',
       kind: 'job',
       jobId,
@@ -1399,13 +1489,13 @@
       steps: ['请求已提交'],
       time: nowTime(),
     });
+    if (!targetSession) throw new Error('发起请求的对话已不存在。');
     state.pendingJobs[jobId] = {
-      sessionId: state.activeSessionId,
+      sessionId,
       lastEventId: 0,
     };
     savePendingJobs();
-    updateSessionTitle();
-    setConnectionStatus('生成中', true);
+    if (sessionId === state.activeSessionId) setConnectionStatus('生成中', true);
     connectJob(jobId);
   }
 
@@ -1413,7 +1503,8 @@
     const input = byId('agent-message');
     const raw = (text ?? input?.value ?? '').trim();
     if (!raw) return;
-    if (input) input.value = '';
+    const requestSessionId = state.activeSessionId;
+    resetComposerInput({ clear: true });
 
     const history = historyPayload();
     appendMessage({ role: 'user', content: raw, time: nowTime() });
@@ -1432,9 +1523,9 @@
         message: raw,
         history,
         context,
-      });
+      }, requestSessionId);
     } catch (error) {
-      appendMessage({
+      appendMessageToSession(requestSessionId, {
         role: 'assistant',
         content: '请求失败：\n\n' + (error.message || error),
         time: nowTime(),
@@ -1447,6 +1538,7 @@
   }
 
   async function autoSubmitPlanItem(planItemId, userId) {
+    const requestSessionId = state.activeSessionId;
     setBusy(true);
     try {
       appendMessage({ role: 'user', content: '开始选中的学习计划', time: nowTime() });
@@ -1454,9 +1546,9 @@
         message: '',
         history: [],
         context: { user_id: userId, plan_item_id: planItemId },
-      });
+      }, requestSessionId);
     } catch (error) {
-      appendMessage({
+      appendMessageToSession(requestSessionId, {
         role: 'assistant',
         content: '请求失败：\n\n' + (error.message || error),
         time: nowTime(),
@@ -1472,6 +1564,7 @@
 
   async function autoSubmitRecommendation(recommendationId, planDate, title) {
     if (!recommendationId) return;
+    const requestSessionId = state.activeSessionId;
     setBusy(true);
     try {
       appendMessage({ role: 'user', content: title || '开始选中的学习推荐', time: nowTime() });
@@ -1483,9 +1576,9 @@
           recommendation_id: recommendationId,
           plan_date: planDate || '',
         },
-      });
+      }, requestSessionId);
     } catch (error) {
-      appendMessage({
+      appendMessageToSession(requestSessionId, {
         role: 'assistant',
         content: '请求失败：\n\n' + (error.message || error),
         time: nowTime(),
@@ -1895,6 +1988,9 @@
       if (!item) return;
       restoreSession(item.dataset.sessionId || '');
     });
+    byId('agent-message')?.addEventListener('input', (event) => {
+      resizeComposerInput(event.currentTarget);
+    });
     byId('agent-message')?.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
@@ -1962,6 +2058,19 @@
       const prompt = event.target.closest('[data-chat-prompt]');
       if (prompt?.dataset.chatPrompt) {
         sendMessage(prompt.dataset.chatPrompt);
+        return;
+      }
+      const fill = event.target.closest('[data-chat-fill]');
+      if (fill?.dataset.chatFill) {
+        const input = byId('agent-message');
+        if (!input) return;
+        input.value = fill.dataset.chatFill;
+        resizeComposerInput(input);
+        input.focus();
+        const placeholderIndex = input.value.indexOf('__');
+        if (placeholderIndex >= 0 && typeof input.setSelectionRange === 'function') {
+          input.setSelectionRange(placeholderIndex, placeholderIndex + 2);
+        }
         return;
       }
       const audioButton = event.target.closest('[data-audio-key]');
@@ -2039,6 +2148,8 @@
       resumePendingJobs: resumePendingJobs,
       renderStudyPlanResult: renderStudyPlanResult,
       resultAnswer: resultAnswer,
+      appendMessageToSession: appendMessageToSession,
+      resizeComposerInput: resizeComposerInput,
     };
   }
 })();

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import re
 import secrets
 import threading
 import time
@@ -435,6 +436,36 @@ def _build_chapter_candidate_text(chapters: list[dict[str, Any]]) -> str:
     return "\n".join(lines) if lines else "(none)"
 
 
+def _is_explicit_whole_book_request(message: str) -> bool:
+    """Return whether the user explicitly selected complete-book coverage."""
+    text = re.sub(r"\s+", "", str(message or ""))
+    markers = (
+        "整本", "全书", "全本", "全部章节", "所有章节",
+        "全部知识点", "所有知识点", "从头到尾", "完整学完",
+        "系统学完", "系统复习完", "通读",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _book_scope_clarification_options(book_title: str) -> list[dict[str, str]]:
+    title = str(book_title or "").strip()
+    quoted = f"《{title}》" if title else "该教材"
+    return [
+        {
+            "label": "按薄弱点安排",
+            "prompt": "请根据我的真实薄弱点制定复习计划",
+        },
+        {
+            "label": "填写具体章节",
+            "fill": f"请为{quoted}第__章制定学习计划",
+        },
+        {
+            "label": "规划整本教材",
+            "prompt": f"请为整本{quoted}制定学习计划",
+        },
+    ]
+
+
 def _build_parse_prompt(
     message: str,
     candidates_text: str,
@@ -495,8 +526,8 @@ def _build_parse_prompt(
         "words (e.g. the topic or key phrase they mentioned), or null if "
         "nothing specific was stated.\n"
         "8. Output ONLY the JSON object — no markdown fences, no extra text.\n"
-        "9. If the user asks to learn or review an ENTIRE book "
-        "(e.g. '学习整本牙周病学', '复习整本书', '系统学习牙体牙髓病学'), "
+        "9. If the user EXPLICITLY asks to learn or review an ENTIRE book "
+        "(e.g. '学习整本牙周病学', '复习全书', '系统学完整本牙体牙髓病学'), "
         "set chapter_key to null but copy book_title and document_id "
         "VERBATIM from any candidate of that book. "
         "Do NOT invent or pick a random chapter_key for whole-book requests.\n"
@@ -506,15 +537,11 @@ def _build_parse_prompt(
         "(e.g. just a book name or chapter title), resolve it against the "
         "candidates below. Treat the user's answer as the scope for the "
         "plan they previously requested.\n"
-        "10a. BOOK-NAME-ONLY RULE: When the user replies to a clarification "
-        "with ONLY a book name (matching book_title in candidates) and NO "
-        "specific chapter, NO planning verb, NO action word — this is a "
-        "whole-book request. Set chapter_key to null, intent to "
-        "'learn_chapter' (or 'review_chapter' if the history context "
-        "suggests review), and copy book_title + document_id VERBATIM "
-        "from any matching candidate. A message like just a textbook title "
-        "without any chapter identifier means the user wants to study "
-        "the entire book, not a single chapter.\n"
+        "10a. BOOK-NAME-ONLY RULE: A matching book name without a chapter "
+        "or an explicit whole-book phrase identifies the textbook but does "
+        "NOT authorize selecting every chapter. Keep chapter_key null and "
+        "copy book_title + document_id VERBATIM; the resolver will ask the "
+        "user to choose a chapter or explicitly confirm the whole book.\n"
         "10b. BOOK-NAME vs CHAPTER-TITLE: If the user's message matches "
         "a book_title field in candidates (not a chapter title), use "
         "chapter_key=null and the matched book_title. If it matches a "
@@ -974,6 +1001,7 @@ def parse_plan_request_text(
     result["resolved_scopes"] = resolved
     result["clarification_needed"] = unified["clarification_needed"]
     result["clarification_message"] = unified.get("clarification_message")
+    result["clarification_options"] = unified.get("clarification_options", [])
 
     return result
 
@@ -1184,6 +1212,7 @@ def _map_draft_items_to_recommendations(
                 "learning_target": item["learning_target"],
                 "reason": item["reason"],
                 "estimated_minutes": item["estimated_minutes"],
+                "day_offset": item.get("day_offset", 0),
                 "kg_node_ids": list(scope.get("kg_node_ids", []))
                 if isinstance(scope, dict)
                 else [],
@@ -1300,6 +1329,9 @@ def _recommend_custom_draft(
         ).strip()
         # Ensure recommendations are empty — no plan items exist.
         result["recommendations"] = []
+        options = payload.get("clarification_options")
+        if isinstance(options, list):
+            result["clarification_options"] = options
 
     if parent_plan_draft_id is not None:
         result["parent_plan_draft_id"] = parent_plan_draft_id
@@ -1958,8 +1990,11 @@ def _build_scope_selector_prompt(
         "operation=single, titles=[\"牙周病的发病机制\"], "
         "ordinals=[3], parent_book_title from context.\n"
         "- For just a book name (\"牙体材料学\"): target_type=book, "
-        "operation=all, scope_ids empty, the resolver expands to all "
-        "chapters. parent_book_title = the book itself.\n"
+        "operation=all, scope_ids empty, parent_book_title = the book itself. "
+        "A bare book name identifies the book but does NOT confirm whole-book "
+        "coverage; the resolver will ask for scope.\n"
+        "- Only phrases that explicitly mean the complete material, such as "
+        "整本/全书/全部章节/所有章节/系统学完, authorize a whole-book plan.\n"
         "- For disease (\"龋病\"): target_type=disease, "
         "operation=single, titles=[\"龋病\"].\n"
         "- For knowledge point (\"粘接剂的粘接机制\"): "
@@ -3076,6 +3111,28 @@ def parse_scope_selector_from_text(
         selector, _chapters, memory=memory, user_id=user_id,
     )
 
+    if (
+        selector.get("target_type") == "book"
+        and resolution.get("resolved_scopes")
+        and not _is_explicit_whole_book_request(clean_message)
+    ):
+        book_title = str(
+            resolution["resolved_scopes"][0].get("book_title")
+            or selector.get("parent_book_title")
+            or selector.get("mention")
+            or ""
+        ).strip(" 《》")
+        resolution["resolved_scopes"] = []
+        resolution["clarification_needed"] = True
+        resolution["clarification_message"] = (
+            f"已识别到《{book_title}》，但还不能确定您希望覆盖的学习范围。"
+            "请选择具体章节，或明确说明要规划整本/全书；"
+            "也可以按您的真实薄弱点安排复习。"
+        )
+        resolution["clarification_options"] = _book_scope_clarification_options(
+            book_title
+        )
+
     return {
         "scope_selector": selector,
         "resolved_scopes": resolution["resolved_scopes"],
@@ -3084,6 +3141,7 @@ def parse_scope_selector_from_text(
         "target_type": resolution["target_type"],
         "mention": resolution["mention"],
         "context_dependent": resolution["context_dependent"],
+        "clarification_options": resolution.get("clarification_options", []),
     }
 
 
@@ -6918,6 +6976,28 @@ def create_plan_draft_from_text(
                 # return clarification_needed rather than invent a scope.
                 parent_plan_draft_id = None
 
+    _selector = parsed_request.get("scope_selector", {})
+    if (
+        parsed_request.get("clarification_needed")
+        and not parsed_request.get("resolved_scopes")
+        and isinstance(_selector, dict)
+        and _selector.get("target_type") == "book"
+        and parsed_request.get("clarification_options")
+    ):
+        payload = {
+            "request": parsed_request,
+            "items": [],
+            "clarification_needed": True,
+            "clarification_message": parsed_request.get("clarification_message"),
+            "clarification_options": parsed_request.get("clarification_options", []),
+        }
+        draft_id = store.save(
+            user_id=user_id,
+            payload=payload,
+            parent_plan_draft_id=parent_plan_draft_id,
+        )
+        return store.get(draft_id, user_id=user_id)
+
     # 1c. Enrich resolved_scopes for weakness_profile from real learner
     #      memory evidence.  The unified scope selector's own weakness
     #      resolution may produce empty scopes (it does not have direct
@@ -6925,7 +7005,6 @@ def create_plan_draft_from_text(
     #      This step calls get_weakness_overview — the canonical
     #      deterministic reader for weakness evidence — and populates
     #      resolved_scopes with validated, ordered weakness entries.
-    _selector = parsed_request.get("scope_selector", {})
     if (
         isinstance(_selector, dict)
         and _selector.get("target_type") == "weakness_profile"

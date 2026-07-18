@@ -1,5 +1,9 @@
 (() => {
   const { byId, escapeHtml, apiPost } = window.oralUi;
+  const sanitizeDisplayText = window.oralUi.sanitizeDisplayText || ((value) => String(value || '')
+    .replace(/\b(?:chunk(?:_id)?|core|chapter|node|scope(?:_ref)?|document|kg)\s*[.:=]\s*[A-Za-z0-9][A-Za-z0-9._:/-]*/gi, '')
+    .replace(/[\(\[（【]\s*[\)\]）】]/g, '')
+    .trim());
   let historyPanel = null;
 
   function value(id) {
@@ -24,7 +28,7 @@
   }
 
   function renderMarkdown(markdown) {
-    const lines = String(markdown || '').split(/\r?\n/);
+    const lines = sanitizeDisplayText(markdown).split(/\r?\n/);
     const html = [];
     let listOpen = false;
     let orderedOpen = false;
@@ -40,9 +44,12 @@
       }
     }
 
-    lines.forEach((rawLine) => {
+    lines.forEach((rawLine, lineIndex) => {
       const line = rawLine.trim();
       if (!line) {
+        const nextLine = lines.slice(lineIndex + 1).find((candidate) => candidate.trim());
+        if (listOpen && nextLine && /^\s*[-*]\s+/.test(nextLine)) return;
+        if (orderedOpen && nextLine && /^\s*\d+[.)、]\s*/.test(nextLine)) return;
         closeLists();
         return;
       }
@@ -68,17 +75,18 @@
         return;
       }
 
-      const ordered = line.match(/^\d+\.\s+(.+)$/);
+      const ordered = line.match(/^(\d+)[.)、]\s*(.+)$/);
       if (ordered) {
         if (listOpen) {
           html.push('</ul>');
           listOpen = false;
         }
         if (!orderedOpen) {
-          html.push('<ol>');
+          const start = Number(ordered[1]) || 1;
+          html.push(start > 1 ? `<ol start="${start}">` : '<ol>');
           orderedOpen = true;
         }
-        html.push(`<li>${formatInline(ordered[1])}</li>`);
+        html.push(`<li>${formatInline(ordered[2])}</li>`);
         return;
       }
 
@@ -266,6 +274,8 @@
       }
     });
   }
+
+  window.oralUi.pathologyInternals = { renderMarkdown };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bind);

@@ -2616,9 +2616,8 @@ class ParsePlanRequestTextTests(unittest.TestCase):
         self.assertTrue(result.get("clarification_needed"))
         self.assertEqual(result["intent"], "learn_chapter")
 
-    def test_book_title_without_chapter_key_accepted_for_whole_book(self) -> None:
-        """When chapter_key is null, a non-null book_title matching a candidate
-        is accepted — this is the whole-book review pattern."""
+    def test_book_title_without_explicit_whole_book_scope_needs_clarification(self) -> None:
+        """A bare book name identifies the material but not all chapters."""
         chapters = [self._chapter(key="chapter:perio-ch3")]
 
         def fake_llm(prompt: str) -> str:
@@ -2637,7 +2636,10 @@ class ParsePlanRequestTextTests(unittest.TestCase):
         )
 
         self.assertEqual(result["intent"], "review_chapter")
-        self.assertEqual(result["book_title"], "牙周病学")
+        self.assertTrue(result["clarification_needed"])
+        self.assertIn("整本/全书", result["clarification_message"])
+        self.assertEqual(len(result["clarification_options"]), 3)
+        self.assertIsNone(result["book_title"])
         self.assertIsNone(result["chapter_key"])
         self.assertEqual(result["days"], 3)
 
@@ -4452,6 +4454,7 @@ class RecommendStudyPlanCustomDraftTests(unittest.TestCase):
             # Every item has positive integer minutes
             self.assertIsInstance(rec["estimated_minutes"], int)
             self.assertGreater(rec["estimated_minutes"], 0)
+            self.assertIsInstance(rec["day_offset"], int)
 
         # Trace has custom_draft strategy
         trace = result["trace"]
@@ -4459,6 +4462,43 @@ class RecommendStudyPlanCustomDraftTests(unittest.TestCase):
         self.assertEqual(trace["draft_id"], result["plan_draft_id"])
         self.assertEqual(trace["item_count"], 3)
         self.assertEqual(trace["parsed_intent"], "learn_chapter")
+
+    def test_bare_book_name_returns_actionable_scope_clarification(self) -> None:
+        store = self._store()
+        memory = self._make_memory()
+        calls = [0]
+        parse_json = (
+            '{"intent": "learn_chapter", "days": 7, "daily_minutes": 30, '
+            '"focus_text": null, "book_title": "牙周病学", '
+            '"document_id": "document.d766e8629232a2f6", "chapter_key": null}'
+        )
+
+        def fake_llm(prompt: str) -> str:
+            calls[0] += 1
+            return _old_parse_to_scope_selector_json(json.loads(parse_json))
+
+        try:
+            result = recommend_study_plan(
+                memory,
+                user_id="u_book_scope",
+                plan_date="2026-07-20",
+                request_text="学习牙周病学",
+                draft_store=store,
+                chapter_provider=self._chapters,
+                llm_call=fake_llm,
+            )
+        finally:
+            memory._conn.close()
+
+        self.assertEqual(calls[0], 1, "scope clarification must not call orchestration")
+        self.assertTrue(result["clarification_needed"])
+        self.assertEqual(result["recommendations"], [])
+        self.assertIn("整本/全书", result["clarification_message"])
+        options = result["clarification_options"]
+        self.assertEqual([item["label"] for item in options], [
+            "按薄弱点安排", "填写具体章节", "规划整本教材",
+        ])
+        self.assertIn("整本《牙周病学》", options[2]["prompt"])
 
     def test_different_texts_produce_different_drafts(self) -> None:
         """Two different request texts produce different drafts and card scopes,
@@ -9253,7 +9293,7 @@ class OrchestrationTruncationRetryTests(unittest.TestCase):
 
         parent_record = create_plan_draft_from_text(
             store, user_id="u1",
-            message="学习牙周病学",
+            message="学习整本牙周病学",
             chapters=chapters,
             llm_call=_scope_fake(parent_llm),
         )
@@ -10321,8 +10361,8 @@ class ScopeSelectorParseFromTextTests(unittest.TestCase):
     def _make_chapters() -> list[dict[str, Any]]:
         return ScopeSelectorResolverTests._make_chapters()
 
-    def test_scope_selector_parse_book_fuzzy(self) -> None:
-        """User says a partial book name, LLM resolves to book."""
+    def test_scope_selector_parse_book_fuzzy_requires_scope_confirmation(self) -> None:
+        """A fuzzy book match identifies the book without selecting all chapters."""
         llm_json = json.dumps({
             "target_type": "book",
             "mention": "牙周",
@@ -10343,9 +10383,11 @@ class ScopeSelectorParseFromTextTests(unittest.TestCase):
         result = parse_scope_selector_from_text(
             "学一下牙周", chapters=self._make_chapters(), llm_call=_scope_fake(fake_llm),
         )
-        self.assertFalse(result["clarification_needed"])
+        self.assertTrue(result["clarification_needed"])
         self.assertEqual(result["target_type"], "book")
-        self.assertEqual(result["resolved_scopes"][0]["scope_ref"], "牙周病学")
+        self.assertEqual(result["resolved_scopes"], [])
+        self.assertIn("牙周病学", result["clarification_message"])
+        self.assertEqual(len(result["clarification_options"]), 3)
 
     def test_scope_selector_parse_first_n_chapters(self) -> None:
         """User says 'first 3 chapters', LLM outputs first_n."""
@@ -10701,9 +10743,8 @@ class ProductionHandoffTests(unittest.TestCase):
     # Positive: unified parse → resolved_scopes → draft context
     # ------------------------------------------------------------------
 
-    def test_handoff_fuzzy_book_name(self) -> None:
-        """Fuzzy book name resolves through the unified selector and
-        resolved_scopes enter the draft."""
+    def test_handoff_fuzzy_book_name_returns_scope_clarification(self) -> None:
+        """A fuzzy book handoff persists an actionable clarification draft."""
         store = PlanDraftStore(ttl_seconds=300)
         chapters = self._make_chapters()
 
@@ -10725,11 +10766,13 @@ class ProductionHandoffTests(unittest.TestCase):
             chapters=chapters,
             llm_call=llm,
         )
-        req = record["payload"]["request"]
-        # Old fields are compatibility projections
-        self.assertEqual(req["book_title"], "牙周病学")
-        self.assertIn("resolved_scopes", req)
-        self.assertEqual(req["resolved_scopes"][0]["scope_ref"], "牙周病学")
+        payload = record["payload"]
+        req = payload["request"]
+        self.assertTrue(payload["clarification_needed"])
+        self.assertEqual(payload["items"], [])
+        self.assertIsNone(req["book_title"])
+        self.assertEqual(req["resolved_scopes"], [])
+        self.assertIn("牙周病学", payload["clarification_message"])
 
     def test_handoff_single_chapter(self) -> None:
         """Single chapter request → resolved_scopes has one entry with

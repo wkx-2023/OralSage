@@ -50,6 +50,17 @@
       .replace(/'/g, '&#39;');
   }
 
+  function sanitizeDisplayText(value) {
+    return String(value || '')
+      .replace(/\b(?:chunk(?:_id)?|core|chapter|node|scope(?:_ref)?|document|kg)\s*[.:=]\s*[A-Za-z0-9][A-Za-z0-9._:/-]*/gi, '')
+      .replace(/[\(\[（【]\s*(?:(?:来源|证据|依据|引用|source|id)\s*[:：]?)?\s*[\)\]）】]/gi, '')
+      .replace(/^[ \t]*(?:[-*+]|\d+[.)、])\s*$/gm, '')
+      .replace(/[ \t]+([，。；：,.!?])/g, '$1')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   async function apiPost(url, payload) {
     const res = await fetch(url, {
       method: 'POST',
@@ -366,6 +377,7 @@
     PAGE_META,
     byId,
     escapeHtml,
+    sanitizeDisplayText,
     apiPost,
     apiJson,
     apiInvokeAgent,
