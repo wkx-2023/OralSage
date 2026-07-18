@@ -447,6 +447,38 @@ def _is_explicit_whole_book_request(message: str) -> bool:
     return any(marker in text for marker in markers)
 
 
+def _stabilize_explicit_whole_book_intent(
+    message: str,
+    selector: dict[str, Any],
+) -> None:
+    """Keep an explicit whole-book plan out of the generic custom path.
+
+    ``custom`` is appropriate when the learning action is genuinely unclear,
+    but phrases such as "为整本《牙周病学》制定学习计划" already express a
+    complete-book learning request.  Some models interpret "制定计划" as a
+    custom action, which unnecessarily sends a first-time request through the
+    less reliable free-form orchestration path.
+
+    The correction is deliberately narrow: it only applies to a resolved book
+    selector with explicit whole-book wording, and it never overwrites an
+    already specific learning, review, or weakness intent.
+    """
+    if selector.get("target_type") != "book":
+        return
+    if selector.get("intent") != "custom":
+        return
+    if not _is_explicit_whole_book_request(message):
+        return
+
+    text = re.sub(r"\s+", "", str(message or "")).lower()
+    review_markers = ("复习", "回顾", "重温", "巩固", "备考")
+    selector["intent"] = (
+        "review_chapter"
+        if any(marker in text for marker in review_markers)
+        else "learn_chapter"
+    )
+
+
 def _book_scope_clarification_options(book_title: str) -> list[dict[str, str]]:
     title = str(book_title or "").strip()
     quoted = f"《{title}》" if title else "该教材"
@@ -1941,6 +1973,9 @@ def _build_scope_selector_prompt(
         "when they want to review, \"review_weakness\" when they "
         "mention weaknesses/薄弱点/弱项, and \"custom\" when the "
         "intent is unclear or they are modifying an existing plan. "
+        "A request to formulate or create a study plan for an explicitly "
+        "complete book is learn_chapter, NOT custom; 制定学习计划 describes "
+        "the requested output rather than an unclear learning action. "
         "If the conversation history suggests a review context, "
         "prefer \"review_chapter\" over \"learn_chapter\".\n"
         "12. days: the number of days the user wants to study (integer "
@@ -3103,6 +3138,7 @@ def parse_scope_selector_from_text(
     # 7. Validate scope selector fields
     # ------------------------------------------------------------------
     selector = _validate_scope_selector_fields(parsed)
+    _stabilize_explicit_whole_book_intent(clean_message, selector)
 
     # ------------------------------------------------------------------
     # 8. Resolve against real candidates
@@ -3203,6 +3239,17 @@ class OrchestrationValidationError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+_ORCHESTRATION_SCHEDULE_ERROR_CODES = frozenset({
+    "missing_day_offset",
+    "invalid_day_offset",
+    "day_offset_exceeds_total_days",
+    "missing_minutes",
+    "invalid_minutes",
+    "minutes_exceeds_daily_budget",
+    "daily_budget_exceeded",
+})
 
 
 def _compute_parent_metrics(
@@ -5289,6 +5336,27 @@ def _build_practice_dependency_retry_prompt(
     return header + "\n" + base
 
 
+def _build_schedule_constraint_retry_prompt(
+    context: dict[str, Any],
+    *,
+    validation_error: str,
+) -> str:
+    """Build a single corrective retry for day and minute violations."""
+    base = _build_orchestration_prompt(context)
+    total_days = int(context.get("total_days", 1))
+    daily_minutes = int(context.get("daily_minutes", 30))
+    return (
+        "!!! RETRY — YOUR PREVIOUS RESPONSE FAILED SCHEDULE VALIDATION !!!\n"
+        f"Specific validation error: {validation_error}\n\n"
+        "Generate the complete plan again and obey BOTH hard bounds:\n"
+        f"- Every day_offset must be an integer from 0 through {total_days - 1}.\n"
+        f"- The sum of minutes on each day must be at most {daily_minutes}.\n"
+        "Each item must still have positive minutes. Preserve valid scope_refs, "
+        "task-type coverage, and dependency rules. Output JSON only.\n\n"
+        + base
+    )
+
+
 def _compute_missing_scope_refs(
     candidate: dict[str, Any],
     context: dict[str, Any],
@@ -5555,10 +5623,11 @@ def _preflight_draft_items(
     resource_inspector:
         Optional callable ``(learning_scope: dict) -> preflight_result``.
         When ``None`` (production default), calls the real
-        :func:`~.planner.preflight_scope_resources` with both KG node and
-        evidence chunk checks enabled.  Tests may inject a fake inspector
-        that returns a controlled preflight dict.  Production code must
-        never pass a fake/disabled inspector.
+        :func:`~.planner.preflight_scope_resources`, accepting a conclusive
+        KG-node hit first and falling back to evidence retrieval otherwise.
+        Identical scopes share one result within this preflight call. Tests
+        may inject a fake inspector that returns a controlled preflight dict.
+        Production code must never pass a fake/disabled inspector.
 
     Returns
     -------
@@ -5572,10 +5641,60 @@ def _preflight_draft_items(
 
     # ── Resolve default inspector (production: real KG + evidence checks) ─
     if resource_inspector is None:
+        preflight_cache: dict[str, dict[str, Any]] = {}
+
         def _default_inspector(scope: dict[str, Any]) -> dict[str, Any]:
-            return preflight_scope_resources(
-                scope, check_kg_nodes=True, check_evidence_chunks=True,
+            try:
+                cache_key = json.dumps(
+                    scope, ensure_ascii=False, sort_keys=True, default=str,
+                )
+            except (TypeError, ValueError):
+                cache_key = repr(scope)
+            cached = preflight_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+            kg_ids = [
+                str(value).strip()
+                for value in (scope.get("kg_node_ids") or [])
+                if str(value).strip()
+            ]
+            has_evidence_locator = bool(
+                str(scope.get("document_id") or "").strip()
+                or str(
+                    scope.get("chapter_key")
+                    or scope.get("chapter_title")
+                    or ""
+                ).strip()
             )
+
+            result: dict[str, Any] | None = None
+            if kg_ids:
+                result = preflight_scope_resources(
+                    scope,
+                    check_kg_nodes=True,
+                    check_evidence_chunks=False,
+                )
+
+            # Resource usability is an OR contract. Evidence retrieval is the
+            # slower fallback only when KG data could not prove the scope.
+            if (result is None or not result.get("usable")) and has_evidence_locator:
+                result = preflight_scope_resources(
+                    scope,
+                    check_kg_nodes=False,
+                    check_evidence_chunks=True,
+                )
+
+            if result is None:
+                result = preflight_scope_resources(
+                    scope,
+                    check_kg_nodes=True,
+                    check_evidence_chunks=True,
+                )
+
+            preflight_cache[cache_key] = result
+            return result
+
         resource_inspector = _default_inspector
 
     failures: list[dict[str, Any]] = []
@@ -6013,7 +6132,87 @@ def _allocate_daily_budget(daily_minutes: int, weights: list[int]) -> list[int]:
     return allocated
 
 
+def _has_explicit_plan_revision_semantics(
+    message: str,
+    parsed_request: dict[str, Any],
+) -> bool:
+    """Return whether the current message explicitly modifies a prior plan.
+
+    The validated selector is the primary signal.  A small language fallback
+    keeps the decision conservative when the selector resolves the scope but
+    omits ``revision_constraints`` despite clear modification wording.
+    """
+    selector = parsed_request.get("scope_selector")
+    if isinstance(selector, dict):
+        constraints = selector.get("revision_constraints")
+        if isinstance(constraints, dict) and constraints:
+            return True
+
+    text = re.sub(r"\s+", "", str(message or "")).lower()
+    revision_markers = (
+        "修改", "调整", "改成", "改为", "变成", "换成", "减少",
+        "增加", "加到", "再加", "缩短", "延长", "加长", "压缩",
+        "保持", "不变", "少一些", "多一些", "去掉", "删除",
+        "替换", "只学", "只安排", "仅保留",
+    )
+    if any(marker in text for marker in revision_markers):
+        return True
+
+    return bool(re.search(
+        r"\b(modify|adjust|reduce|increase|shorten|extend|keep\s+the\s+same|"
+        r"remove|replace)\b",
+        str(message or "").lower(),
+    ))
+
+
+def _is_explicit_standalone_chapter_plan_request(
+    message: str,
+    parsed_request: dict[str, Any],
+) -> bool:
+    """Return whether this turn states a complete scope for a new plan.
+
+    A stored parent draft is conversation context, not proof that every later
+    plan request is a revision.  The current turn is standalone only when the
+    user explicitly asks to create a plan, the unified selector finds a
+    chapter/book mention without depending on prior context, and the user does
+    not express modification semantics.
+    """
+    compact_message = re.sub(r"\s+", "", str(message or "")).lower()
+    asks_for_new_plan = (
+        (
+            "计划" in compact_message
+            and any(
+                marker in compact_message
+                for marker in (
+                    "制定", "创建", "生成", "新建", "规划", "做一个",
+                    "做一份", "来一个", "来一份",
+                )
+            )
+        )
+        or "规划整本" in compact_message
+        or "规划全书" in compact_message
+        or bool(re.search(
+            r"\b(create|generate|build|make|draft)\b.{0,40}\bplan\b",
+            str(message or "").lower(),
+        ))
+    )
+    if not asks_for_new_plan:
+        return False
+
+    selector = parsed_request.get("scope_selector")
+    if not isinstance(selector, dict):
+        return False
+    if selector.get("target_type") not in ("chapter", "chapter_set", "book"):
+        return False
+    if selector.get("context_dependent") is not False:
+        return False
+    if not str(selector.get("mention") or "").strip():
+        return False
+    return not _has_explicit_plan_revision_semantics(message, parsed_request)
+
+
 def _should_use_deterministic_chapter_plan_generator(
+    message: str,
     parsed_request: dict[str, Any],
     scope_candidates: list[dict[str, Any]],
     parent_plan_draft_id: str | None,
@@ -6038,9 +6237,11 @@ def _should_use_deterministic_chapter_plan_generator(
        * If it refers to a clarification-only parent draft
          (``clarification_needed=true`` with empty ``items``) → still
          first-time request.
-       * If the parent draft has non-empty ``items`` → this is a
-         **modification** of an existing plan — must go through LLM
-         orchestration.
+       * If the parent has items but the current turn explicitly states a
+         complete chapter/book scope with no revision semantics → it is a
+         new standalone request and still qualifies.
+       * Otherwise, a populated parent means this turn modifies the existing
+         plan and must go through LLM orchestration.
 
     This gate handles single-chapter, continuous multi-chapter, discrete
     multi-chapter, and whole-book scopes uniformly — the old whole-book-only
@@ -6071,7 +6272,8 @@ def _should_use_deterministic_chapter_plan_generator(
     if len(scope_candidates) == 0:
         return False
 
-    # 4. Parent draft check — only clarification-only parents qualify
+    # 4. Parent draft check. A populated parent is a modification only when
+    #    the current turn does not independently state a complete new scope.
     if parent_plan_draft_id is not None:
         try:
             parent = store.get(parent_plan_draft_id, user_id=user_id)
@@ -6083,8 +6285,10 @@ def _should_use_deterministic_chapter_plan_generator(
         parent_payload = parent.get("payload", {})
         parent_items = parent_payload.get("items", [])
         if isinstance(parent_items, list) and len(parent_items) > 0:
-            # Parent has real plan items → this is a modification
-            return False
+            if not _is_explicit_standalone_chapter_plan_request(
+                message, parsed_request,
+            ):
+                return False
         # Parent is None-entity or clarification-only → still first-time
 
     return True
@@ -7086,6 +7290,7 @@ def create_plan_draft_from_text(
     #      advanced_practice, and a non-forgeable evidence_source.
     #      Handles single-chapter, multi-chapter, and whole-book uniformly.
     if _should_use_deterministic_chapter_plan_generator(
+        message,
         parsed_request,
         scope_candidates,
         parent_plan_draft_id,
@@ -7352,7 +7557,27 @@ def create_plan_draft_from_text(
                 )
                 continue
 
-            # 8e. Revision constraint violation → retry with specific feedback
+            # 8e. Day/minute constraint violation → retry with exact bounds
+            if exc.code in _ORCHESTRATION_SCHEDULE_ERROR_CODES and _retryable:
+                import logging
+                _logger = logging.getLogger(__name__)
+                _logger.warning(
+                    "Orchestration LLM violated schedule constraints "
+                    "(attempt %s/%s). Retrying with exact bounds. "
+                    "code=%s, error=%s, intent=%s",
+                    _orch_attempt + 1,
+                    _MAX_ORCH_RETRIES + 1,
+                    exc.code,
+                    str(exc),
+                    parsed_request.get("intent"),
+                )
+                orch_prompt = _build_schedule_constraint_retry_prompt(
+                    orch_context,
+                    validation_error=str(exc),
+                )
+                continue
+
+            # 8f. Revision constraint violation → retry with specific feedback
             if exc.code.startswith("revision_") and _retryable:
                 import logging
                 _logger = logging.getLogger(__name__)

@@ -894,8 +894,8 @@ console.log('\n14. Entry point cache version — HTML must reference current scr
   var htmlSrc = fs.readFileSync(htmlPath, 'utf-8');
 
   test('HTML script tag references canonical renderer path with current query version', function () {
-    ok(htmlSrc.indexOf('/js/master-chat.js?v=20260718-agent-routing-fixes-v1') !== -1,
-      'master-chat.html must reference canonical path /js/master-chat.js?v=20260718-agent-routing-fixes-v1');
+    ok(htmlSrc.indexOf('/js/master-chat.js?v=20260718-oralsage-avatar-v1') !== -1,
+      'master-chat.html must reference canonical path /js/master-chat.js?v=20260718-oralsage-avatar-v1');
   });
 
   test('HTML script tag does NOT reference versioned duplicate path', function () {
@@ -913,6 +913,41 @@ console.log('\n14. Entry point cache version — HTML must reference current scr
     var dupPath = path.resolve(__dirname, '..', 'frontend', 'js', 'master-chat-plan-clarification.js');
     ok(!fs.existsSync(dupPath),
       'versioned duplicate master-chat-plan-clarification.js must not exist on disk');
+  });
+})();
+
+// ============================================================================
+// 14b. OralSage assistant avatar asset and styling contract
+// ============================================================================
+
+console.log('\n14b. OralSage assistant avatar contract');
+
+(function () {
+  var root = path.resolve(__dirname, '..');
+  var avatarPath = path.join(root, 'frontend', 'assets', 'images', 'oralsage-assistant-avatar.png');
+  var cssPath = path.join(root, 'frontend', 'css', 'master-chat.css');
+  var htmlPath = path.join(root, 'frontend', 'pages', 'master-chat.html');
+  var cssSrc = fs.readFileSync(cssPath, 'utf-8');
+  var htmlSrc = fs.readFileSync(htmlPath, 'utf-8');
+
+  test('assistant renderer uses the OralSage robot image', function () {
+    ok(scriptSrc.indexOf('/assets/images/oralsage-assistant-avatar.png') !== -1,
+      'master-chat.js must render the OralSage robot asset');
+    ok(fs.existsSync(avatarPath), 'assistant avatar image must exist in frontend assets');
+  });
+
+  test('assistant avatar keeps a pale-purple rounded-square treatment', function () {
+    var avatarRule = cssSrc.match(/\.oralsage-avatar\s*\{([^}]*)\}/);
+    ok(avatarRule, 'master-chat.css must define .oralsage-avatar');
+    ok(avatarRule[1].indexOf('background: #efeaff') !== -1,
+      'assistant avatar must use the pale-purple theme background');
+    ok(avatarRule[1].indexOf('border-radius: 6px') !== -1,
+      'assistant avatar must keep the existing rounded-square shape');
+  });
+
+  test('HTML cache-busts the avatar CSS update', function () {
+    ok(htmlSrc.indexOf('/css/master-chat.css?v=20260718-oralsage-avatar-v1') !== -1,
+      'master-chat.html must reference the avatar CSS version');
   });
 })();
 
@@ -949,6 +984,11 @@ console.log('\n15. learning-plan.js data logic — draft mapping and payload cor
     state._draftIdToFormalId = {};
     return {
       mapDraftItemsToRecommendations: api.mapDraftItemsToRecommendations,
+      recommendationMeta: api.recommendationMeta,
+      renderRecommendationCard: api.renderRecommendationCard,
+      renderTodoItem: api.renderTodoItem,
+      renderItemEditor: api.renderItemEditor,
+      taskTypeLabel: api.taskTypeLabel,
       recommendationPayload: api.recommendationPayload,
       _topologicalOrder: api._topologicalOrder,
       _resolveFormalDependency: api._resolveFormalDependency,
@@ -984,6 +1024,55 @@ console.log('\n15. learning-plan.js data logic — draft mapping and payload cor
     if (overrides) Object.keys(overrides).forEach(function (k) { item[k] = overrides[k]; });
     return item;
   }
+
+  test('visible plan UI hides KG identifiers while payload preserves them', function () {
+    var items = [makeDraftItem({ task_type: 'continue_lesson' })];
+    var rec = lp.mapDraftItemsToRecommendations('draft_visible', items)[0];
+    rec.category = 'continue_lesson';
+    rec.kg_node_ids = [
+      'kg://牙周病学/017-根尖周病/core_3',
+      'kg://牙周病学/017-根尖周病/support_15',
+    ];
+
+    var cardHtml = lp.renderRecommendationCard(rec, true);
+    ok(cardHtml.indexOf('继续学习') !== -1, 'task enum must use a readable label');
+    ok(cardHtml.indexOf('continue_lesson') === -1, 'raw task enum must be hidden');
+    ok(cardHtml.indexOf('知识点：') === -1, 'KG metadata label must be hidden');
+    ok(cardHtml.indexOf('kg://') === -1, 'KG URI must be hidden');
+    ok(cardHtml.indexOf('core_3') === -1, 'core ID must be hidden');
+    ok(cardHtml.indexOf('support_15') === -1, 'support ID must be hidden');
+    ok(cardHtml.indexOf('关联课程：牙周病学') !== -1, 'readable course stays visible');
+
+    var formalItem = {
+      id: 'plan-visible-1',
+      status: 'open',
+      title: '第十七章 根尖周病的临床表现及诊断',
+      linked_course_title: '牙体牙髓病学',
+      kg_node_ids: rec.kg_node_ids,
+      deferred_count: 0,
+    };
+    state.editingId = 'plan-visible-1';
+    var todoHtml = lp.renderTodoItem(formalItem, true);
+    ok(todoHtml.indexOf('课程：牙体牙髓病学') !== -1, 'readable course stays visible');
+    ok(todoHtml.indexOf('kg://') === -1, 'formal item must hide KG URI');
+    ok(todoHtml.indexOf('知识点：') === -1, 'formal item must hide KG metadata label');
+    ok(todoHtml.indexOf('data-link-kg') === -1, 'editor must not expose KG ID input');
+
+    var payload = lp.recommendationPayload(rec);
+    assert.deepStrictEqual(
+      Array.from(payload.kg_node_ids),
+      Array.from(rec.kg_node_ids),
+      'hidden KG IDs must remain available to the adoption contract',
+    );
+    ok(payload.learning_scope && payload.learning_scope.chapter_key,
+      'learning_scope must remain available to the backend');
+    state.editingId = '';
+  });
+
+  test('unknown internal task enum falls back to a neutral user label', function () {
+    equal(lp.taskTypeLabel('internal_pipeline_step'), '学习任务');
+    equal(lp.taskTypeLabel('章节精读'), '章节精读');
+  });
 
   // ── 15a. linked_course_id must NOT come from scope.document_id
   test('linked_course_id is NOT scope.document_id', function () {

@@ -7793,6 +7793,74 @@ class WholeBookOrchestrationTests(unittest.TestCase):
                 item["learning_scope"]["chapter_key"], "chapter:perio-ch3",
             )
 
+    def test_explicit_whole_book_plan_stabilizes_custom_intent(self) -> None:
+        """The production button phrase must never reach free-form orchestration.
+
+        Models can label "制定学习计划" as ``custom`` even though the user has
+        explicitly selected an entire book.  The service corrects that narrow
+        ambiguity and uses the deterministic chapter-sequence generator.
+        """
+        store = self._store()
+        chapters = [
+            _chapter(key="chapter:perio-ch1", number=1,
+                     title="第一章 绪论", core_ids=["core:ch1-a"],
+                     cores=[{"id": "core:ch1-a", "name": "概论"}]),
+            _chapter(key="chapter:perio-ch2", number=2,
+                     title="第二章 牙周组织", core_ids=["core:ch2-a"],
+                     cores=[{"id": "core:ch2-a", "name": "正常组织"}]),
+            _chapter(key="chapter:perio-ch3", number=3),
+        ]
+        selector_json = _make_scope_selector_json(
+            target_type="book",
+            mention="整本《牙周病学》",
+            operation="all",
+            titles=["牙周病学"],
+            parent_book_title="牙周病学",
+            intent="custom",
+            days=7,
+            daily_minutes=30,
+        )
+        invalid_orchestration = json.dumps({
+            "items": [{
+                "task_type": "learn_chapter",
+                "scope_ref": "chapter:perio-ch1",
+                "day_offset": 7,
+                "minutes": 45,
+                "reason": "This response must never be consumed",
+                "dependency": None,
+            }],
+        })
+        calls: list[str] = []
+
+        def fake_llm(prompt: str) -> str:
+            calls.append(prompt)
+            return selector_json if len(calls) == 1 else invalid_orchestration
+
+        record = create_plan_draft_from_text(
+            store,
+            user_id="u-explicit-whole-book",
+            message="请为整本《牙周病学》制定学习计划",
+            chapters=chapters,
+            llm_call=fake_llm,
+        )
+
+        self.assertEqual(len(calls), 1, "orchestration LLM must be bypassed")
+        request = record["payload"]["request"]
+        self.assertEqual(request["intent"], "learn_chapter")
+        self.assertEqual(request["scope_selector"]["intent"], "learn_chapter")
+        self.assertEqual(request["daily_minutes"], 30)
+
+        daily_totals: dict[int, int] = {}
+        for item in record["payload"]["items"]:
+            day_offset = item["day_offset"]
+            daily_totals[day_offset] = (
+                daily_totals.get(day_offset, 0) + item["estimated_minutes"]
+            )
+            self.assertEqual(item["evidence_source"], "chapter_sequence_v1")
+        self.assertTrue(daily_totals)
+        self.assertLessEqual(max(daily_totals.values()), 30)
+        self.assertEqual(max(daily_totals), len(chapters))
+
     def test_whole_book_no_matching_chapters_clarification(self) -> None:
         """When a book_title matches no valid chapters (e.g. all chapters
         have corrupt data), the orchestration context has empty scope
@@ -9159,6 +9227,76 @@ class OrchestrationTruncationRetryTests(unittest.TestCase):
                 }
             ]
         return _json.dumps({"items": items}, ensure_ascii=False)
+
+    def test_schedule_violation_retries_once_with_exact_bounds(self) -> None:
+        """An out-of-range day is corrected before surfacing a failure."""
+        store = self._store()
+        chapters = [self._chapter()]
+        parent_selector = _make_scope_selector_json(
+            target_type="book",
+            mention="整本牙周病学",
+            operation="all",
+            titles=["牙周病学"],
+            parent_book_title="牙周病学",
+            intent="learn_chapter",
+            days=2,
+            daily_minutes=30,
+        )
+        parent = create_plan_draft_from_text(
+            store,
+            user_id="u-schedule-retry",
+            message="学习整本牙周病学",
+            chapters=chapters,
+            llm_call=lambda _prompt: parent_selector,
+        )
+
+        modification_selector = _make_scope_selector_json(
+            target_type="chapter",
+            mention="牙周病学第三章",
+            operation="single",
+            scope_ids=["chapter:perio-ch3"],
+            parent_book_title="牙周病学",
+            intent="custom",
+            days=2,
+            daily_minutes=20,
+        )
+        invalid_schedule = self._orch_items([{
+            "task_type": "learn_chapter",
+            "scope_ref": "chapter:perio-ch3",
+            "day_offset": 2,
+            "minutes": 20,
+            "reason": "调整第三章计划",
+            "dependency": None,
+        }])
+        valid_schedule = self._orch_items([{
+            "task_type": "learn_chapter",
+            "scope_ref": "chapter:perio-ch3",
+            "day_offset": 0,
+            "minutes": 20,
+            "reason": "调整第三章计划",
+            "dependency": None,
+        }])
+        responses = [modification_selector, invalid_schedule, valid_schedule]
+        prompts: list[str] = []
+
+        def fake_llm(prompt: str) -> str:
+            prompts.append(prompt)
+            return responses[min(len(prompts) - 1, len(responses) - 1)]
+
+        record = create_plan_draft_from_text(
+            store,
+            user_id="u-schedule-retry",
+            message="把第三章计划改成两天，每天20分钟",
+            chapters=chapters,
+            llm_call=fake_llm,
+            parent_plan_draft_id=parent["plan_draft_id"],
+        )
+
+        self.assertEqual(len(prompts), 3)
+        self.assertIn("day_offset must be an integer from 0 through 1", prompts[2])
+        self.assertIn("sum of minutes on each day must be at most 20", prompts[2])
+        self.assertEqual(record["payload"]["items"][0]["day_offset"], 0)
+        self.assertEqual(record["payload"]["items"][0]["estimated_minutes"], 20)
 
     # ------------------------------------------------------------------
     # _classify_orchestration_json_error unit tests
@@ -12524,6 +12662,36 @@ class RevisionConstraintIntegrationTests(unittest.TestCase):
         assert not record["payload"].get("clarification_needed")
         return record, chapters
 
+    def _create_whole_book_parent(
+        self, store: PlanDraftStore, user_id: str,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
+        chapters = [
+            _chapter(
+                key="chapter:perio-ch1", number=1, title="第一章 绪论",
+            ),
+            _chapter(
+                key="chapter:perio-ch2", number=2, title="第二章 牙周组织",
+            ),
+        ]
+        selector_json = _make_scope_selector_json(
+            target_type="book",
+            mention="整本《牙周病学》",
+            operation="all",
+            parent_book_title="牙周病学",
+            intent="learn_chapter",
+            days=7,
+            daily_minutes=30,
+        )
+        record = create_plan_draft_from_text(
+            store,
+            user_id=user_id,
+            message="请为整本《牙周病学》制定学习计划",
+            chapters=chapters,
+            llm_call=_scope_fake(self._one_step_llm(selector_json)),
+        )
+        self.assertEqual(len(record["payload"]["items"]), 6)
+        return record, chapters, selector_json
+
     # ── Helper: build a scope_selector JSON with revision_constraints ───
     @staticmethod
     def _selector_json_with_revision(
@@ -12552,6 +12720,104 @@ class RevisionConstraintIntegrationTests(unittest.TestCase):
         if revision_constraints is not None:
             base["revision_constraints"] = revision_constraints
         return json.dumps(base, ensure_ascii=False)
+
+    def test_repeated_explicit_whole_book_request_bypasses_orchestration(
+        self,
+    ) -> None:
+        """A parent ID is context, not revision intent, when the user fully
+        restates a whole-book plan request."""
+        store = self._store()
+        user_id = "u_repeat_whole_book"
+        parent, chapters, selector_json = self._create_whole_book_parent(
+            store, user_id,
+        )
+
+        calls: list[str] = []
+
+        def parse_only(prompt: str) -> str:
+            calls.append(prompt)
+            return selector_json
+
+        child = create_plan_draft_from_text(
+            store,
+            user_id=user_id,
+            message="请为整本《牙周病学》制定学习计划",
+            chapters=chapters,
+            llm_call=_scope_fake(parse_only),
+            parent_plan_draft_id=parent["plan_draft_id"],
+        )
+
+        self.assertEqual(
+            len(calls), 1,
+            "Repeated explicit scope must parse once and skip orchestration",
+        )
+        self.assertEqual(
+            child.get("parent_plan_draft_id"), parent["plan_draft_id"],
+        )
+        self.assertEqual(len(child["payload"]["items"]), 6)
+        self.assertTrue(all(
+            item.get("evidence_source") == "chapter_sequence_v1"
+            for item in child["payload"]["items"]
+        ))
+
+    def test_explicit_revision_wording_with_full_scope_uses_orchestration(
+        self,
+    ) -> None:
+        """Clear revision wording remains on the modification path even if
+        the selector omits revision_constraints but resolves a full scope."""
+        store = self._store()
+        user_id = "u_adjust_whole_book"
+        parent, chapters, selector_json = self._create_whole_book_parent(
+            store, user_id,
+        )
+        selector = json.loads(selector_json)
+        selector["daily_minutes"] = 20
+        parse_json = json.dumps(selector, ensure_ascii=False)
+        orch_json = json.dumps({
+            "items": [
+                {"task_type": "learn_chapter", "scope_ref": "chapter:perio-ch1",
+                 "day_offset": 0, "minutes": 10, "reason": "调整后学习第一章",
+                 "dependency": None},
+                {"task_type": "review_chapter", "scope_ref": "chapter:perio-ch1",
+                 "day_offset": 0, "minutes": 5, "reason": "回顾第一章",
+                 "dependency": 0},
+                {"task_type": "basic_practice", "scope_ref": "chapter:perio-ch1",
+                 "day_offset": 1, "minutes": 5, "reason": "练习第一章",
+                 "dependency": 1},
+                {"task_type": "learn_chapter", "scope_ref": "chapter:perio-ch2",
+                 "day_offset": 1, "minutes": 10, "reason": "调整后学习第二章",
+                 "dependency": None},
+                {"task_type": "review_chapter", "scope_ref": "chapter:perio-ch2",
+                 "day_offset": 1, "minutes": 5, "reason": "回顾第二章",
+                 "dependency": 3},
+                {"task_type": "basic_practice", "scope_ref": "chapter:perio-ch2",
+                 "day_offset": 2, "minutes": 5, "reason": "练习第二章",
+                 "dependency": 4},
+            ],
+        }, ensure_ascii=False)
+        calls: list[str] = []
+
+        def parse_then_orchestrate(prompt: str) -> str:
+            calls.append(prompt)
+            return parse_json if len(calls) == 1 else orch_json
+
+        child = create_plan_draft_from_text(
+            store,
+            user_id=user_id,
+            message="把整本《牙周病学》的计划调整为每天20分钟",
+            chapters=chapters,
+            llm_call=_scope_fake(parse_then_orchestrate),
+            parent_plan_draft_id=parent["plan_draft_id"],
+        )
+
+        self.assertEqual(
+            len(calls), 2,
+            "Explicit adjustment must retain the orchestration path",
+        )
+        self.assertEqual(
+            child.get("parent_plan_draft_id"), parent["plan_draft_id"],
+        )
+        self.assertEqual(len(child["payload"]["items"]), 6)
 
     # ==================================================================
     # 1. Practice decrease violation → retry → pass

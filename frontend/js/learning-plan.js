@@ -120,8 +120,28 @@
     return !isPastDate(state.selectedDate);
   }
 
-  function kgText(item) {
-    return Array.isArray(item?.kg_node_ids) ? item.kg_node_ids.join(', ') : '';
+  const TASK_TYPE_LABELS = Object.freeze({
+    continue_lesson: '继续学习',
+    review_weakness: '薄弱点复习',
+    review_mastery: '掌握度复习',
+    catch_up: '补学任务',
+    practice: '练习巩固',
+    review_summary: '复习总结',
+    learn_chapter: '章节学习',
+    review_chapter: '章节复习',
+    basic_practice: '基础练习',
+    advanced_practice: '进阶练习',
+    stage_exam: '阶段测验',
+    topic_learning: '主题学习',
+    custom: '学习任务',
+    recommend: '系统推荐',
+  });
+
+  function taskTypeLabel(value) {
+    const key = String(value || '').trim();
+    if (!key) return '学习任务';
+    if (TASK_TYPE_LABELS[key]) return TASK_TYPE_LABELS[key];
+    return /^[a-z0-9_-]+$/i.test(key) ? '学习任务' : key;
   }
 
   function buildStartLearningUrl(itemId) {
@@ -392,7 +412,6 @@
   function recommendationMeta(item) {
     return [
       item.linked_course_title ? `关联课程：${item.linked_course_title}` : '',
-      kgText(item) ? `知识点：${kgText(item)}` : '',
       item.estimated_minutes ? `预计 ${item.estimated_minutes} 分钟` : '',
     ].filter(Boolean).join(' · ');
   }
@@ -407,7 +426,7 @@
             <p class="recommend-title">${escapeHtml(item.title || '推荐计划')}</p>
             <p class="recommend-reason">${escapeHtml(item.reason || '')}</p>
           </div>
-          <span class="recommend-chip">${escapeHtml(item.category || 'recommend')}</span>
+          <span class="recommend-chip">${escapeHtml(taskTypeLabel(item.category || item.task_type))}</span>
         </div>
         ${meta ? `<div class="recommend-meta">${escapeHtml(meta)}</div>` : ''}
         <div class="recommend-tools">
@@ -587,7 +606,6 @@
     const completed = item.status === 'completed';
     const linkMeta = [
       item.linked_course_title ? `课程：${item.linked_course_title}` : '',
-      kgText(item) ? `知识点：${kgText(item)}` : '',
       item.deferred_count ? `延期 ${item.deferred_count} 次` : '',
     ].filter(Boolean).join(' · ');
     const isEditing = editable && state.editingId === item.id;
@@ -634,7 +652,6 @@
       <div class="link-editor" data-editor-id="${escapeHtml(item.id)}">
         <input type="text" data-link-title value="${escapeHtml(item.title || '')}" placeholder="计划内容">
         <input type="text" data-link-course value="${escapeHtml(item.linked_course_title || '')}" placeholder="关联课程">
-        <input type="text" data-link-kg value="${escapeHtml(kgText(item))}" placeholder="知识点 ID，逗号分隔">
         <div class="link-editor-actions">
           <button class="link-cancel" type="button" data-action="cancel-edit" data-id="${escapeHtml(item.id)}">取消</button>
           <button class="link-save" type="button" data-action="save-edit" data-id="${escapeHtml(item.id)}">保存</button>
@@ -1048,11 +1065,6 @@
     if (!editor) return;
     const title = editor.querySelector('[data-link-title]')?.value || '';
     const course = editor.querySelector('[data-link-course]')?.value || '';
-    const kgRaw = editor.querySelector('[data-link-kg]')?.value || '';
-    const kgIds = kgRaw
-      .split(/[\n,，]+/)
-      .map((value) => value.trim())
-      .filter(Boolean);
     if (!title.trim()) {
       setStatus('计划内容不能为空', 'error');
       return;
@@ -1061,7 +1073,6 @@
       user_id: state.userId,
       title: title.trim(),
       linked_course_title: course.trim() || null,
-      kg_node_ids: kgIds,
     });
     state.editingId = '';
     setStatus('');
@@ -1211,6 +1222,11 @@
   oralUi.learningPlanInternals = {
     buildStartLearningUrl,
     mapDraftItemsToRecommendations,
+    recommendationMeta,
+    renderRecommendationCard,
+    renderTodoItem,
+    renderItemEditor,
+    taskTypeLabel,
     recommendationPayload,
     acceptRecommendation,
     acceptAllRecommendations,

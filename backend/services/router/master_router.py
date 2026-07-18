@@ -34,7 +34,10 @@ from backend.services.llm_client import (
     chat_completion,
     is_llm_configured,
 )
-from backend.services.learning.study_plan import recommend_study_plan
+from backend.services.learning.study_plan import (
+    OrchestrationValidationError,
+    recommend_study_plan,
+)
 from backend.services.learning.llm_policy import decide_next_action_with_llm
 from backend.services.learning.planner import plan_lesson
 from backend.services.learning.skills import (
@@ -47,6 +50,18 @@ from backend.services.literature.agent import run_literature_search
 from backend.services.qa.direct_qa import answer_direct_question
 
 logger = logging.getLogger(__name__)
+
+_STUDY_PLAN_SCHEDULE_ERROR_CODES = frozenset({
+    "missing_day_offset",
+    "invalid_day_offset",
+    "day_offset_exceeds_total_days",
+    "missing_minutes",
+    "invalid_minutes",
+    "minutes_exceeds_daily_budget",
+    "daily_budget_exceeded",
+    "revision_daily_minutes_exceeded",
+    "revision_daily_budget_exceeded",
+})
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1970,6 +1985,46 @@ class MasterRouter:
             if history:
                 kwargs["history"] = history
             result = await asyncio.to_thread(self._study_plan_service, **kwargs)
+        except OrchestrationValidationError as exc:
+            logger.exception("study_plan_service schedule validation failed")
+            if exc.code not in _STUDY_PLAN_SCHEDULE_ERROR_CODES:
+                return {
+                    "ok": False,
+                    "route": route,
+                    "final_result": None,
+                    "next_action": INTENT_TO_NEXT_ACTION[route["intent"]],
+                    "error": "学习计划暂时无法生成，请调整学习范围后重试。",
+                }
+
+            original_request = str(message or "").strip()
+            return {
+                "ok": True,
+                "route": route,
+                "final_result": {
+                    "mode": "plan_capacity_clarification",
+                    "clarification_needed": True,
+                    "clarification_reason": "schedule_capacity",
+                    "clarification_message": (
+                        "当前学习范围还不能在设定的天数和每日时长内合理排完。"
+                        "您可以增加学习天数、提高每日学习时长，或缩小到部分章节后重新安排。"
+                    ),
+                    "clarification_options": [
+                        {
+                            "label": "增加学习天数",
+                            "fill": f"请将计划调整为__天。原需求：{original_request}",
+                        },
+                        {
+                            "label": "提高每日时长",
+                            "fill": f"请按每天__分钟重新安排。原需求：{original_request}",
+                        },
+                        {
+                            "label": "缩小章节范围",
+                            "fill": f"请只安排第__章到第__章。原需求：{original_request}",
+                        },
+                    ],
+                },
+                "next_action": INTENT_TO_NEXT_ACTION[route["intent"]],
+            }
         except Exception as exc:
             logger.exception("study_plan_service failed")
             return {

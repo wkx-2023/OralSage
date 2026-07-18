@@ -2108,16 +2108,13 @@ class TestPreflightDraftItems:
         assert call_log[1]["chapter_key"] == "chapter:b"
         assert call_log[2]["chapter_key"] == "chapter:a"
 
-    def test_default_inspector_is_real_preflight_scope_resources(self, monkeypatch):
-        """When no resource_inspector is passed, the default calls the real
-        preflight_scope_resources with both checks enabled."""
+    def test_default_inspector_uses_fast_kg_check_and_scope_cache(self, monkeypatch):
+        """Valid KG scopes avoid evidence retrieval and duplicate checks."""
         from backend.services.learning import study_plan
         from backend.services.learning.study_plan import _preflight_draft_items
-        from backend.services.learning.planner import preflight_scope_resources
 
         # Spy on the real preflight_scope_resources to verify it's called
         calls: list[tuple] = []
-        _original = preflight_scope_resources
 
         def _spy(scope, **kwargs):
             calls.append((scope, kwargs))
@@ -2128,8 +2125,8 @@ class TestPreflightDraftItems:
                 "kg_node_hit_count": 1,
                 "kg_node_ids_checked": [],
                 "kg_node_ids_usable": [],
-                "evidence_chunk_count": 1,
-                "scope_diagnostics": {"checks_performed": ["kg_nodes", "evidence_chunks"]},
+                "evidence_chunk_count": 0,
+                "scope_diagnostics": {"checks_performed": ["kg_nodes"]},
                 "error_message": None,
             }
 
@@ -2145,15 +2142,64 @@ class TestPreflightDraftItems:
                 "evidence_source": "kg_chapter",
                 "learning_scope": scope,
             },
+            {
+                "task_type": "review_chapter",
+                "learning_target": "复习测试",
+                "evidence_source": "kg_chapter",
+                "learning_scope": dict(scope),
+            },
         ]
         result = _preflight_draft_items(items)
         assert result["ok"] is True
-        # The default inspector should have called preflight_scope_resources
-        # (via the monkeypatched spy) with both checks enabled.
+        assert result["passed"] == 2
+        # Both items share the same scope, so only one fast KG call is needed.
         assert len(calls) == 1
         _called_scope, _called_kwargs = calls[0]
         assert _called_kwargs.get("check_kg_nodes") is True
-        assert _called_kwargs.get("check_evidence_chunks") is True
+        assert _called_kwargs.get("check_evidence_chunks") is False
+
+    def test_default_inspector_falls_back_to_evidence_when_kg_unusable(self, monkeypatch):
+        """An unusable KG check still gets the real evidence fallback."""
+        from backend.services.learning import study_plan
+        from backend.services.learning.study_plan import _preflight_draft_items
+
+        calls: list[dict[str, Any]] = []
+
+        def _spy(scope, **kwargs):
+            calls.append(kwargs)
+            usable = kwargs.get("check_evidence_chunks") is True
+            return {
+                "usable": usable,
+                "reason_code": "ok" if usable else "kg_nodes_not_found",
+                "kg_node_hit_count": 0,
+                "kg_node_ids_checked": scope.get("kg_node_ids", []),
+                "kg_node_ids_usable": [],
+                "evidence_chunk_count": 1 if usable else 0,
+                "scope_diagnostics": {
+                    "checks_performed": ["evidence_chunks"] if usable else ["kg_nodes"],
+                },
+                "error_message": None if usable else "KG scope unavailable",
+            }
+
+        monkeypatch.setattr(study_plan, "preflight_scope_resources", _spy)
+        scope = self._draft_scope()
+        result = _preflight_draft_items([{
+            "task_type": "learn_chapter",
+            "learning_target": "测试证据回退",
+            "evidence_source": "kg_chapter",
+            "learning_scope": scope,
+        }])
+
+        assert result["ok"] is True
+        assert len(calls) == 2
+        assert calls[0] == {
+            "check_kg_nodes": True,
+            "check_evidence_chunks": False,
+        }
+        assert calls[1] == {
+            "check_kg_nodes": False,
+            "check_evidence_chunks": True,
+        }
 
 
 # ---------------------------------------------------------------------------

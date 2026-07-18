@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.schemas import RouterChatRequest
+from backend.services.learning.study_plan import OrchestrationValidationError
 
 from backend.services.router.master_router import (
     CANDIDATE_WHITELIST_FIELDS,
@@ -666,6 +667,42 @@ class TestStudyPlanIntent:
         assert result["ok"] is False
         assert "DB unavailable" in result["error"] or "学习计划推荐失败" in result["error"]
         assert result["final_result"] is None
+        mock_orchestrator.start_lesson.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_study_plan_capacity_error_returns_safe_clarification(
+        self, mock_orchestrator
+    ):
+        """Schedule exhaustion is actionable UI state, not a raw exception."""
+
+        def _capacity_failure(
+            memory, *, user_id, plan_date, max_items=4, request_text=None
+        ):
+            raise OrchestrationValidationError(
+                "day_offset_exceeds_total_days",
+                "items[19].day_offset=7 must be less than total_days=7",
+            )
+
+        router = MasterRouter(
+            mock_orchestrator,
+            classifier=_make_classifier("study_plan", "整本教材学习计划"),
+            study_plan_service=_capacity_failure,
+        )
+        message = "请为整本《牙周病学》制定学习计划"
+        result = await router.route(message, "demo")
+
+        assert result["ok"] is True
+        assert "error" not in result
+        final = result["final_result"]
+        assert final["mode"] == "plan_capacity_clarification"
+        assert final["clarification_needed"] is True
+        assert final["clarification_reason"] == "schedule_capacity"
+        assert len(final["clarification_options"]) == 3
+        serialized = json.dumps(result, ensure_ascii=False)
+        assert "items[19]" not in serialized
+        assert "day_offset" not in serialized
+        assert "total_days" not in serialized
+        assert message in serialized
         mock_orchestrator.start_lesson.assert_not_called()
 
     @pytest.mark.asyncio

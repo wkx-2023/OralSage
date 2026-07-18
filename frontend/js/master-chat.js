@@ -1042,13 +1042,17 @@
     if (!log) return;
     const row = document.createElement('article');
     row.className = `chat-message ${message.role}`;
-    const roleText = message.role === 'user' ? '你' : 'OralSage';
-    const avatar = message.role === 'user' ? 'ME' : 'OS';
+    const isUser = message.role === 'user';
+    const roleText = isUser ? '你' : 'OralSage';
+    const avatarClass = isUser ? 'message-avatar' : 'message-avatar oralsage-avatar';
+    const avatar = isUser
+      ? 'ME'
+      : '<img src="/assets/images/oralsage-assistant-avatar.png" alt="" aria-hidden="true">';
     let content = message.html || (message.role === 'assistant' ? formatMarkdown(message.content) : escapeHtml(message.content));
     if (message.kind === 'job') content = renderJobProgress(message);
     if (message.kind === 'result') content = renderJobResult(message.payload);
     row.innerHTML = `
-      <div class="message-avatar">${avatar}</div>
+      <div class="${avatarClass}" aria-hidden="true">${avatar}</div>
       <div class="message-stack">
         <div class="message-role">${roleText} · ${escapeHtml(message.time || nowTime())}</div>
         <div class="chat-bubble assistant-markdown">${content}</div>
