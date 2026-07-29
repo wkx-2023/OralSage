@@ -1108,6 +1108,239 @@
   background: var(--chat-action);
 }
 
+.avatar-presenter {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(38, 107, 98, 0.24);
+  border-radius: 7px;
+  background: #f7fcfa;
+  box-shadow: 0 16px 34px rgba(21, 89, 79, 0.14);
+}
+
+.avatar-presenter-head,
+.avatar-presenter-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.avatar-presenter-head { border-bottom: 1px solid rgba(38, 107, 98, 0.14); }
+
+.avatar-presenter-head span,
+.avatar-presenter-status {
+  display: block;
+  color: #55746d;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.avatar-presenter-head strong {
+  display: block;
+  margin-top: 2px;
+  color: #173f37;
+  font-size: 14px;
+}
+
+.avatar-presenter-status { color: #3e8477; text-align: right; }
+.avatar-presenter-status.is-error { color: #a45e4b; }
+.avatar-presenter-status.is-speaking { color: #167160; }
+
+.avatar-presenter-stage {
+  aspect-ratio: 4 / 5;
+  position: relative;
+  overflow: hidden;
+  background: #e5f4ee;
+}
+
+.avatar-presenter-stage > * { width: 100%; height: 100%; }
+
+.avatar-presenter-fallback {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.avatar-presenter-fallback::after {
+  content: '';
+  position: absolute;
+  right: 14%;
+  bottom: 7%;
+  left: 14%;
+  height: 12%;
+  border-radius: 50%;
+  background: rgba(30, 105, 91, 0.14);
+  filter: blur(8px);
+}
+
+.avatar-presenter-fallback img {
+  z-index: 1;
+  width: 88%;
+  height: 90%;
+  object-fit: contain;
+  object-position: bottom;
+}
+
+.avatar-presenter-fallback svg {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 50%;
+  width: 16px;
+  height: 16px;
+  color: #258575;
+  animation: iconSpin 1.1s linear infinite;
+  transform: translate(50%, -50%);
+}
+
+.avatar-presenter-controls {
+  min-height: 46px;
+  border-top: 1px solid rgba(38, 107, 98, 0.14);
+}
+
+.avatar-control,
+.avatar-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #276e61;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.avatar-control:hover { background: #e1f2ed; }
+.avatar-control.is-muted { color: #7b827f; }
+.avatar-stop { width: 30px; color: #7c4d48; }
+.avatar-stop:disabled { opacity: 0.34; cursor: default; }
+.avatar-control svg, .avatar-stop svg { width: 15px; height: 15px; }
+
+.chat-stage {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.chat-thread-shell,
+.chat-composer-shell {
+  grid-column: 1;
+}
+
+.avatar-presenter {
+  grid-column: auto;
+  grid-row: auto;
+  position: fixed;
+  z-index: 40;
+  right: 48px;
+  bottom: 84px;
+  width: clamp(124px, 13vw, 164px);
+  visibility: visible;
+  opacity: 1;
+  overflow: visible;
+  pointer-events: auto;
+  user-select: none;
+  transition: filter 160ms ease;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.avatar-presenter.is-dragging { cursor: grabbing; filter: drop-shadow(0 12px 16px rgba(65, 58, 146, 0.2)); }
+.avatar-presenter.is-speaking { filter: drop-shadow(0 8px 12px rgba(88, 73, 189, 0.18)); }
+
+.avatar-presenter-head,
+.avatar-presenter-controls {
+  padding: 5px 0;
+  border: 0;
+}
+
+.avatar-presenter-head { display: none; }
+
+.avatar-presenter-stage {
+  aspect-ratio: 9 / 12;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+
+.avatar-presenter-stage video,
+.avatar-presenter-stage canvas {
+  background: transparent !important;
+}
+
+.avatar-presenter-fallback::after { display: none; }
+
+.avatar-pet-grip {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  width: 14px;
+  height: 14px;
+  color: rgba(65, 58, 146, 0.52);
+  pointer-events: none;
+}
+
+.avatar-pet-actions {
+  position: absolute;
+  top: 50%;
+  right: -38px;
+  bottom: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(91, 75, 188, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 6px 18px rgba(44, 37, 111, 0.14);
+  transform: translateY(-50%);
+}
+
+.avatar-pet-action {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  color: #5f50be;
+  background: transparent;
+  cursor: pointer;
+}
+
+.avatar-pet-action:hover,
+.avatar-pet-action:focus-visible { background: #eeeaff; outline: 0; }
+.avatar-pet-action svg { width: 15px; height: 15px; }
+
+.avatar-presenter.is-actions-open .avatar-pet-grip { opacity: 0; }
+
+@media (max-width: 900px) {
+  .avatar-presenter {
+    right: 46px;
+    bottom: 76px;
+    width: clamp(112px, 23vw, 144px);
+  }
+}
+
+@media (max-width: 680px) {
+  .chat-stage { padding-top: 12px; }
+  .avatar-presenter {
+    right: 42px;
+    bottom: 68px;
+    width: min(116px, 31vw);
+  }
+}
+
 .oralsage-avatar {
   box-sizing: border-box;
   border: 1px solid rgba(110, 92, 200, 0.2);
@@ -1449,6 +1682,63 @@
   padding: 20px 0 4px;
   font-size: 15px;
   line-height: 1.9;
+}
+
+.avatar-video-resource {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--chat-line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.avatar-video-create {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.avatar-video-create p,
+.avatar-video-empty {
+  margin: 0;
+  color: var(--chat-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.avatar-video-player {
+  display: block;
+  width: 100%;
+  max-height: 520px;
+  background: #16151c;
+}
+
+.avatar-video-script {
+  color: var(--chat-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.avatar-video-script summary {
+  color: var(--chat-ink);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.avatar-video-script p { margin: 10px 0 0; }
+
+.avatar-video-error {
+  margin: 10px 0 0;
+  color: #b42318;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+@media (max-width: 680px) {
+  .avatar-video-create { align-items: flex-start; flex-direction: column; }
 }
 
 .lecture-segments {

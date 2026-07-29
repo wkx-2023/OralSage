@@ -33,6 +33,18 @@ python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
+需要同时使用微信 ClawBridge 时，建议从项目根目录运行统一启动脚本。它会检测端口并只启动缺失的服务：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_oralsage_local.ps1
+```
+
+如本地 `.env` 刚修改过 ClawBridge 密钥或地址，可使用 `-Restart` 让两个服务重新加载配置：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_oralsage_local.ps1 -Restart
+```
+
 服务启动后可访问：
 
 - 项目首页：`http://127.0.0.1:8000/`

@@ -939,8 +939,8 @@ console.log('\n14. Entry point cache version — HTML must reference current scr
   var htmlSrc = fs.readFileSync(htmlPath, 'utf-8');
 
   test('HTML script tag references canonical renderer path with current query version', function () {
-    ok(htmlSrc.indexOf('/js/master-chat.js?v=20260718-quiz-routing-v1') !== -1,
-      'master-chat.html must reference canonical path /js/master-chat.js?v=20260718-quiz-routing-v1');
+  ok(htmlSrc.indexOf('/js/master-chat.js?v=20260730-avatar-pet-v2') !== -1,
+    'master-chat.html must reference canonical path with the iFLYTEK avatar cache version');
   });
 
   test('HTML script tag does NOT reference versioned duplicate path', function () {
@@ -991,7 +991,7 @@ console.log('\n14b. OralSage assistant avatar contract');
   });
 
   test('HTML cache-busts the avatar CSS update', function () {
-    ok(htmlSrc.indexOf('/css/master-chat.css?v=20260718-oralsage-avatar-v1') !== -1,
+  ok(htmlSrc.indexOf('/css/master-chat.css?v=20260730-avatar-pet-v3') !== -1,
       'master-chat.html must reference the avatar CSS version');
   });
 })();

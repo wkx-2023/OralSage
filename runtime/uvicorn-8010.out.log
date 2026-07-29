@@ -1,0 +1,4 @@
+INFO:     127.0.0.1:50572 - "GET /api/avatar/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50573 - "GET /pages/master-chat.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12559 - "GET /assets/vendor/avatar-sdk/esm/index.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12559 - "GET /api/avatar/config HTTP/1.1" 200 OK

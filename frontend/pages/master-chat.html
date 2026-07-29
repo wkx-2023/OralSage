@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/base.css?v=20260716-brand-font-stable">
-  <link rel="stylesheet" href="/css/master-chat.css?v=20260718-oralsage-avatar-v1">
+  <link rel="stylesheet" href="/css/master-chat.css?v=20260730-avatar-pet-v3">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 <body class="chat-product-page">
@@ -33,6 +33,26 @@
       </header>
 
       <section class="chat-stage">
+        <aside id="avatar-presenter" class="avatar-presenter" aria-label="OralSage 数字人桌宠">
+          <div class="avatar-presenter-head">
+            <div>
+              <span>数字人讲解</span>
+              <strong id="avatar-presenter-name">凌小柒</strong>
+            </div>
+            <span id="avatar-presenter-status" class="avatar-presenter-status">正在连接</span>
+          </div>
+          <div id="avatar-presenter-stage" class="avatar-presenter-stage" aria-live="polite">
+            <div class="avatar-presenter-fallback">
+              <i data-lucide="loader-circle" aria-label="数字人正在连接"></i>
+            </div>
+          </div>
+          <i class="avatar-pet-grip" data-lucide="grip-vertical" aria-hidden="true"></i>
+          <div id="avatar-pet-actions" class="avatar-pet-actions" role="group" aria-label="数字人互动动作" hidden>
+            <button type="button" class="avatar-pet-action" data-avatar-action="greet" title="打招呼" aria-label="打招呼"><i data-lucide="hand"></i></button>
+            <button type="button" class="avatar-pet-action" data-avatar-action="think" title="思考" aria-label="思考"><i data-lucide="lightbulb"></i></button>
+            <button type="button" class="avatar-pet-action" data-avatar-action="cheer" title="鼓励" aria-label="鼓励"><i data-lucide="sparkles"></i></button>
+          </div>
+        </aside>
         <div id="chat-welcome" class="chat-welcome">
           <div class="welcome-mark"><i data-lucide="sparkles"></i></div>
           <div class="welcome-title">从一个口腔医学问题开始</div>
@@ -70,7 +90,7 @@
   </div>
 
   <script src="/js/common.js?v=20260718-agent-routing-fixes-v1"></script>
-  <script src="/js/master-chat.js?v=20260718-quiz-routing-v1"></script>
+  <script src="/js/master-chat.js?v=20260730-avatar-pet-v2"></script>
 </body>
 </html>
 

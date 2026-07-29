@@ -6,9 +6,11 @@
     .trim());
   const STORAGE_KEY = 'oralsage.history.master-chat';
   const PENDING_KEY = 'oralsage.pending.master-chat';
+  const AVATAR_PET_POSITION_KEY = 'oralsage.avatar-pet.position';
   const DEFAULT_USER_ID = 'demo';
   const jobStreams = new Map();
   const resourceRefreshes = new Map();
+  const avatarVideoRefreshes = new Map();
   const learningResources = new Map();
   const pptViewerIndices = new Map();
   const audioQueues = new Map();
@@ -17,6 +19,27 @@
   const COMPOSER_MAX_HEIGHT = 180;
   let activeAudio = null;
   let activeStorageUserId = DEFAULT_USER_ID;
+  const avatarPresenter = {
+    config: null,
+    instance: null,
+    ready: false,
+    muted: false,
+    audioNeedsGesture: false,
+    loading: null,
+  };
+  const avatarPet = {
+    dragging: false,
+    didDrag: false,
+    pointerId: null,
+    offsetX: 0,
+    offsetY: 0,
+    actionReset: null,
+  };
+  const avatarPetActions = {
+    greet: { text: '你好呀！', status: '正在打招呼' },
+    think: { text: '让我想一想。', status: '正在思考' },
+    cheer: { text: '一起加油！', status: '正在鼓励' },
+  };
 
   const state = {
     messages: [],
@@ -744,6 +767,10 @@
           <div class="resource-heading"><div><span class="mode-label">同步演示</span><h3>本节 PPT</h3></div><span class="resource-state">生成中</span></div>
           <div class="slide-loading"><span></span><p>正在整理本节演示内容</p></div>
         </section>
+        <section class="avatar-video-resource" data-avatar-video-resource="${escapeHtml(resourceKey)}">
+          <div class="resource-heading"><div><span class="mode-label">数字人视频</span><h3>讲稿视频</h3></div></div>
+          <p class="avatar-video-empty">可基于本节讲稿生成带数字人讲解和对应文字的视频。</p>
+        </section>
         ${step?.stage_exam ? renderStageExamHtml(step.stage_exam) : ''}
         ${renderRouteDetails(routerResult)}
       </section>
@@ -1450,6 +1477,9 @@
       delete state.pendingJobs[jobId];
       jobStreams.get(jobId)?.close();
       jobStreams.delete(jobId);
+      if (routerResult?.ok) {
+        void speakWithAvatar(resultAnswer(routerResult));
+      }
     } else if (event.type === 'error') {
       found.message.kind = 'error';
       found.message.content = event.data?.error || event.message || '请求处理失败。';
@@ -1815,7 +1845,82 @@
   function renderLearningResource(key, resource) {
     renderSlidePreview(key, resource);
     renderAudioState(key, resource);
+    renderAvatarVideoState(key, resource?.video?.result || null);
     refreshIcons();
+  }
+
+  function renderAvatarVideoState(key, video) {
+    const [sessionId, nodeId] = key.split(':');
+    const status = String(video?.status || 'not_created');
+    const configured = video?.configured === true;
+    const pending = ['created', 'processing'].includes(status);
+    const completed = status === 'completed' && video?.video_url;
+    const videoStreamUrl = `/api/learning/session/${encodeURIComponent(sessionId)}/avatar-video/${encodeURIComponent(nodeId)}/stream`;
+    document.querySelectorAll('[data-avatar-video-resource]').forEach((container) => {
+      if (container.dataset.avatarVideoResource !== key) return;
+      if (completed) {
+        container.innerHTML = `
+          <div class="resource-heading"><div><span class="mode-label">数字人视频</span><h3>讲稿视频</h3></div><span class="resource-state">已生成</span></div>
+          <video class="avatar-video-player" controls preload="metadata" src="${escapeHtml(videoStreamUrl)}"></video>
+          ${video.text ? `<details class="avatar-video-script"><summary>视频讲解文字</summary><p>${escapeHtml(video.text)}</p></details>` : ''}
+        `;
+        return;
+      }
+      const label = pending ? '正在生成视频' : (configured ? '生成数字人视频' : '视频服务未配置');
+      const description = status === 'failed'
+        ? `生成失败：${escapeHtml(video?.error || '请稍后重试')}`
+        : (pending ? '讯飞正在生成视频和讲解文字，完成后会自动显示在这里。' : '使用本节讲稿生成数字人讲解视频，并在完成后显示对应文字。');
+      container.innerHTML = `
+        <div class="resource-heading"><div><span class="mode-label">数字人视频</span><h3>讲稿视频</h3></div><span class="resource-state">${pending ? '生成中' : (configured ? '待生成' : '待配置')}</span></div>
+        <div class="avatar-video-create">
+          <p>${description}</p>
+          <button type="button" class="learning-action primary" data-avatar-video-create data-session-id="${escapeHtml(sessionId)}" data-outline-node-id="${escapeHtml(nodeId)}" ${configured && !pending ? '' : 'disabled'}>
+            <i data-lucide="video"></i><span>${label}</span>
+          </button>
+        </div>
+      `;
+    });
+    if (pending && !avatarVideoRefreshes.has(key)) {
+      const timer = setTimeout(() => {
+        avatarVideoRefreshes.delete(key);
+        refreshLearningResource(key);
+      }, 5000);
+      avatarVideoRefreshes.set(key, timer);
+    }
+    if (!pending && avatarVideoRefreshes.has(key)) {
+      clearTimeout(avatarVideoRefreshes.get(key));
+      avatarVideoRefreshes.delete(key);
+    }
+  }
+
+  async function createAvatarVideo(sessionId, nodeId, button) {
+    if (!sessionId || !nodeId || button?.disabled) return;
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-circle"></i><span>正在创建任务</span>';
+    refreshIcons();
+    try {
+      const response = await fetch(`/api/learning/session/${encodeURIComponent(sessionId)}/avatar-video/${encodeURIComponent(nodeId)}`, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail || `HTTP ${response.status}`);
+      }
+      await refreshLearningResource(`${sessionId}:${nodeId}`);
+    } catch (error) {
+      button.disabled = false;
+      button.innerHTML = '<i data-lucide="triangle-alert"></i><span>重试生成视频</span>';
+      button.title = error?.message || '视频生成请求失败';
+      const errorMessage = String(error?.message || '视频生成请求失败，请稍后重试。');
+      const existing = button.parentElement?.querySelector('.avatar-video-error');
+      if (existing) {
+        existing.textContent = errorMessage;
+      } else {
+        button.insertAdjacentHTML('afterend', `<p class="avatar-video-error" role="alert">${escapeHtml(errorMessage)}</p>`);
+      }
+      refreshIcons();
+    }
   }
 
   async function refreshLearningResource(key, attempt = 0) {
@@ -1823,12 +1928,14 @@
     if (!sessionId) return;
     resourceRefreshes.set(key, true);
     const base = `/api/learning/session/${encodeURIComponent(sessionId)}`;
-    const [audio, preview, ppt] = await Promise.all([
+    const [, nodeId] = key.split(':');
+    const [audio, preview, ppt, video] = await Promise.all([
       fetchJson(`${base}/audio-manifest`),
       fetchJson(`${base}/ppt-preview`),
       fetchJson(`${base}/ppt-status`),
+      nodeId ? fetchJson(`${base}/avatar-video/${encodeURIComponent(nodeId)}`) : Promise.resolve(null),
     ]);
-    const resource = { audio, preview, ppt, attempt };
+    const resource = { audio, preview, ppt, video, attempt };
     learningResources.set(key, resource);
     renderLearningResource(key, resource);
 
@@ -1866,9 +1973,272 @@
     });
   }
 
+  function setAvatarPresenterStatus(label, stateName = '') {
+    const status = byId('avatar-presenter-status');
+    if (!status) return;
+    status.textContent = label;
+    status.classList.toggle('is-error', stateName === 'error');
+    status.classList.toggle('is-speaking', stateName === 'speaking');
+  }
+
+  function renderAvatarSpeechToggle() {
+    const button = byId('avatar-toggle-speech');
+    if (!button) return;
+    button.classList.toggle('is-muted', avatarPresenter.muted);
+    button.setAttribute('aria-pressed', avatarPresenter.muted ? 'false' : 'true');
+    button.innerHTML = avatarPresenter.muted
+      ? '<i data-lucide="volume-x"></i><span>讲解已静音</span>'
+      : '<i data-lucide="volume-2"></i><span>讲解开启</span>';
+    refreshIcons();
+  }
+
+  function setAvatarSpeaking(isSpeaking) {
+    const stop = byId('avatar-stop-speech');
+    if (stop) stop.disabled = !isSpeaking;
+    byId('avatar-presenter')?.classList.toggle('is-speaking', isSpeaking);
+    if (avatarPresenter.ready) {
+      setAvatarPresenterStatus(isSpeaking ? '正在讲解' : '已就绪', isSpeaking ? 'speaking' : '');
+    }
+  }
+
+  function setAvatarPetActionsOpen(isOpen) {
+    const presenter = byId('avatar-presenter');
+    const actions = byId('avatar-pet-actions');
+    if (!presenter || !actions) return;
+    presenter.classList.toggle('is-actions-open', isOpen);
+    actions.hidden = !isOpen;
+  }
+
+  function clampAvatarPetPosition(left, top, presenter) {
+    const rect = presenter.getBoundingClientRect();
+    // Reserve room for the right-side action rail when the pet is dragged.
+    const maxLeft = Math.max(0, window.innerWidth - rect.width - 40);
+    const maxTop = Math.max(0, window.innerHeight - rect.height - 4);
+    return {
+      left: Math.round(Math.min(Math.max(0, left), maxLeft)),
+      top: Math.round(Math.min(Math.max(0, top), maxTop)),
+    };
+  }
+
+  function applyAvatarPetPosition(left, top, persist = false) {
+    const presenter = byId('avatar-presenter');
+    if (!presenter || !Number.isFinite(left) || !Number.isFinite(top)) return;
+    const position = clampAvatarPetPosition(left, top, presenter);
+    presenter.style.left = `${position.left}px`;
+    presenter.style.top = `${position.top}px`;
+    presenter.style.right = 'auto';
+    presenter.style.bottom = 'auto';
+    if (persist) {
+      localStorage.setItem(AVATAR_PET_POSITION_KEY, JSON.stringify(position));
+    }
+  }
+
+  function restoreAvatarPetPosition() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(AVATAR_PET_POSITION_KEY) || 'null');
+      if (Number.isFinite(saved?.left) && Number.isFinite(saved?.top)) {
+        applyAvatarPetPosition(saved.left, saved.top);
+      }
+    } catch (_error) {
+      // An invalid local preference should not interfere with the presenter.
+    }
+  }
+
+  function beginAvatarPetDrag(event) {
+    const presenter = byId('avatar-presenter');
+    if (!presenter || event.button !== undefined && event.button !== 0) return;
+    if (event.target.closest?.('[data-avatar-action]')) return;
+    const rect = presenter.getBoundingClientRect();
+    avatarPet.dragging = true;
+    avatarPet.didDrag = false;
+    avatarPet.pointerId = event.pointerId;
+    avatarPet.offsetX = event.clientX - rect.left;
+    avatarPet.offsetY = event.clientY - rect.top;
+    presenter.setPointerCapture?.(event.pointerId);
+    presenter.classList.add('is-dragging');
+  }
+
+  function moveAvatarPet(event) {
+    if (!avatarPet.dragging || event.pointerId !== avatarPet.pointerId) return;
+    const presenter = byId('avatar-presenter');
+    if (!presenter) return;
+    const left = event.clientX - avatarPet.offsetX;
+    const top = event.clientY - avatarPet.offsetY;
+    const current = presenter.getBoundingClientRect();
+    if (Math.abs(current.left - left) > 4 || Math.abs(current.top - top) > 4) {
+      avatarPet.didDrag = true;
+    }
+    applyAvatarPetPosition(left, top);
+  }
+
+  function finishAvatarPetDrag(event) {
+    if (!avatarPet.dragging || event.pointerId !== avatarPet.pointerId) return;
+    const presenter = byId('avatar-presenter');
+    const dragged = avatarPet.didDrag;
+    avatarPet.dragging = false;
+    avatarPet.pointerId = null;
+    presenter?.classList.remove('is-dragging');
+    presenter?.releasePointerCapture?.(event.pointerId);
+    if (dragged && presenter) {
+      const rect = presenter.getBoundingClientRect();
+      applyAvatarPetPosition(rect.left, rect.top, true);
+      return;
+    }
+    const actions = byId('avatar-pet-actions');
+    setAvatarPetActionsOpen(Boolean(actions?.hidden));
+  }
+
+  function cancelAvatarPetDrag() {
+    if (!avatarPet.dragging) return;
+    const presenter = byId('avatar-presenter');
+    avatarPet.dragging = false;
+    avatarPet.pointerId = null;
+    presenter?.classList.remove('is-dragging');
+  }
+
+  async function triggerAvatarPetAction(actionName) {
+    const action = avatarPetActions[actionName];
+    if (!action || !avatarPresenter.ready) return;
+    setAvatarPetActionsOpen(false);
+    await stopAvatarSpeech();
+    const command = String(avatarPresenter.config?.actions?.[actionName] || '').trim();
+    if (command && typeof avatarPresenter.instance?.writeCmd === 'function') {
+      try {
+        setAvatarPresenterStatus(action.status, 'speaking');
+        await avatarPresenter.instance.writeCmd('action', command);
+        clearTimeout(avatarPet.actionReset);
+        avatarPet.actionReset = setTimeout(() => setAvatarSpeaking(false), 5000);
+        return;
+      } catch (_error) {
+        // Fall through to an automatic gesture paired with a brief interaction line.
+      }
+    }
+    await speakWithAvatar(action.text, { interaction: true });
+  }
+
+  function resumeAvatarAudio() {
+    const player = avatarPresenter.instance?.player;
+    if (typeof player?.resume !== 'function') return;
+    // Must be invoked from a trusted click/keypress to satisfy browser autoplay rules.
+    Promise.resolve(player.resume())
+      .then(() => { avatarPresenter.audioNeedsGesture = false; })
+      .catch(() => { avatarPresenter.audioNeedsGesture = true; });
+  }
+
+  async function loadAvatarModule(src) {
+    if (!src) throw new Error('未配置数字人 SDK 地址');
+    // iFLYTEK distributes an ESM entry point that dynamically imports player chunks.
+    // Its complete directory must therefore be deployed together under the static path.
+    return import(src);
+  }
+
+  async function initAvatarPresenter() {
+    if (avatarPresenter.loading) return avatarPresenter.loading;
+    avatarPresenter.loading = (async () => {
+      try {
+        const response = await fetch('/api/avatar/config', { headers: { Accept: 'application/json' } });
+        const body = response.ok ? await response.json() : null;
+        const config = body?.result || {};
+        avatarPresenter.config = config;
+        if (!config.enabled) {
+          setAvatarPresenterStatus('未启用');
+          return;
+        }
+        if (!config.configured) {
+          setAvatarPresenterStatus('等待 SDK 配置', 'error');
+          return;
+        }
+        setAvatarPresenterStatus('加载形象');
+        const sdk = await loadAvatarModule(config.sdk_url);
+        const AvatarPlatform = sdk.default;
+        if (typeof AvatarPlatform !== 'function') throw new Error('SDK 未导出 AvatarPlatform');
+        const stage = byId('avatar-presenter-stage');
+        if (!stage) return;
+        stage.replaceChildren();
+        const host = document.createElement('div');
+        host.id = 'xfyun-avatar-sdk-stage';
+        stage.appendChild(host);
+        const instance = new AvatarPlatform({ useInlinePlayer: true });
+        const eventName = (name) => sdk.SDKEvents?.[name] || name;
+        const playerEventName = (name) => sdk.PlayerEvents?.[name] || name;
+        instance.on?.(eventName('frame_start'), () => setAvatarSpeaking(true));
+        instance.on?.(eventName('frame_stop'), () => setAvatarSpeaking(false));
+        instance.on?.(eventName('error'), () => setAvatarPresenterStatus('讲解连接异常', 'error'));
+        instance.player?.on?.(playerEventName('playNotAllowed'), () => {
+          avatarPresenter.audioNeedsGesture = true;
+        });
+        instance.setApiInfo({
+          appId: config.app_id,
+          sceneId: config.scene_id,
+          signedUrl: config.signed_url,
+        });
+        instance.setGlobalParams({
+          stream: {
+            protocol: config.protocol || 'xrtc',
+            alpha: (config.protocol || 'xrtc') === 'xrtc' ? 1 : 0,
+          },
+          avatar: {
+            avatar_id: config.avatar_id,
+            width: Number(config.width) || 720,
+            height: Number(config.height) || 1280,
+          },
+          tts: { vcn: config.vcn },
+          avatar_dispatch: { interactive_mode: 1, enable_action_status: 1 },
+          air: { air: 1, add_nonsemantic: 1 },
+        });
+        await instance.start({ wrapper: host });
+        avatarPresenter.instance = instance;
+        avatarPresenter.ready = true;
+        byId('avatar-presenter')?.classList.add('is-ready');
+        setAvatarSpeaking(false);
+      } catch (error) {
+        avatarPresenter.ready = false;
+        byId('avatar-presenter')?.classList.remove('is-ready');
+        const code = Number(error?.code);
+        const status = code === 11203
+          ? '讯飞鉴权失败'
+          : '数字人暂不可用';
+        console.warn('[avatar] SDK initialization failed', { code: Number.isFinite(code) ? code : null });
+        setAvatarPresenterStatus(status, 'error');
+      }
+    })();
+    return avatarPresenter.loading;
+  }
+
+  async function stopAvatarSpeech() {
+    const instance = avatarPresenter.instance;
+    try {
+      await (instance?.interrupt?.() || Promise.resolve());
+    } finally {
+      setAvatarSpeaking(false);
+    }
+  }
+
+  async function speakWithAvatar(text, options = {}) {
+    const content = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!content || avatarPresenter.muted || !avatarPresenter.ready) return false;
+    const instance = avatarPresenter.instance;
+    if (typeof instance?.writeText !== 'function') return false;
+    try {
+      await stopAvatarSpeech();
+      setAvatarSpeaking(true);
+      await instance.writeText(content, {
+        nlp: false,
+        avatar_dispatch: { interactive_mode: options.interaction ? 1 : 0, enable_action_status: 1 },
+        air: { air: 1, add_nonsemantic: 1 },
+      });
+      return true;
+    } catch (_error) {
+      setAvatarSpeaking(false);
+      return false;
+    }
+  }
+
   function stopActiveAudio() {
     if (!activeAudio) return;
-    if (activeAudio.speech) {
+    if (activeAudio.avatar) {
+      void stopAvatarSpeech();
+    } else if (activeAudio.speech) {
       window.speechSynthesis?.cancel();
     } else if (activeAudio.audio) {
       activeAudio.audio.pause();
@@ -1905,12 +2275,26 @@
     return true;
   }
 
-  function playAudioQueue(key, button) {
+  function playAudioQueue(key, button, skipAvatar = false) {
     if (activeAudio?.key === key) {
       stopActiveAudio();
       return;
     }
     stopActiveAudio();
+    const narration = speechTextForKey(key);
+    if (!skipAvatar && narration && avatarPresenter.ready && !avatarPresenter.muted) {
+      activeAudio = { key, button, avatar: true };
+      button.classList.add('is-playing');
+      button.innerHTML = '<i data-lucide="square"></i><span>停止</span>';
+      refreshIcons();
+      void speakWithAvatar(narration).then((spoken) => {
+        if (!spoken && activeAudio?.key === key) {
+          activeAudio = null;
+          playAudioQueue(key, button, true);
+        }
+      });
+      return;
+    }
     const queue = audioQueues.get(key) || [];
     if (!queue.length) {
       playSpeechFallback(key, button);
@@ -1993,8 +2377,39 @@
   }
 
   function bindEvents() {
+    document.addEventListener('pointerdown', resumeAvatarAudio, { capture: true, passive: true });
+    document.addEventListener('keydown', resumeAvatarAudio, { capture: true });
     byId('agent-send')?.addEventListener('click', () => sendMessage());
     byId('agent-clear')?.addEventListener('click', resetSession);
+    byId('avatar-toggle-speech')?.addEventListener('click', () => {
+      avatarPresenter.muted = !avatarPresenter.muted;
+      if (avatarPresenter.muted) {
+        stopActiveAudio();
+      }
+      renderAvatarSpeechToggle();
+    });
+    byId('avatar-stop-speech')?.addEventListener('click', () => {
+      stopActiveAudio();
+      void stopAvatarSpeech();
+    });
+    const avatarStage = byId('avatar-presenter-stage');
+    avatarStage?.addEventListener('pointerdown', beginAvatarPetDrag, { capture: true });
+    window.addEventListener('pointermove', moveAvatarPet, { capture: true });
+    window.addEventListener('pointerup', finishAvatarPetDrag, { capture: true });
+    window.addEventListener('pointercancel', finishAvatarPetDrag, { capture: true });
+    window.addEventListener('blur', cancelAvatarPetDrag);
+    byId('avatar-pet-actions')?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-avatar-action]');
+      if (!button) return;
+      event.stopPropagation();
+      void triggerAvatarPetAction(button.dataset.avatarAction || '');
+    });
+    window.addEventListener('resize', () => {
+      const presenter = byId('avatar-presenter');
+      if (!presenter || !presenter.style.left) return;
+      const rect = presenter.getBoundingClientRect();
+      applyAvatarPetPosition(rect.left, rect.top, true);
+    });
     byId('new-session')?.addEventListener('click', resetSession);
     byId('history-list')?.addEventListener('click', (event) => {
       const item = event.target.closest('[data-session-id]');
@@ -2014,6 +2429,15 @@
       chip.addEventListener('click', () => sendMessage(chip.dataset.prompt || chip.textContent || ''));
     });
     byId('agent-chat-log')?.addEventListener('click', (event) => {
+      const avatarVideoButton = event.target.closest('[data-avatar-video-create]');
+      if (avatarVideoButton) {
+        void createAvatarVideo(
+          avatarVideoButton.dataset.sessionId || '',
+          avatarVideoButton.dataset.outlineNodeId || '',
+          avatarVideoButton,
+        );
+        return;
+      }
       const stageExamSubmit = event.target.closest('[data-stage-exam-submit]');
       if (stageExamSubmit) {
         void submitStageExamFromChat(stageExamSubmit);
@@ -2120,6 +2544,9 @@
 
   async function bootMasterChat() {
     bindEvents();
+    restoreAvatarPetPosition();
+    renderAvatarSpeechToggle();
+    void initAvatarPresenter();
     const { planItemId, userId } = parseUrlParams();
     const resolvedUserId = await resolveCurrentUserId(userId);
     switchAccountScope(resolvedUserId, { resetActive: false });

@@ -9,6 +9,8 @@ import base64
 import json
 import time
 from uuid import uuid4
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as UrlRequest, urlopen
 
 from .services.env_loader import load_project_env
 
@@ -79,6 +81,13 @@ from .services.router.master_router import MasterRouter
 from .services.learning.skills import LEARNING_AGENT_ALIASES
 from .services.router.jobs import RouterJobManager
 from .services.learning.audio import get_audio_manifest
+from .services.learning.avatar_video import (
+    XfyunVideoError,
+    create_avatar_video,
+    get_avatar_video_record,
+    refresh_avatar_video,
+)
+from .services.avatar_service import get_public_avatar_config
 from .services.learning.ppt_pipeline import ensure_pin_and_paper_previews
 from .services.learning.llm_policy import decide_next_action_with_llm
 from .services.learning.learner_assessment import (
@@ -242,6 +251,12 @@ def health() -> dict[str, Any]:
     }
 
 
+@app.get("/api/avatar/config")
+def avatar_config() -> JSONResponse:
+    """Expose only browser-safe configuration for the real-time avatar SDK."""
+    return JSONResponse({"ok": True, "module": "avatar", "result": get_public_avatar_config()})
+
+
 @app.get("/api/system/capabilities")
 def capabilities() -> dict[str, Any]:
     return {
@@ -300,6 +315,7 @@ def capabilities() -> dict[str, Any]:
             "/api/records/audio-generate",
             "/api/records/extract-upload",
             "/api/records/workflow-upload",
+            "/api/avatar/config",
             "/api/image/analyze",
             "/api/image/analyze-upload",
             "/api/learning/session/start",
@@ -886,6 +902,93 @@ async def learning_session_audio_manifest(session_id: str, request: Request) -> 
             "action": "audio_manifest",
             "result": manifest,
         }
+    )
+
+
+@app.get("/api/learning/session/{session_id}/avatar-video/{outline_node_id}")
+async def learning_session_avatar_video(
+    session_id: str,
+    outline_node_id: str,
+    request: Request,
+) -> JSONResponse:
+    """Return and refresh the digital-human video task for one lesson section."""
+    _ensure_learning_session_access(request, session_id)
+    result = await asyncio.to_thread(
+        refresh_avatar_video,
+        session_id,
+        outline_node_id,
+        learning_orchestrator.resource_root,
+    )
+    return JSONResponse({"ok": result.get("status") != "failed", "module": "learning", "action": "avatar_video", "result": result})
+
+
+@app.post("/api/learning/session/{session_id}/avatar-video/{outline_node_id}")
+async def learning_session_create_avatar_video(
+    session_id: str,
+    outline_node_id: str,
+    request: Request,
+) -> JSONResponse:
+    """Start one asynchronous iFLYTEK video-generation task from the lecture script."""
+    _ensure_learning_session_access(request, session_id)
+    try:
+        result = await asyncio.to_thread(
+            create_avatar_video,
+            session_id,
+            outline_node_id,
+            learning_orchestrator.resource_root,
+        )
+    except XfyunVideoError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse({"ok": True, "module": "learning", "action": "avatar_video_create", "result": result}, status_code=202)
+
+
+@app.get("/api/learning/session/{session_id}/avatar-video/{outline_node_id}/stream")
+async def learning_session_avatar_video_stream(
+    session_id: str,
+    outline_node_id: str,
+    request: Request,
+) -> StreamingResponse:
+    """Proxy the short-lived provider video URL as a browser-friendly MP4 stream."""
+    _ensure_learning_session_access(request, session_id)
+    record = await asyncio.to_thread(
+        refresh_avatar_video,
+        session_id,
+        outline_node_id,
+        learning_orchestrator.resource_root,
+        True,
+    )
+    video_url = str(record.get("video_url") or "")
+    if record.get("status") != "completed" or not video_url:
+        raise HTTPException(status_code=404, detail="Digital-human video is not ready")
+
+    upstream_headers: dict[str, str] = {}
+    range_header = request.headers.get("range", "")
+    if range_header.startswith("bytes="):
+        upstream_headers["Range"] = range_header
+    try:
+        upstream = await asyncio.to_thread(urlopen, UrlRequest(video_url, headers=upstream_headers), timeout=45)
+    except HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Video provider returned HTTP {exc.code}") from exc
+    except URLError as exc:
+        raise HTTPException(status_code=502, detail="Video provider could not be reached") from exc
+
+    def stream_chunks() -> Any:
+        try:
+            while chunk := upstream.read(64 * 1024):
+                yield chunk
+        finally:
+            upstream.close()
+
+    response_headers = {"Accept-Ranges": "bytes", "Cache-Control": "no-store"}
+    for name in ("Content-Length", "Content-Range"):
+        value = upstream.headers.get(name)
+        if value:
+            response_headers[name] = value
+    return StreamingResponse(
+        stream_chunks(),
+        status_code=getattr(upstream, "status", 200),
+        media_type=upstream.headers.get_content_type() or "video/mp4",
+        headers=response_headers,
     )
 
 
