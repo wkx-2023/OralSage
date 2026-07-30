@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Student Twin UI Mockup</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --ink: #17212f;
+      --muted: #627083;
+      --line: #d8e0e8;
+      --blue: #2563eb;
+      --teal: #0f766e;
+      --red: #c2413b;
+      --amber: #b7791f;
+      --green: #15803d;
+      --violet: #6d5bd0;
+      --shadow: 0 18px 45px rgba(29, 41, 57, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    .frame {
+      width: 1440px;
+      height: 960px;
+      margin: 0 auto;
+      padding: 28px 34px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.82), rgba(244,246,248,0.92)),
+        var(--bg);
+      overflow: hidden;
+    }
+
+    .topbar {
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 4px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: #1f3a5f;
+      color: #fff;
+      font-weight: 700;
+      font-size: 17px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.15;
+      font-weight: 700;
+    }
+
+    .brand p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .tab {
+      height: 36px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 14px;
+      border: 1px solid transparent;
+    }
+
+    .tab.active {
+      color: var(--blue);
+      background: #eaf1ff;
+      border-color: #c9d9ff;
+      font-weight: 700;
+    }
+
+    .content {
+      padding-top: 24px;
+      display: grid;
+      grid-template-columns: 374px 1fr 374px;
+      gap: 22px;
+      height: calc(100% - 64px);
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .panel-header {
+      padding: 20px 22px 14px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.25;
+      font-weight: 800;
+    }
+
+    .panel-subtitle {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .tag {
+      height: 28px;
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid;
+    }
+
+    .tag.red {
+      color: var(--red);
+      background: #fff1f0;
+      border-color: #f2c0bd;
+    }
+
+    .tag.blue {
+      color: var(--blue);
+      background: #eef4ff;
+      border-color: #bfd2ff;
+    }
+
+    .tag.green {
+      color: var(--green);
+      background: #edf9f0;
+      border-color: #bfe6ca;
+    }
+
+    .body {
+      padding: 20px 22px 22px;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .metric {
+      min-height: 84px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-2);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 9px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .metric small {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .risk-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .risk-item {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .risk-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .risk-name {
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.3;
+    }
+
+    .risk-score {
+      color: var(--red);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .bar {
+      height: 8px;
+      background: #edf1f5;
+      border-radius: 99px;
+      overflow: hidden;
+      margin-bottom: 9px;
+    }
+
+    .bar > i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--amber), var(--red));
+    }
+
+    .risk-reason {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .simulation {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 0;
+    }
+
+    .path-grid {
+      padding: 20px 22px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .path {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-2);
+      padding: 16px;
+      min-height: 184px;
+      position: relative;
+    }
+
+    .path.recommended {
+      border-color: #98b7ff;
+      background: #f3f7ff;
+    }
+
+    .path h3 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.35;
+    }
+
+    .path p {
+      margin: 8px 0 14px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      min-height: 36px;
+    }
+
+    .gain-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .gain-row strong {
+      color: var(--ink);
+      font-size: 15px;
+    }
+
+    .check {
+      position: absolute;
+      right: 14px;
+      top: 14px;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--blue);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .chart {
+      margin: 0 22px 20px;
+      height: 300px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 18px 18px 12px;
+      position: relative;
+    }
+
+    .chart-title {
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+
+    .chart svg {
+      width: 100%;
+      height: 222px;
+      display: block;
+    }
+
+    .legend {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 7px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .right-stack {
+      display: grid;
+      gap: 22px;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+    }
+
+    .plan-block {
+      display: grid;
+      gap: 12px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 58px 1fr;
+      gap: 13px;
+      align-items: center;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-2);
+    }
+
+    .minutes {
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      background: #e6f6f4;
+      color: var(--teal);
+      font-weight: 800;
+      font-size: 15px;
+    }
+
+    .step h3 {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.25;
+    }
+
+    .step p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .cta {
+      width: 100%;
+      height: 44px;
+      border: 0;
+      border-radius: 7px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 800;
+      margin-top: 14px;
+    }
+
+    .explain {
+      padding: 16px;
+      border-radius: 8px;
+      background: #fff8eb;
+      border: 1px solid #f2d29b;
+      color: #4d3a18;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .trace {
+      margin-top: 14px;
+      display: grid;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .trace-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px dashed #d5dde6;
+    }
+
+    .trace-row strong {
+      color: var(--ink);
+    }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">OS</div>
+        <div>
+          <h1>OralSage 学习计划</h1>
+          <p>基于学生数字孪生的今日学习路径仿真</p>
+        </div>
+      </div>
+      <nav class="tabs">
+        <div class="tab">课程学习</div>
+        <div class="tab active">学习计划</div>
+        <div class="tab">学习画像</div>
+        <div class="tab">资源生成</div>
+      </nav>
+    </header>
+
+    <section class="content">
+      <aside class="panel">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">数字孪生学生状态</h2>
+            <p class="panel-subtitle">由掌握度、薄弱点、遗忘曲线和学习节奏联合估计</p>
+          </div>
+          <span class="tag red">高卡点风险</span>
+        </div>
+        <div class="body">
+          <div class="metric-grid">
+            <div class="metric">
+              <span>综合掌握度</span>
+              <strong>61%</strong>
+              <small>较昨日 +3%</small>
+            </div>
+            <div class="metric">
+              <span>今日可用时间</span>
+              <strong>20</strong>
+              <small>分钟</small>
+            </div>
+            <div class="metric">
+              <span>预计保持率</span>
+              <strong>58%</strong>
+              <small>2 个节点低于阈值</small>
+            </div>
+            <div class="metric">
+              <span>复习债务</span>
+              <strong>3</strong>
+              <small>个 KG 节点逾期</small>
+            </div>
+          </div>
+
+          <div class="risk-list">
+            <div class="risk-item">
+              <div class="risk-top">
+                <div class="risk-name">牙龈炎与牙周炎鉴别</div>
+                <div class="risk-score">0.82</div>
+              </div>
+              <div class="bar"><i style="width:82%"></i></div>
+              <div class="risk-reason">掌握度 39%，多次混淆诊断边界，已超过最佳复习点 3 天。</div>
+            </div>
+            <div class="risk-item">
+              <div class="risk-top">
+                <div class="risk-name">牙槽骨吸收机制</div>
+                <div class="risk-score">0.76</div>
+              </div>
+              <div class="bar"><i style="width:76%"></i></div>
+              <div class="risk-reason">掌握度 44%，距上次学习 5 天，记忆保持率估计偏低。</div>
+            </div>
+            <div class="risk-item">
+              <div class="risk-top">
+                <div class="risk-name">牙周袋深度判断</div>
+                <div class="risk-score" style="color:var(--amber)">0.58</div>
+              </div>
+              <div class="bar"><i style="width:58%; background:linear-gradient(90deg, #d69e2e, #b7791f)"></i></div>
+              <div class="risk-reason">病例题正确率波动，建议与鉴别诊断一起复盘。</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel simulation">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">学习路径仿真对比</h2>
+            <p class="panel-subtitle">虚拟学生 Agent 先模拟不同路径，再选择单位时间收益最高方案</p>
+          </div>
+          <span class="tag blue">Student Twin</span>
+        </div>
+
+        <div class="path-grid">
+          <article class="path">
+            <h3>路径 A：继续学习新章节</h3>
+            <p>直接进入“牙周治疗原则”，保留当前复习债务。</p>
+            <div class="gain-row"><span>掌握度提升</span><strong>+6%</strong></div>
+            <div class="gain-row"><span>风险下降</span><strong>-5%</strong></div>
+            <div class="gain-row"><span>综合收益</span><strong>0.42</strong></div>
+          </article>
+          <article class="path recommended">
+            <div class="check">✓</div>
+            <h3>路径 B：薄弱点复习 + 小测</h3>
+            <p>先修复鉴别诊断，再用病例题验证迁移。</p>
+            <div class="gain-row"><span>掌握度提升</span><strong>+13%</strong></div>
+            <div class="gain-row"><span>风险下降</span><strong>-28%</strong></div>
+            <div class="gain-row"><span>综合收益</span><strong>0.87</strong></div>
+          </article>
+          <article class="path">
+            <h3>路径 C：病例题集中训练</h3>
+            <p>以题目暴露错因，但知识框架补足较弱。</p>
+            <div class="gain-row"><span>掌握度提升</span><strong>+10%</strong></div>
+            <div class="gain-row"><span>风险下降</span><strong>-18%</strong></div>
+            <div class="gain-row"><span>综合收益</span><strong>0.68</strong></div>
+          </article>
+        </div>
+
+        <div class="chart">
+          <div class="chart-title">
+            <span>未来 3 天预计综合掌握度</span>
+            <span>目标保持率阈值 90%</span>
+          </div>
+          <svg viewBox="0 0 620 222" role="img" aria-label="learning path simulation chart">
+            <defs>
+              <pattern id="grid" width="62" height="37" patternUnits="userSpaceOnUse">
+                <path d="M 62 0 L 0 0 0 37" fill="none" stroke="#e5ebf2" stroke-width="1"/>
+              </pattern>
+            </defs>
+            <rect x="0" y="0" width="620" height="222" fill="url(#grid)" />
+            <line x1="34" y1="184" x2="598" y2="184" stroke="#a9b4c2" stroke-width="1.2"/>
+            <line x1="34" y1="18" x2="34" y2="184" stroke="#a9b4c2" stroke-width="1.2"/>
+            <path d="M 46 145 C 130 140, 180 129, 244 121 C 342 113, 444 107, 584 99" fill="none" stroke="#8b97a8" stroke-width="4" stroke-linecap="round"/>
+            <path d="M 46 145 C 130 120, 180 104, 244 88 C 342 67, 444 53, 584 42" fill="none" stroke="#2563eb" stroke-width="5" stroke-linecap="round"/>
+            <path d="M 46 145 C 130 128, 180 116, 244 101 C 342 86, 444 76, 584 67" fill="none" stroke="#0f766e" stroke-width="4" stroke-linecap="round"/>
+            <line x1="34" y1="62" x2="598" y2="62" stroke="#b7791f" stroke-width="1.5" stroke-dasharray="7 7"/>
+            <circle cx="244" cy="88" r="6" fill="#2563eb"/>
+            <circle cx="584" cy="42" r="6" fill="#2563eb"/>
+            <text x="38" y="204" font-size="12" fill="#627083">今天</text>
+            <text x="230" y="204" font-size="12" fill="#627083">明天</text>
+            <text x="420" y="204" font-size="12" fill="#627083">第 2 天</text>
+            <text x="552" y="204" font-size="12" fill="#627083">第 3 天</text>
+            <text x="546" y="34" font-size="12" fill="#2563eb" font-weight="700">路径 B 最优</text>
+          </svg>
+          <div class="legend">
+            <span><i class="dot" style="background:#8b97a8"></i>继续新课</span>
+            <span><i class="dot" style="background:#2563eb"></i>复习 + 小测</span>
+            <span><i class="dot" style="background:#0f766e"></i>病例训练</span>
+            <span><i class="dot" style="background:#b7791f"></i>目标阈值</span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="right-stack">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">今日最优 20 分钟策略</h2>
+              <p class="panel-subtitle">推荐路径 B：先修复前置薄弱点，再做迁移训练</p>
+            </div>
+            <span class="tag green">可生成计划</span>
+          </div>
+          <div class="body">
+            <div class="plan-block">
+              <div class="step">
+                <div class="minutes">12m</div>
+                <div>
+                  <h3>复习：牙龈炎与牙周炎鉴别</h3>
+                  <p>回看诊断边界、探诊出血、附着丧失和影像学依据。</p>
+                </div>
+              </div>
+              <div class="step">
+                <div class="minutes">8m</div>
+                <div>
+                  <h3>病例题：牙周袋深度判断</h3>
+                  <p>完成 5 道病例题，记录错因并更新 KG 掌握度。</p>
+                </div>
+              </div>
+            </div>
+            <button class="cta">生成今日计划</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">反事实解释</h2>
+              <p class="panel-subtitle">为什么今天不优先继续学新章节</p>
+            </div>
+          </div>
+          <div class="body">
+            <div class="explain">
+              如果直接进入“牙周治疗原则”，虚拟学生预测会在“牙龈炎与牙周炎鉴别”和“牙槽骨吸收机制”处出现理解阻塞。先安排薄弱点复习，可使后续章节卡点风险从 0.71 降至 0.43。
+            </div>
+            <div class="trace">
+              <div class="trace-row"><span>状态模型</span><strong>StudentTwin v1</strong></div>
+              <div class="trace-row"><span>记忆调度</span><strong>SM-2 / FSRS-ready</strong></div>
+              <div class="trace-row"><span>收益函数</span><strong>掌握度 + 风险下降 - 时间成本</strong></div>
+              <div class="trace-row"><span>证据来源</span><strong>错题、QA、计划、KG 掌握度</strong></div>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

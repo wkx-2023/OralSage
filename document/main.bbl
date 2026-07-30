@@ -92,6 +92,13 @@ Piotr~A. Wozniak.
   2025.
 \newblock Technical description of FSRS based on the DSR memory model.
 
+\bibitem{grieves2017digitaltwin}
+Michael Grieves and John Vickers.
+\newblock Digital twin: Mitigating unpredictable, undesirable emergent behavior
+  in complex systems.
+\newblock In {\em Transdisciplinary Perspectives on Complex Systems}, pages
+  85--113. Springer, 2017.
+
 \bibitem{lie2024harnessing}
 Margaret Lie, Adam Rodman, and Byron Crowe.
 \newblock Harnessing generative artificial intelligence for medical education.

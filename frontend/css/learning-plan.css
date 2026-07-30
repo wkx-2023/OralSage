@@ -70,7 +70,7 @@
 .calendar-column {
   height: 100%;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 126px;
+  grid-template-rows: minmax(0, 1fr) auto 126px;
   gap: 14px;
   overflow: hidden;
 }
@@ -424,6 +424,251 @@
   font-weight: 700;
   line-height: 1.65;
   letter-spacing: 0;
+}
+
+.student-twin-card {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(39, 138, 136, 0.18);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(250, 253, 255, 0.98), rgba(255, 255, 255, 0.96));
+  box-shadow: var(--plan-shadow);
+  padding: 14px 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.student-twin-loading,
+.student-twin-empty {
+  min-height: 132px;
+  display: grid;
+  place-items: center;
+  color: var(--plan-muted);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.student-twin-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.student-twin-title {
+  margin: 0;
+  color: var(--plan-ink);
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.student-twin-subtitle {
+  margin: 5px 0 0;
+  color: var(--plan-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.student-twin-badge {
+  flex: 0 0 auto;
+  min-width: 74px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(194, 65, 59, 0.1);
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.student-twin-badge.watch {
+  background: rgba(183, 121, 31, 0.12);
+  color: #996018;
+}
+
+.student-twin-badge.stable {
+  background: rgba(21, 128, 61, 0.11);
+  color: #157f3d;
+}
+
+.student-twin-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.student-twin-metric {
+  min-width: 0;
+  min-height: 58px;
+  border: 1px solid rgba(39, 138, 136, 0.13);
+  border-radius: 8px;
+  background: rgba(247, 252, 251, 0.9);
+  padding: 9px 10px;
+}
+
+.student-twin-metric span {
+  display: block;
+  color: rgba(70, 57, 121, 0.68);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.student-twin-metric strong {
+  display: block;
+  margin-top: 7px;
+  color: var(--plan-ink);
+  font-family: 'IBM Plex Sans', 'Noto Sans SC', sans-serif;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.student-twin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 12px;
+}
+
+.student-twin-section-title {
+  margin: 0 0 8px;
+  color: var(--plan-purple-dark);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.student-twin-risk-list,
+.student-twin-path-list {
+  display: grid;
+  gap: 8px;
+}
+
+.student-twin-risk {
+  min-width: 0;
+  border: 1px solid rgba(91, 61, 184, 0.11);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 9px 10px;
+}
+
+.student-twin-risk-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--plan-purple-dark);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.student-twin-risk-score {
+  color: #b42318;
+  font-family: 'IBM Plex Sans', 'Noto Sans SC', sans-serif;
+}
+
+.student-twin-bar {
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgba(91, 61, 184, 0.08);
+  overflow: hidden;
+}
+
+.student-twin-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #d99b2b, #c2413b);
+}
+
+.student-twin-reason {
+  margin: 7px 0 0;
+  color: rgba(70, 57, 121, 0.72);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.student-twin-path {
+  position: relative;
+  min-width: 0;
+  border: 1px solid rgba(91, 61, 184, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 9px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.student-twin-path.recommended {
+  border-color: rgba(39, 138, 136, 0.34);
+  background: rgba(237, 250, 249, 0.92);
+}
+
+.student-twin-path-name {
+  min-width: 0;
+  margin: 0;
+  color: var(--plan-purple-dark);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.student-twin-path-meta {
+  margin-top: 5px;
+  color: rgba(70, 57, 121, 0.68);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.student-twin-path-score {
+  align-self: center;
+  min-width: 46px;
+  color: var(--plan-teal);
+  font-family: 'IBM Plex Sans', 'Noto Sans SC', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  text-align: right;
+}
+
+.student-twin-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border-top: 1px solid rgba(39, 138, 136, 0.12);
+  padding-top: 10px;
+}
+
+.student-twin-counterfactual {
+  margin: 0;
+  color: rgba(70, 57, 121, 0.76);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.student-twin-create {
+  height: 34px;
+  border: 1px solid var(--plan-teal);
+  border-radius: 8px;
+  background: var(--plan-teal);
+  color: #ffffff;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.student-twin-create:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .todo-book {

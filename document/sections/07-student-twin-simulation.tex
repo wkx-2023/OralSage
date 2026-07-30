@@ -1,0 +1,305 @@
+% !TeX root = ../main.tex
+
+\chapter{学习数字孪生学生 Agent}
+\label{sec:student-twin-simulation}
+
+\section{技术定位与设计目标}
+
+在传统个性化学习系统中，学习计划通常根据当前薄弱点、已完成任务和用户设定的学习时间进行推荐。这类推荐能够回答“今天可以学什么”，但难以进一步回答“如果选择不同学习路径，学生未来的掌握度会如何变化”“当前 20 分钟应该优先投入到哪个知识点收益最大”“某个薄弱点是否会阻塞后续章节理解”等更高阶问题。OralSage 因此在学习画像和间隔重复调度之上进一步设计\textbf{学习数字孪生学生 Agent}，为每个真实学习者构建一个可计算、可更新、可仿真的虚拟学习分身。
+
+数字孪生的核心思想是为现实对象建立动态映射模型，使系统能够在虚拟空间中观察状态、预测变化并评估不同决策方案\cite{grieves2017digitaltwin}。面向口腔医学学习场景，OralSage 将这一思想转化为学习过程仿真：系统根据学习者历史答题、追问行为、学习节奏、薄弱 KG 节点、掌握度和复习债务构建 Student Twin，再在虚拟学生状态上模拟多条候选学习路径，预测每条路径带来的掌握度增益、风险下降和认知负荷变化，最终向学习计划模块输出可执行任务。
+
+该模块的设计目标包括四个方面。第一，将学习画像从“状态记录”升级为“状态预测”，使系统不仅知道学生当前哪里薄弱，还能预测后续可能在哪里卡住。第二，将学习计划推荐从单点排序升级为反事实路径仿真，使系统能够比较“继续新课”“先复习薄弱点”“复习后小测”等不同策略的预期收益。第三，将知识图谱、SM-2/FSRS 复习调度和掌握度追踪统一到同一个仿真状态中，使推荐结果具有明确的算法解释。第四，为前端提供可视化证据，使学生能够看到虚拟分身的风险、瓶颈和推荐路径，而不是只接收一个静态任务列表。
+
+\section{虚拟学生状态建模}
+
+学习数字孪生首先需要将多源学习证据压缩为可计算的学生状态。设学习者 $u$ 在日期 $T$ 的虚拟状态为
+\begin{equation}
+  \mathcal{S}_{u,T}=
+  \left(
+  \mathbf{m}_{u,T},
+  \mathbf{r}_{u,T},
+  \mathbf{d}_{u,T},
+  \mathbf{b}_{u,T},
+  \tau_{u,T},
+  \pi_u
+  \right),
+  \label{eq:student-twin-state}
+\end{equation}
+其中 $\mathbf{m}_{u,T}$ 表示 KG 节点掌握度向量，$\mathbf{r}_{u,T}$ 表示记忆保持率估计，$\mathbf{d}_{u,T}$ 表示知识点难度向量，$\mathbf{b}_{u,T}$ 表示薄弱点与错因证据，$\tau_{u,T}$ 表示可用学习时间和执行节奏，$\pi_u$ 表示学习偏好与讲解风格。
+
+与一次性问卷画像不同，Student Twin 的状态由系统内已有学习证据持续生成。课程讲授记录提供知识点覆盖情况，Assessment 记录答题正确率和错因，QA 记录学生主动暴露的困惑点，Memory/User Model 聚合长期薄弱点和掌握度，间隔重复调度器提供遗忘风险和复习债务。各类输入信号如表\ref{tab:student-twin-inputs}所示。
+
+\begin{table}[H]
+  \centering
+  \caption{Student Twin 的输入信号与建模作用}
+  \label{tab:student-twin-inputs}
+  \begin{tabularx}{\linewidth}{p{0.24\linewidth}p{0.32\linewidth}X}
+    \toprule
+    输入来源 & 主要字段 & 建模作用 \\
+    \midrule
+    学习画像 & \texttt{mastery\_by\_kg\_node}、每日可用时间、学习偏好 & 构建节点级掌握度、学习节奏和策略约束 \\
+    长期学习记忆 & \texttt{weaknesses}、错因摘要、近期学习事件 & 识别稳定薄弱点和容易阻塞后续学习的概念断点 \\
+    间隔重复调度 & \texttt{retention\_estimate}、\texttt{overdue\_days}、\texttt{priority} & 提供遗忘曲线风险、复习债务和最佳复习窗口 \\
+    课程与测评记录 & 课程覆盖、题目结果、掌握度增量 & 估计学习行为对知识状态的影响 \\
+    计划执行记录 & 完成、延期、跳过和打卡行为 & 估计执行稳定性与任务负荷承受能力 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+当前工程落地版本采用确定性、可解释的状态构建方式：系统优先读取 SM-2 调度器返回的薄弱节点和复习候选项，将掌握度、保持率、逾期天数和难度转化为瓶颈风险；若复习候选不足，则回退读取长期记忆中的薄弱点和画像中的低掌握度 KG 节点，保证 Student Twin 在冷启动阶段仍能生成可用仿真结果。后续高级版本可进一步接入深度知识追踪模型，将历史答题序列编码为隐状态，预测每个 KG 节点的未来答题成功概率\cite{corbett1994knowledge,piech2015deep}。
+
+\section{瓶颈风险识别与遗忘风险融合}
+
+在口腔医学学习中，真正影响后续学习的往往不是单个题目的得失，而是某些前置概念未被稳定掌握。例如牙龈炎与牙周炎边界、牙周袋形成机制、牙槽骨吸收进展、牙髓炎与根尖周炎鉴别等知识点，一旦掌握不稳，会在病例分析、诊断选择和治疗方案理解中反复造成错误。Student Twin 因此将薄弱点建模为具有风险分数的瓶颈节点。
+
+设知识点 $k$ 的掌握度为 $m_k$，保持率估计为 $R_k$，逾期复习天数为 $o_k$，难度为 $d_k$，则瓶颈风险定义为
+\begin{equation}
+  B_k=\operatorname{clip}
+  \left(
+  \alpha(1-m_k)+\beta(1-R_k)+\gamma \min(1,o_k/5)+\eta d_k,
+  0,1
+  \right).
+  \label{eq:student-twin-bottleneck-risk}
+\end{equation}
+
+其中 $\alpha,\beta,\gamma,\eta$ 分别控制掌握不足、记忆衰减、复习逾期和知识难度的影响。当前落地版本使用轻量启发式权重，使结果具有稳定可解释性；在数据规模扩大后，该权重可以通过复习正确率、错题复发率和计划完成记录自动拟合。对于每个瓶颈节点，系统同时保存证据来源、推荐原因和调度轨迹，使前端能够展示“为什么该知识点被判定为风险点”。
+
+学生整体风险由排名靠前的瓶颈节点聚合得到：
+\begin{equation}
+  \operatorname{Risk}(u,T)=
+  \frac{1}{|\mathcal{K}_{top}|}
+  \sum_{k\in \mathcal{K}_{top}}B_k,
+  \label{eq:student-twin-overall-risk}
+\end{equation}
+其中 $\mathcal{K}_{top}$ 为风险最高的若干 KG 节点。该设计避免大量低风险知识点稀释真正关键的瓶颈，使系统更关注“最可能让学生卡住的少数知识点”。
+
+\section{反事实学习路径仿真}
+
+Student Twin 的核心创新不只是识别薄弱点，而是在虚拟学生状态上模拟不同学习路径的结果。给定当前状态 $\mathcal{S}_{u,T}$ 和候选学习动作集合 $\mathcal{A}$，系统构建状态转移函数：
+\begin{equation}
+  \mathcal{S}_{u,T+1}^{(a)}=
+  f_{\theta}(\mathcal{S}_{u,T},a),
+  \quad a\in\mathcal{A}.
+  \label{eq:student-twin-transition}
+\end{equation}
+
+候选动作可以包括继续学习新章节、优先复习最高风险薄弱点、复习后进行小测、先做病例题再回看讲义、降低任务量只完成核心回顾等。系统在不真正改变用户数据的情况下，预测每种动作对掌握度、风险和认知负荷的影响，并进行反事实比较。当前版本内置三类基础策略：
+
+\begin{itemize}
+  \item \textbf{继续学习新章节}：适用于整体风险较低、复习债务较少的学习者，收益来自课程推进，但对薄弱点修复有限；
+  \item \textbf{薄弱点间隔复习}：优先处理 SM-2/FSRS 判定接近或超过复习窗口的知识点，主要目标是降低遗忘风险；
+  \item \textbf{薄弱点复习 + 小测}：先修复最高风险节点，再通过病例题或基础练习验证迁移效果，适合风险较高但仍有一定可用时间的场景。
+\end{itemize}
+
+对每条路径 $a$，系统估计掌握度增益 $\Delta M_a$、风险下降 $\Delta R_a$、认知负荷 $C_a$ 和时间适配惩罚 $P_a$，并使用收益函数进行排序：
+\begin{equation}
+  J(a)=
+  \lambda_1\Delta M_a+
+  \lambda_2\Delta R_a-
+  \lambda_3C_a-
+  \lambda_4P_a.
+  \label{eq:student-twin-path-score}
+\end{equation}
+
+当前工程版本采用可解释的线性打分函数：
+\[
+  J(a)=2.2\Delta M_a+1.8\Delta R_a-C_a-P_a.
+\]
+该函数体现了系统的教学策略：在短时学习场景中，降低关键薄弱点风险通常比机械推进新课更重要；当学习者可用时间较少时，系统会降低高负荷路径的优先级。后续可扩展为模型预测控制（Model Predictive Control）形式，在未来多天计划窗口内滚动优化：
+\begin{equation}
+  \max_{a_1,\ldots,a_H}
+  \sum_{h=1}^{H}
+  \delta^{h-1}
+  J(a_h)
+  \quad
+  \text{s.t.}\quad
+  \sum_{h=1}^{H}t(a_h)\le T_{\mathrm{budget}}.
+  \label{eq:student-twin-mpc}
+\end{equation}
+
+通过这种方式，学习计划不再只是对当天任务排序，而可以扩展为对未来一周甚至一个复习周期的滚动仿真优化。
+
+\begin{algorithm}[H]
+  \caption{Student Twin 反事实路径仿真}
+  \label{alg:student-twin-simulation}
+  \begin{algorithmic}[1]
+    \Require 学习者编号 $u$，计划日期 $T$，可用时间 $\tau$，学习画像 $P$，长期记忆 $M$
+    \Ensure 推荐路径 $a^\ast$ 与可写入学习计划的任务集合 $\mathcal{I}$
+    \State 从 $P$ 与 $M$ 中读取 KG 掌握度、薄弱点、学习偏好和执行节奏
+    \State 调用 SM-2/FSRS 调度器生成候选复习节点与遗忘风险
+    \State 将掌握度、保持率、逾期天数和难度融合为瓶颈风险 $B_k$
+    \State 构造虚拟学生状态 $\mathcal{S}_{u,T}$
+    \State 生成候选路径集合 $\mathcal{A}$，包括新课、复习、复习后小测等策略
+    \For{每条候选路径 $a\in\mathcal{A}$}
+      \State 估计路径后的掌握度增益 $\Delta M_a$ 与风险下降 $\Delta R_a$
+      \State 估计认知负荷 $C_a$ 和时间适配惩罚 $P_a$
+      \State 根据式\eqref{eq:student-twin-path-score}计算路径得分 $J(a)$
+    \EndFor
+    \State 选择 $a^\ast=\arg\max_{a\in\mathcal{A}}J(a)$
+    \State 将 $a^\ast$ 的步骤转化为 \texttt{student\_twin} 类学习计划项
+    \State 输出瓶颈节点、路径比较、反事实解释和推荐任务
+  \end{algorithmic}
+\end{algorithm}
+
+\section{当前工程落地形态}
+
+OralSage 已将 Student Twin 作为独立学习智能体接入后端和前端。后端提供面向用户编号的数字孪生查询接口 \url{/api/learning/student-twin/{user_id}}，返回 \texttt{StudentTwinAgent} 的结构化仿真结果，包括整体掌握度、整体风险、记忆保持率、复习债务、瓶颈节点、候选路径、推荐路径、推荐计划项和反事实解释。系统能力接口中同步暴露 \texttt{learning\_student\_twin}，便于前端和演示环境识别该创新模块。
+
+接口输出遵循 \texttt{student\_twin.simulation.v1} 结构，核心字段如表\ref{tab:student-twin-output}所示。
+
+\begin{table}[H]
+  \centering
+  \caption{Student Twin API 的核心输出结构}
+  \label{tab:student-twin-output}
+  \begin{tabularx}{\linewidth}{p{0.25\linewidth}p{0.27\linewidth}X}
+    \toprule
+    输出字段 & 数据含义 & 前端或计划模块用途 \\
+    \midrule
+    \texttt{state} & 掌握度、风险、保持率、复习债务 & 展示虚拟学生当前状态与风险水平 \\
+    \texttt{bottlenecks} & 风险最高的 KG 节点列表 & 展示可能卡住的概念、原因和证据来源 \\
+    \texttt{paths} & 多条候选学习路径及仿真分数 & 支持比较不同学习策略的预期收益 \\
+    \texttt{recommended\_path\_id} & 系统推荐路径编号 & 标记最优路径并驱动默认计划生成 \\
+    \texttt{recommended\_plan\_items} & 可写入计划的任务项 & 将仿真结果落地为 \texttt{review\_section} 或练习任务 \\
+    \texttt{counterfactual} & 反事实解释文本 & 向用户解释为什么不选择另一条路径 \\
+    \texttt{trace} & 模型、公式和生成时间 & 便于答辩展示与系统调试 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+前端学习计划页新增数字孪生卡片，集中展示虚拟学生状态、关键瓶颈、候选路径和一键生成计划操作。如图\ref{fig:student-twin-ui-mockup}所示，页面通过指标卡展示整体掌握度、卡点风险、保持率和复习债务，通过瓶颈列表显示薄弱 KG 节点，通过路径比较呈现“继续新课”“间隔复习”“复习 + 小测”等策略的预期提升。学生可以直接将推荐路径转换为今日学习计划，使仿真结果进入真实任务执行闭环。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.96\linewidth]{student-twin-ui-mockup.png}
+  \caption{学习数字孪生 Agent 的前端可视化示意}
+  \label{fig:student-twin-ui-mockup}
+\end{figure}
+
+从工程实现角度看，当前版本选择确定性仿真而非黑盒深度模型，主要原因在于参赛展示阶段需要稳定复现、便于解释和易于与现有学习计划模块集成。该版本已经实现了“画像读取--瓶颈识别--路径仿真--推荐任务--计划写入”的最小闭环；在数据积累后，可以平滑替换状态估计器和转移函数，而不改变前端交互和计划接口。
+
+\section{与多智能体系统的协同关系}
+
+Student Twin 并不是孤立的推荐模块，而是 OralSage 多智能体学习闭环中的预测层。Planner 负责生成课程结构，Tutor 负责讲授，QA 捕捉用户追问，Assessment 诊断答题结果，Memory/User Model 更新长期状态，SM-2/FSRS Scheduler 估计复习窗口，Student Twin 则在这些状态之上进行未来路径仿真。
+
+其协同链路可以表示为
+\[
+\begin{aligned}
+&\text{Tutor/QA/Assessment}
+\rightarrow
+\text{Memory/User Model}
+\rightarrow
+\text{SM-2/FSRS Scheduler}
+\\
+&\rightarrow
+\text{Student Twin}
+\rightarrow
+\text{Study Plan}.
+\end{aligned}
+\]
+
+在该链路中，Student Twin 的角色是将已有状态转化为“如果这样学会怎样”的预测结果。它既可以服务于学习计划，也可以反向影响 Tutor 和 Assessment。例如，当 Student Twin 预测某个薄弱点会阻塞后续课程时，Tutor 可以在讲解新课前插入前置概念回顾；当仿真显示复习后仍存在较高风险时，Assessment 可以生成更聚焦的病例题；当计划执行多次延期时，Planner 可以降低任务密度并改为短时高收益路径。
+
+\begin{table}[H]
+  \centering
+  \caption{Student Twin 与其他智能体的协同分工}
+  \label{tab:student-twin-agent-collaboration}
+  \begin{tabularx}{\linewidth}{p{0.22\linewidth}p{0.34\linewidth}X}
+    \toprule
+    协同对象 & 输入或输出关系 & 技术价值 \\
+    \midrule
+    Planner & 接收仿真推荐路径，调整学习顺序和任务密度 & 将课程规划从静态大纲转为预测驱动路径 \\
+    Tutor & 根据瓶颈节点插入前置概念讲解 & 减少学生在后续章节中反复卡住 \\
+    QA & 将高频追问转化为数字孪生的风险证据 & 让主动提问成为状态预测信号 \\
+    Assessment & 根据仿真风险生成定向练习和病例题 & 用测评验证虚拟学生预测是否准确 \\
+    Memory/User Model & 回收真实执行结果，更新孪生状态 & 形成仿真、执行、校准的闭环 \\
+    Study Plan & 接收 \texttt{student\_twin} 类计划项 & 将路径仿真落地为可执行任务 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{高级扩展：概率孪生与策略优化}
+
+当前实现是可解释的最小落地版本，已经能够支持答辩演示和产品闭环。为了进一步体现技术深度，Student Twin 可扩展为概率化、可学习、可优化的高级智能体。
+
+\subsection{概率知识状态与不确定性估计}
+
+现有掌握度可以从单一分数扩展为概率分布：
+\begin{equation}
+  m_k\sim \operatorname{Beta}(\alpha_k,\beta_k),
+  \label{eq:student-twin-beta-mastery}
+\end{equation}
+其中 $\alpha_k$ 和 $\beta_k$ 分别由正确作答、错误作答、追问困惑和课程覆盖证据更新。这样系统不仅知道某个知识点掌握度约为 $0.6$，还知道该估计是否可靠。当样本较少或证据冲突时，Student Twin 可以输出较高不确定性，并推荐低成本诊断题而不是直接安排较长复习任务。
+
+进一步地，系统可以将深度知识追踪或贝叶斯知识追踪作为状态估计器，使用学习事件序列预测未来答题成功概率。对于口腔医学中前后依赖强的知识结构，还可以引入知识图谱传播项，使某个前置节点的薄弱风险影响其后继节点：
+\begin{equation}
+  \tilde B_j =
+  B_j+
+  \mu
+  \sum_{i\in \operatorname{Pre}(j)}
+  w_{ij}B_i,
+  \label{eq:student-twin-graph-risk}
+\end{equation}
+其中 $\operatorname{Pre}(j)$ 表示节点 $j$ 的前置知识集合，$w_{ij}$ 表示依赖强度。该扩展能够更准确地预测“下一章可能在哪里卡住”，而不仅是识别当前已经暴露的薄弱点。
+
+\subsection{蒙特卡洛路径仿真}
+
+当前版本对每条路径输出一个确定性收益分数。高级版本可以采用蒙特卡洛仿真，从掌握度分布、完成概率和遗忘曲线中采样，得到路径收益的置信区间：
+\begin{equation}
+  \hat J(a)=
+  \frac{1}{N}
+  \sum_{n=1}^{N}
+  J^{(n)}(a),
+  \quad
+  \operatorname{Var}(J(a))=
+  \frac{1}{N-1}
+  \sum_{n=1}^{N}
+  \left(J^{(n)}(a)-\hat J(a)\right)^2.
+  \label{eq:student-twin-monte-carlo}
+\end{equation}
+
+前端可进一步展示“预计提升区间”和“策略风险区间”，例如某条路径虽然平均收益较高，但不确定性较大；另一条路径平均收益略低，但结果更稳定。这样，学习计划推荐可以从单一最优选择升级为风险感知决策。
+
+\subsection{FSRS 记忆参数与数字孪生融合}
+
+FSRS 的 Difficulty、Stability 和 Retrievability 变量可以直接作为 Student Twin 的记忆状态子空间。对于每个 KG 节点 $k$，系统可维护
+\[
+  \mathcal{F}_k=(D_k,S_k,R_k),
+\]
+并将其并入虚拟学生状态。完成一次 \texttt{review\_section} 后，系统根据复习正确率、作答时间和自信度更新 $D_k$ 与 $S_k$，再由 $R_k$ 预测下次复习时的回忆概率。与 SM-2 相比，FSRS 更适合在长期日志积累后学习个体化遗忘曲线，因此可以作为 Student Twin 的长期记忆动力学模型。
+
+该扩展使答辩展示能够从“今天推荐什么任务”进一步升级为“系统如何拟合学生自己的遗忘曲线，并用该曲线模拟未来路径”。前端可展示不同学习路径下未来 7 天或 14 天的预计保持率曲线、掌握度曲线和复习债务变化曲线，从而体现算法性和高级感。
+
+\subsection{强化学习式策略优化}
+
+当系统积累足够多的计划执行和学习效果数据后，可以将学习路径选择建模为马尔可夫决策过程：
+\begin{equation}
+  \mathcal{M}=(\mathcal{S},\mathcal{A},P,R,\gamma),
+\end{equation}
+其中状态 $\mathcal{S}$ 为 Student Twin 的虚拟学生状态，动作 $\mathcal{A}$ 为不同学习策略，转移概率 $P$ 表示学习行为后的状态变化，奖励 $R$ 综合掌握度提升、风险下降、完成率和认知负荷。系统可以先使用离线日志进行策略评估，再在安全约束下进行轻量在线优化。由于教育场景需要稳定和可解释，实际产品中可采用“规则策略 + 学习型重排序”的混合方式，将强化学习限制在候选路径排序层，避免直接生成不可控任务。
+
+\section{评估指标与答辩展示方式}
+
+Student Twin 的评估应同时关注预测准确性、学习收益和用户执行效果。预测准确性衡量系统判断的瓶颈是否真的在后续答题或提问中出现；学习收益衡量推荐路径是否提升掌握度并降低错题复发；执行效果衡量数字孪生推荐是否更容易被学生完成。
+
+\begin{table}[H]
+  \centering
+  \caption{学习数字孪生 Agent 的评估指标}
+  \label{tab:student-twin-evaluation}
+  \begin{tabularx}{\linewidth}{p{0.25\linewidth}p{0.32\linewidth}X}
+    \toprule
+    指标类别 & 指标名称 & 含义 \\
+    \midrule
+    预测准确性 & Bottleneck Hit Rate & 被预测为瓶颈的 KG 节点是否在后续错题、追问或低掌握记录中出现 \\
+    风险校准 & Risk Calibration & 瓶颈风险分数与真实错误率、追问率之间的一致性 \\
+    学习收益 & Simulated Uplift vs. Actual Uplift & 仿真预测的掌握度提升与真实掌握度变化是否接近 \\
+    路径质量 & Counterfactual Gain & 推荐路径相对备选路径带来的风险下降差值 \\
+    执行效果 & Completion Rate & 数字孪生生成计划项的完成率和延期率 \\
+    负荷控制 & Cognitive Load Stability & 推荐任务是否在可用时间内完成，是否造成计划堆积 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+在答辩展示中，可以选择同一名学生的学习画像作为输入，展示三层结果。第一层展示虚拟学生状态，包括掌握度、风险、保持率和复习债务；第二层展示系统预测的卡点知识点及证据来源；第三层展示多条学习路径的反事实比较，例如“继续新课预计风险下降 4\%”“先复习薄弱点预计风险下降 18\%”“复习后小测预计风险下降 24\%”。最后将推荐路径一键写入学习计划，形成“预测--仿真--决策--执行”的完整闭环。
+
+由此，Student Twin 将 OralSage 的个性化能力从资源生成和任务推荐进一步推进到学习过程仿真层面。系统不只是根据已有规则推荐学习内容，而是为每个学生构建一个能够被观察、被模拟、被校准的虚拟学习分身，使口腔医学学习计划具备更强的技术可解释性、算法深度和创新展示价值。
