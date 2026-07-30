@@ -57,6 +57,18 @@
     study_plan_item_created: '新增学习计划',
     study_plan_item_completed: '完成学习计划',
     study_plan_item_deferred: '延期学习计划',
+    clinical_speaking_started: '开始问诊模拟',
+    clinical_diagnosis_confirmed: '完成诊断',
+    clinical_speaking_answer_assessed: '完成表达考核',
+    clinical_speaking_completed: '完成问诊模拟',
+  };
+
+  const CLINICAL_CATEGORY_LABELS = {
+    pathogenesis: '病理机制',
+    clinical_features: '临床表现与诊断依据',
+    differential: '鉴别诊断',
+    treatment: '治疗原则',
+    risk_followup: '风险与随访',
   };
 
   const STUDY_PLAN_STATUS_LABELS = {
@@ -218,6 +230,8 @@
       retrieval_enhanced: '强化检索练习',
       continue: '继续学习',
       llm_generated: '内容已生成',
+      rubric_points: '评分要点',
+      rubric: '评分要点',
     };
     let text = String(value || '').replace(/\s+/g, ' ').trim();
     Object.entries(replacements).forEach(([token, label]) => {
@@ -289,6 +303,27 @@
       return `计划日期：${compactDate(payload.plan_date)}`;
     }
     return '';
+  }
+
+  function clinicalCategoryLabel(payload = {}) {
+    const key = String(payload.category || '').trim();
+    return sanitizeUserFacingText(payload.label || CLINICAL_CATEGORY_LABELS[key], '临床表达', 30);
+  }
+
+  function clinicalScoreTag(payload = {}, prefix = '得分') {
+    const score = num(payload.score, NaN);
+    const maxScore = num(payload.max_score, NaN);
+    if (!Number.isFinite(score) || !Number.isFinite(maxScore) || maxScore <= 0) return '';
+    const display = (value) => Number.isInteger(value) ? String(value) : String(Math.round(value * 10) / 10);
+    return `${prefix} ${display(score)}/${display(maxScore)}`;
+  }
+
+  function clinicalMissingDetail(payload = {}) {
+    const points = asArray(payload.missing_points)
+      .map((point) => sanitizeUserFacingText(point, '', 58))
+      .filter(Boolean)
+      .slice(0, 2);
+    return points.length ? `待完善：${points.join('；')}` : '';
   }
 
   async function apiGet(url) {
@@ -783,6 +818,7 @@
       lecture: '讲解',
       planning: '规划',
       study_plan: '计划',
+      clinical_speaking: '问诊',
     };
     const key = String(surface || '').trim();
     return labels[key] || key || '学习';
@@ -1077,6 +1113,55 @@
       tags: [],
       isNew: state.newEventIds.has(event.id),
     };
+
+    if (event.event_type === 'clinical_speaking_started') {
+      return {
+        ...base,
+        category: 'clinical',
+        typeLabel: '问诊',
+        title: '开始问诊模拟',
+        detail: '已进入数字人患者问诊',
+        color: COLORS.violet,
+      };
+    }
+    if (event.event_type === 'clinical_diagnosis_confirmed') {
+      const diagnosis = sanitizeUserFacingText(payload.diagnosis, '已确认病症', 42);
+      return {
+        ...base,
+        category: 'clinical',
+        typeLabel: '诊断',
+        title: `完成诊断：${diagnosis}`,
+        detail: '诊断结果已确认，进入临床表达考核',
+        tags: ['诊断正确'],
+        color: COLORS.indigo,
+      };
+    }
+    if (event.event_type === 'clinical_speaking_answer_assessed') {
+      const label = clinicalCategoryLabel(payload);
+      const scoreTag = clinicalScoreTag(payload);
+      return {
+        ...base,
+        category: 'clinical',
+        typeLabel: '考核',
+        title: `完成表达考核：${label}`,
+        detail: clinicalMissingDetail(payload),
+        tags: [scoreTag, sanitizeUserFacingText(payload.diagnosis, '', 24)].filter(Boolean),
+        color: COLORS.lavender,
+      };
+    }
+    if (event.event_type === 'clinical_speaking_completed') {
+      const diagnosis = sanitizeUserFacingText(payload.diagnosis, '临床病例', 42);
+      const scoreTag = clinicalScoreTag(payload, '总分');
+      return {
+        ...base,
+        category: 'clinical',
+        typeLabel: '问诊',
+        title: `完成问诊模拟：${diagnosis}`,
+        detail: '诊断与临床表达考核已完成',
+        tags: [scoreTag].filter(Boolean),
+        color: COLORS.rose,
+      };
+    }
 
     if (String(event.event_type || '').startsWith('study_plan_item_')) {
       return {

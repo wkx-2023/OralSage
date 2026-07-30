@@ -1106,6 +1106,7 @@ class ClinicalSpeakingService:
                 "diagnosis": state["case"]["diagnosis"],
                 "question_id": result["question_id"],
                 "category": result["category"],
+                "label": result["label"],
                 "score": result["score"],
                 "max_score": result["max_score"],
                 "missing_points": result["missing_points"],

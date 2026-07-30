@@ -28,6 +28,7 @@
     '/pages/weixin-account.html': { key: 'weixin-account', title: '微信连接', subtitle: '连接 ClawBot，用微信接收每日计划、打卡和修改计划' },
     '/pages/learning-plan.html': { key: 'learning-plan', title: '学习计划', subtitle: '按日记录学习计划、完成反馈和节奏记忆' },
     '/pages/learning-profile.html': { key: 'learning-profile', title: '\u5b66\u4e60\u753b\u50cf', subtitle: '\u67e5\u770b\u957f\u671f\u8bb0\u5fc6\u3001\u638c\u63e1\u5ea6\u548c\u753b\u50cf\u8bc1\u636e' },
+    '/pages/comprehensive-exam.html': { key: 'comprehensive-exam', title: '\u7efc\u5408\u8003\u8bd5', subtitle: '' },
     '/pages/image.html': { key: 'image', title: '\u5f71\u50cf\u8bc6\u522b', subtitle: TEXT.shellSubtitle },
     '/pages/decision.html': { key: 'decision', title: '\u51b3\u7b56\u8f85\u52a9', subtitle: TEXT.shellSubtitle },
     '/pages/records.html': { key: 'records', title: '\u75c5\u5386\u751f\u6210', subtitle: TEXT.shellSubtitle },
@@ -94,9 +95,12 @@
     const contentType = res.headers.get('content-type') || '';
     const body = contentType.includes('application/json') ? await res.json() : await res.text();
     if (!res.ok) {
+      const detail = body?.detail;
       const message = typeof body === 'string'
         ? body
-        : body?.detail?.message || body?.message || JSON.stringify(body);
+        : typeof detail === 'string'
+          ? detail
+          : detail?.message || body?.message || JSON.stringify(body);
       throw new Error(message || `${res.status} ${res.statusText}`);
     }
     return body;

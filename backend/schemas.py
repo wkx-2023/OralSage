@@ -213,6 +213,20 @@ class StageExamSubmitRequest(BaseModel):
     answers: list[StageExamAnswer] = Field(default_factory=list)
 
 
+class ComprehensiveExamGenerateRequest(BaseModel):
+    user_id: str = "demo"
+
+
+class ComprehensiveExamAnswer(BaseModel):
+    question_id: str
+    answer: str = ""
+
+
+class ComprehensiveExamSubmitRequest(BaseModel):
+    user_id: str = "demo"
+    answers: list[ComprehensiveExamAnswer] = Field(default_factory=list)
+
+
 class LearningProfileSliceRequest(BaseModel):
     user_id: str
     role: str = "qa"

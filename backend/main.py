@@ -53,6 +53,8 @@ from .schemas import (
     LearningSubmitAnswerRequest,
     StageExamGenerateRequest,
     StageExamSubmitRequest,
+    ComprehensiveExamGenerateRequest,
+    ComprehensiveExamSubmitRequest,
     LiteratureRequest,
     LiteratureTranslateRequest,
     PathologyRequest,
@@ -121,6 +123,11 @@ from .services.learning.stage_exam import (
     generate_stage_exam,
     public_stage_exam,
     submit_stage_exam,
+)
+from .services.learning.comprehensive_exam import (
+    generate_comprehensive_exam,
+    public_comprehensive_exam,
+    submit_comprehensive_exam,
 )
 from .services.clawbridge_client import ClawBridgeClient, ClawBridgeError
 from .services.weixin_auth import WeixinAuthError, WeixinAuthStore, session_cookie_name
@@ -1380,6 +1387,28 @@ async def learning_session_stage_exam_submit(
         "action": "stage_exam_submit",
         "result": public_stage_exam(exam, include_answers=True),
     })
+
+
+@app.post("/api/learning/comprehensive-exams")
+async def comprehensive_exam_generate(req: ComprehensiveExamGenerateRequest, request: Request) -> JSONResponse:
+    user_id = _effective_learning_user_id(request, req.user_id)
+    try:
+        exam = await asyncio.to_thread(generate_comprehensive_exam, learning_orchestrator.memory, user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return JSONResponse({"ok": True, "module": "learning", "action": "comprehensive_exam_generate", "result": public_comprehensive_exam(exam)})
+
+
+@app.post("/api/learning/comprehensive-exams/{exam_id}/submit")
+async def comprehensive_exam_submit(exam_id: str, req: ComprehensiveExamSubmitRequest, request: Request) -> JSONResponse:
+    user_id = _effective_learning_user_id(request, req.user_id)
+    try:
+        exam = await asyncio.to_thread(submit_comprehensive_exam, exam_id, user_id, [item.model_dump() for item in req.answers])
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse({"ok": True, "module": "learning", "action": "comprehensive_exam_submit", "result": public_comprehensive_exam(exam, include_answers=True)})
 
 
 @app.get("/api/learning/session/{session_id}/audio/{outline_node_id}/{filename}")

@@ -1082,6 +1082,7 @@ class ClinicalSpeakingTests(unittest.TestCase):
             event_types=["clinical_speaking_answer_assessed"],
         )
         self.assertEqual(len(assessed_events), 1)
+        self.assertEqual(assessed_events[0]["payload"]["label"], "病理机制")
 
     def test_exam_replay_recovers_learning_update_without_reinvoking_agents(self) -> None:
         session = self.start()
