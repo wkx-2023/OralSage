@@ -280,6 +280,7 @@ def capabilities() -> dict[str, Any]:
             "learning_agent_mvp",
             "learning_study_plan",
             "learning_student_twin",
+            "learning_knowledge_tracing",
             "learning_learner_assessment",
             "learning_stage_exam",
         ],
@@ -333,6 +334,7 @@ def capabilities() -> dict[str, Any]:
             "/api/learning/profile/slice",
             "/api/learning/memory/consolidate",
             "/api/learning/student-twin/{user_id}",
+            "/api/learning/knowledge-tracing/{user_id}",
             "/api/learning/plan/{user_id}/month",
             "/api/learning/plan/{user_id}/day/{plan_date}",
             "/api/learning/plan/recommend",
@@ -1427,6 +1429,33 @@ async def learning_student_twin(
             "module": "learning",
             "action": "student_twin",
             "result": result,
+        }
+    )
+
+
+@app.get("/api/learning/knowledge-tracing/{user_id}")
+async def learning_knowledge_tracing(
+    user_id: str,
+    request: Request,
+    limit: int = 200,
+) -> JSONResponse:
+    """Return BKT/DKT-compatible KG-node cognitive states for a learner."""
+    user_id = _effective_learning_user_id(request, user_id)
+    states = learning_orchestrator.memory.list_knowledge_trace_states(
+        user_id,
+        limit=limit,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "knowledge_tracing",
+            "result": {
+                "user_id": user_id,
+                "schema_version": "knowledge_tracing.bkt.v1",
+                "model": "bkt_kg_node_v1",
+                "states": states,
+            },
         }
     )
 

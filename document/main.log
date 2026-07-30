@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.5.31)  30 JUL 2026 14:51
+This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.5.31)  30 JUL 2026 20:09
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1859,19 +1859,23 @@ File: figures/KG-knowledge-trace.pdf Graphic file (type pdf)
  [42]
 File: figures/profile-feedback-loop.pdf Graphic file (type pdf)
 <use figures/profile-feedback-loop.pdf>
- [43]) (sections/06-spaced-repetition-scheduling.tex
-[44]
+ [43]) (sections/06-knowledge-tracing.tex [44]
 Chapter 6.
 [45
 
-] [46] [47] [48]
+] [46] [47] [48] [49] [50]) (sections/06-spaced-repetition-scheduling.tex
+[51]
+Chapter 7.
+[52
+
+] [53] [54] [55]
 Overfull \hbox (34.42871pt too wide) detected at line 219
 [] \OMS/cmsy/m/n/10.53937 ! [] ! [] ! [] ! []\OML/cmm/m/it/10.53937 :
  []
 
-[49]) (sections/07-student-twin-simulation.tex [50]
-Chapter 7.
-[51
+[56]) (sections/07-student-twin-simulation.tex [57]
+Chapter 8.
+[58
 
 ]
 Underfull \hbox (badness 10000) in paragraph at lines 47--47
@@ -1879,43 +1883,43 @@ Underfull \hbox (badness 10000) in paragraph at lines 47--47
 37 、| \TU/TimesNewRoman(0)/m/n/10.53937 overdue_
  []
 
-[52] [53]
+[59] [60]
 Underfull \hbox (badness 10000) in paragraph at lines 167--167
 []|\TU/TimesNewRoman(0)/m/n/10.53937 recommended_plan_
  []
 
 File: figures/student-twin-ui-mockup.png Graphic file (type bmp)
 <figures/student-twin-ui-mockup.png>
-[54] [55] [56] [57]) (sections/07-resource-generation.tex [58]
-Chapter 8.
+[61] [62] [63] [64]) (sections/07-resource-generation.tex [65]
+Chapter 9.
 File: figures/profile-resource-generation.pdf Graphic file (type pdf)
 <use figures/profile-resource-generation.pdf>
-[59
+[66
 
 ]
 File: figures/personalized-path-generation.pdf Graphic file (type pdf)
 <use figures/personalized-path-generation.pdf>
- [60] [61] [62]
+ [67] [68] [69]
 File: figures/resource-ppt-preview.png Graphic file (type bmp)
 <figures/resource-ppt-preview.png>
- [63] [64]) (sections/08-knowledge-base.tex [65]
-Chapter 9.
+ [70] [71]) (sections/08-knowledge-base.tex [72]
+Chapter 10.
 File: figures/kb-data-process.pdf Graphic file (type pdf)
 <use figures/kb-data-process.pdf>
-[66
+[73
 
-] [67] [68] [69] [70] [71] [72] [73] [74]
+] [74] [75] [76] [77] [78] [79] [80] [81]
 File: figures/kb-architecture.pdf Graphic file (type pdf)
 <use figures/kb-architecture.pdf>
- [75]
+ [82]
 File: figures/kb-layered-architecture.pdf Graphic file (type pdf)
 <use figures/kb-layered-architecture.pdf>
- [76] [77]
+ [83] [84]
 File: figures/kb-search-process.pdf Graphic file (type pdf)
 <use figures/kb-search-process.pdf>
- [78] [79] [80]
-[81]) (sections/09-system-implementation.tex [82]
-Chapter 10.
+ [85] [86] [87]
+[88]) (sections/09-system-implementation.tex [89]
+Chapter 11.
 
 Underfull \hbox (badness 10000) in paragraph at lines 20--20
 []|\TU/TimesNewRoman(0)/m/n/10.53937 Orchestrator\TU/SimSun(1)/m/n/10.53937 、| 
@@ -1941,7 +1945,7 @@ Underfull \hbox (badness 10000) in paragraph at lines 20--20
 NewRoman(0)/m/n/10.53937 KG\TU/SimSun(1)/m/n/10.53937 、|  题 库、|
  []
 
-[83
+[90
 
 ]
 Underfull \hbox (badness 10000) in paragraph at lines 95--96
@@ -2013,55 +2017,55 @@ Underfull \hbox (badness 2343) in paragraph at lines 180--181
 []|\TU/TimesNewRoman(0)/m/n/9.03374 GET /api/learning/session/{session_
  []
 
-ignored error: Infinite glue shrinkage found in box being split [84] [85]
+ignored error: Infinite glue shrinkage found in box being split [91] [92]
 File: figures/ui-home.png Graphic file (type bmp)
 <figures/ui-home.png>
 
-[86]
+[93]
 File: figures/ui-teaching-result.png Graphic file (type bmp)
 <figures/ui-teaching-result.png>
- [87]
+ [94]
 File: figures/ui-qa-result.png Graphic file (type bmp)
 <figures/ui-qa-result.png>
 File: figures/ui-study-plan-chat.png Graphic file (type bmp)
 <figures/ui-study-plan-chat.png>
- [88]
+ [95]
 File: figures/ui-learning-plan.png Graphic file (type bmp)
 <figures/ui-learning-plan.png>
- [89]
+ [96]
 File: figures/ui-literature-result.png Graphic file (type bmp)
 <figures/ui-literature-result.png>
 File: figures/ui-learning-profile.png Graphic file (type bmp)
 <figures/ui-learning-profile.png>
- [90]
+ [97]
 File: figures/ui-learning-plan.png Graphic file (type bmp)
 <figures/ui-learning-plan.png>
- [91]
+ [98]
 (D:\Program Files\MiKTeX\tex/latex/listings\lstlang1.sty
 File: lstlang1.sty 2025/11/14 1.11b listings language file
 )
 (D:\Program Files\MiKTeX\tex/latex/listings\lstlang1.sty
 File: lstlang1.sty 2025/11/14 1.11b listings language file
-) [92] [93]
+) [99] [100]
 Underfull \hbox (badness 2401) in paragraph at lines 432--432
 []|\TU/TimesNewRoman(0)/m/n/9.03374 package.json \TU/SimSun(1)/m/n/9.03374 声 明
  []
 
-[94]) (sections/10-testing-evaluation.tex [95]
-Chapter 11.
-[96
-
-] [97] [98] [99] [100]) (sections/11-innovation-value.tex [101]
+[101]) (sections/10-testing-evaluation.tex [102]
 Chapter 12.
-[102
+[103
 
-] [103]
+] [104] [105] [106] [107]) (sections/11-innovation-value.tex [108]
+Chapter 13.
+[109
+
+] [110]
 Underfull \hbox (badness 3118) in paragraph at lines 100--100
 []|\TU/SimSun(1)/m/n/10.53937 同 一 课 程 节 点 下 组 织 讲 义、|  讲 解、|
  []
 
-[104]) (sections/12-deployment-demo.tex [105]
-Chapter 13.
+[111]) (sections/12-deployment-demo.tex [112]
+Chapter 14.
 
 Underfull \hbox (badness 10000) in paragraph at lines 24--24
 []|\TU/TimesNewRoman(0)/m/n/10.53937 Windows 10/11 \TU/SimSun(1)/m/n/10.53937 或
@@ -2098,7 +2102,7 @@ Underfull \hbox (badness 10000) in paragraph at lines 51--51
 \TU/TimesNewRoman(0)/m/n/10.53937 yun.com/v1/private/dts_
  []
 
-[106
+[113
 
 ]) (sections/13-conclusion.tex
 Underfull \hbox (badness 1308) in paragraph at lines 77--1
@@ -2107,17 +2111,17 @@ Underfull \hbox (badness 1308) in paragraph at lines 77--1
 /10.53937 http://127.0.0.1:8000/\TU/SimSun(1)/m/n/10.53937 ，|  接 口 文 档 地 址 为
  []
 
-[107]
-Chapter 14.
-[108
+[114]
+Chapter 15.
+[115
 
-] [109]) (sections/appendix-a.tex [110] [111
+] [116]) (sections/appendix-a.tex [117] [118
 
-]) [112] (main.bbl [113
+]) [119] (main.bbl [120
 
 
 ]
-[114]) [115] (main.aux)
+[121]) [122] (main.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2022/08/05>
@@ -2128,15 +2132,15 @@ LaTeX Font Warning: Size substitutions with differences
 (Font)              up to 0.41063pt have occurred.
 
 Package rerunfilecheck Info: File `main.out' has not changed.
-(rerunfilecheck)             Checksum: EEEA88F958CB1C60C2987750B7167BF4;21391.
+(rerunfilecheck)             Checksum: 1F679AA390A3A4605E6E92B7A13724B0;22994.
  ) 
 Here is how much of TeX's memory you used:
- 49744 strings out of 402987
- 1234349 string characters out of 5452871
- 1928124 words of memory out of 5000000
- 77640 multiletter control sequences out of 15000+600000
+ 49793 strings out of 402987
+ 1235884 string characters out of 5452871
+ 1929355 words of memory out of 5000000
+ 77686 multiletter control sequences out of 15000+600000
  642500 words of font info for 167 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
  102i,13n,118p,727b,2337s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on main.pdf (116 pages).
+Output written on main.pdf (123 pages).

@@ -86,6 +86,23 @@ CREATE TABLE IF NOT EXISTS mastery_records (
     updated_at        TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS knowledge_tracing_states (
+    user_id                   TEXT NOT NULL,
+    kg_node_id                TEXT NOT NULL,
+    skill_label               TEXT NOT NULL,
+    p_mastery                 REAL NOT NULL,
+    uncertainty               REAL NOT NULL,
+    confidence                REAL NOT NULL,
+    evidence_count            INTEGER NOT NULL DEFAULT 0,
+    correct_count             INTEGER NOT NULL DEFAULT 0,
+    incorrect_count           INTEGER NOT NULL DEFAULT 0,
+    last_observation_correct  INTEGER,
+    parameters_json           TEXT NOT NULL,
+    trace_json                TEXT NOT NULL,
+    updated_at                TEXT NOT NULL,
+    PRIMARY KEY (user_id, kg_node_id)
+);
+
 CREATE TABLE IF NOT EXISTS direct_qa_mastery_records (
     id                TEXT PRIMARY KEY,
     user_id           TEXT NOT NULL,
@@ -101,6 +118,9 @@ CREATE TABLE IF NOT EXISTS direct_qa_mastery_records (
 
 CREATE INDEX IF NOT EXISTS idx_direct_qa_mastery_user_kg
 ON direct_qa_mastery_records (user_id, kg_node_id);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_tracing_user
+ON knowledge_tracing_states (user_id, updated_at);
 
 CREATE TABLE IF NOT EXISTS answer_records (
     id                TEXT PRIMARY KEY,
@@ -425,6 +445,7 @@ class LearningMemory:
             "lesson_events",
             "mastery_records",
             "answer_records",
+            "knowledge_tracing_states",
             "learning_summaries",
             "study_plan_items",
         ):
@@ -1255,6 +1276,115 @@ class LearningMemory:
             item["grading"] = json.loads(item.pop("grading_json", "{}"))
             result.append(item)
         return result
+
+    # -- knowledge tracing ---------------------------------------------
+
+    def get_knowledge_trace_state(
+        self,
+        user_id: str,
+        kg_node_id: str,
+    ) -> dict[str, Any] | None:
+        """Return the BKT/DKT-compatible state for one KG node, if present."""
+        kg_id = str(kg_node_id or "").strip()
+        if not kg_id:
+            return None
+        row = self._conn.execute(
+            """SELECT * FROM knowledge_tracing_states
+               WHERE user_id = ? AND kg_node_id = ?""",
+            (user_id, kg_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._knowledge_trace_row_to_dict(row)
+
+    def list_knowledge_trace_states(
+        self,
+        user_id: str,
+        *,
+        kg_node_ids: list[str] | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Return recent knowledge-tracing states for a learner."""
+        self.ensure_user(user_id)
+        limit = max(1, min(int(limit), 1000))
+        ids = _json_list(kg_node_ids or [])
+        params: list[Any] = [user_id]
+        clauses = ["user_id = ?"]
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            clauses.append(f"kg_node_id IN ({placeholders})")
+            params.extend(ids)
+        params.append(limit)
+        rows = self._conn.execute(
+            f"""SELECT * FROM knowledge_tracing_states
+                WHERE {' AND '.join(clauses)}
+                ORDER BY updated_at DESC
+                LIMIT ?""",
+            params,
+        ).fetchall()
+        return [self._knowledge_trace_row_to_dict(row) for row in rows]
+
+    def save_knowledge_trace_state(
+        self,
+        user_id: str,
+        kg_node_id: str,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist one KG-node cognitive state estimated by a tracing model."""
+        self.ensure_user(user_id)
+        kg_id = str(kg_node_id or "").strip()
+        if not kg_id:
+            raise ValueError("kg_node_id is required")
+        now = _now()
+        params = state.get("parameters")
+        trace = state.get("trace")
+        self._conn.execute(
+            """INSERT OR REPLACE INTO knowledge_tracing_states
+               (user_id, kg_node_id, skill_label, p_mastery, uncertainty,
+                confidence, evidence_count, correct_count, incorrect_count,
+                last_observation_correct, parameters_json, trace_json, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                user_id,
+                kg_id,
+                str(state.get("skill_label") or kg_id).strip()[:180],
+                float(state.get("p_mastery", 0.0)),
+                float(state.get("uncertainty", 1.0)),
+                float(state.get("confidence", 0.0)),
+                int(state.get("evidence_count", 0)),
+                int(state.get("correct_count", 0)),
+                int(state.get("incorrect_count", 0)),
+                (
+                    1
+                    if state.get("last_observation_correct") is True
+                    else 0
+                    if state.get("last_observation_correct") is False
+                    else None
+                ),
+                json.dumps(params if isinstance(params, dict) else {}, ensure_ascii=False),
+                json.dumps(trace if isinstance(trace, dict) else {}, ensure_ascii=False),
+                now,
+            ),
+        )
+        self._conn.commit()
+        saved = self.get_knowledge_trace_state(user_id, kg_id)
+        return saved if saved is not None else {}
+
+    def _knowledge_trace_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        try:
+            item["parameters"] = json.loads(item.pop("parameters_json", "{}"))
+        except json.JSONDecodeError:
+            item["parameters"] = {}
+        try:
+            item["trace"] = json.loads(item.pop("trace_json", "{}"))
+        except json.JSONDecodeError:
+            item["trace"] = {}
+        marker = item.get("last_observation_correct")
+        item["last_observation_correct"] = (
+            True if marker == 1 else False if marker == 0 else None
+        )
+        return item
 
     # -- mastery records ------------------------------------------------
 

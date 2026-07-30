@@ -1,0 +1,299 @@
+% !TeX root = ../main.tex
+
+\chapter{BKT/DKT 驱动的知识追踪与认知状态估计}
+\label{sec:knowledge-tracing}
+
+\section{技术定位与设计目标}
+
+学习画像需要解决的核心问题，不只是记录学习者做过哪些题、问过哪些问题，而是推断学习者对每一个知识点是否已经形成稳定掌握。口腔医学知识具有强依赖、强迁移和高混淆度的特点，同一个错误答案可能源于概念边界不清、机制链条断裂、诊断条件遗漏或治疗适应证误判。若系统只使用答对加分、答错扣分的方式维护 \texttt{mastery\_by\_kg\_node}，则难以区分“真正掌握”“猜对”“会但失误”和“证据不足”四类状态，也无法表达系统对掌握度判断的置信程度。
+
+OralSage 因此在学习画像层引入知识追踪（Knowledge Tracing）机制，将学习者画像从静态标签和规则评分升级为动态认知状态建模。系统以口腔医学知识图谱中的 KG 节点作为 skill 单元，以学习者答题序列、课程讲授、追问困惑和复习反馈作为观测证据，持续估计每个知识点的隐含掌握概率。该机制以 BKT（Bayesian Knowledge Tracing）作为可解释的概率推断核心，并结合 DKT（Deep Knowledge Tracing）建模长序列依赖和跨知识点迁移关系\cite{corbett1994knowledge,piech2015deep}。
+
+该模块的目标包括三个方面。第一，将 \texttt{mastery\_score} 从简单行为分数升级为 $P(\mathrm{mastery}\mid\mathrm{evidence})$ 后验概率。第二，为每个 KG 节点输出掌握概率、不确定性、证据次数和最近观测，支撑学习画像、复习调度和数字孪生仿真。第三，将 BKT 的可解释性与 DKT 的序列建模能力结合，使系统既能展示贝叶斯公式推断过程，又能捕捉“答对 A 后 B 的掌握概率同步提升”等复杂学习迁移。
+
+\section{面向 KG 节点的 Skill 建模}
+
+OralSage 将口腔医学知识图谱中的每一个可学习节点视为一个 skill。设知识图谱节点集合为 $\mathcal{K}=\{k_1,k_2,\ldots,k_N\}$，学习者 $u$ 在时刻 $t$ 对节点 $k$ 的认知状态表示为
+\begin{equation}
+  \mathcal{Z}_{u,k,t}=
+  \left(
+  p_{u,k,t},
+  c_{u,k,t},
+  \sigma_{u,k,t},
+  n_{u,k,t},
+  a_{u,k,t}
+  \right),
+  \label{eq:kt-state}
+\end{equation}
+其中 $p_{u,k,t}$ 表示掌握概率，$c_{u,k,t}$ 表示模型置信度，$\sigma_{u,k,t}$ 表示不确定性，$n_{u,k,t}$ 表示累计观测证据数量，$a_{u,k,t}$ 表示最近一次观测动作或结果。
+
+系统将题目、课程节点、讲义小节、QA 困惑和复习计划统一映射到 KG 节点，使不同学习行为能够在同一 skill 空间中汇合。对于一条答题观测事件
+\begin{equation}
+  o_t=(u,q_t,\mathbf{k}_t,y_t,s_t),
+\end{equation}
+其中 $q_t$ 为题目编号，$\mathbf{k}_t$ 为题目关联的 KG 节点集合，$y_t\in\{0,1\}$ 表示答题是否正确，$s_t$ 表示得分。若一道题关联多个 KG 节点，则系统对每一个 $k\in\mathbf{k}_t$ 独立更新 BKT 后验，同时将该观测写入序列模型输入，使节点级独立推断和序列级联合建模保持一致。
+
+\begin{table}[H]
+  \centering
+  \caption{知识追踪模块的输入信号}
+  \label{tab:kt-input-signals}
+  \begin{tabularx}{\linewidth}{p{0.24\linewidth}p{0.33\linewidth}X}
+    \toprule
+    输入来源 & 主要字段 & 建模作用 \\
+    \midrule
+    Assessment & \texttt{is\_correct}、\texttt{score}、\texttt{kg\_node\_ids} & 将答题结果转化为 BKT 观测事件 \\
+    题目结构 & 题干、选项、正确答案、关联 KG 节点 & 确定观测对应的 skill 单元 \\
+    Tutor 讲授 & 课程节点、讲授覆盖 KG 节点、讲授次数 & 作为学习转移和曝光证据 \\
+    QA 困惑 & \texttt{confusion\_kg\_node\_ids}、\texttt{should\_reinforce} & 识别失误、混淆和潜在薄弱节点 \\
+    学习计划 & 复习完成、延期、任务类型、计划日期 & 校准复习后掌握变化和执行稳定性 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+该设计使学习画像具备节点级可追踪性。系统不只知道学生在某次测评中得了多少分，还知道这次观测分别支持或削弱了哪些 KG 节点的掌握判断，并能够解释每个判断来自哪些题目、哪些课程和哪些追问证据。
+
+\section{BKT 贝叶斯后验更新}
+
+BKT 将学习者对某个 skill 的真实掌握状态视为隐变量 $L_t$，将答题对错视为可观测变量 $O_t$。对每个 KG 节点 $k$，系统维护四类核心参数：
+\begin{itemize}
+  \item $P(L_0)$：初始掌握概率，表示学习者在没有观测证据前掌握该知识点的先验概率；
+  \item $P(T)$：学习转移概率，表示一次学习或练习后从未掌握转为掌握的概率；
+  \item $P(G)$：猜测概率，表示未掌握但答对的概率；
+  \item $P(S)$：失误概率，表示已掌握但答错的概率。
+\end{itemize}
+
+当学生答对时，系统根据贝叶斯公式计算已掌握状态的后验概率：
+\begin{equation}
+  P(L_t\mid Correct)=
+  \frac{P(L_t)(1-P(S))}
+  {P(L_t)(1-P(S))+(1-P(L_t))P(G)}.
+  \label{eq:bkt-correct}
+\end{equation}
+
+当学生答错时，系统计算
+\begin{equation}
+  P(L_t\mid Incorrect)=
+  \frac{P(L_t)P(S)}
+  {P(L_t)P(S)+(1-P(L_t))(1-P(G))}.
+  \label{eq:bkt-incorrect}
+\end{equation}
+
+完成观测更新后，系统再引入学习转移：
+\begin{equation}
+  P(L_{t+1})=
+  P(L_t\mid O_t)+
+  \left(1-P(L_t\mid O_t)\right)P(T).
+  \label{eq:bkt-transition}
+\end{equation}
+
+对于复习间隔较长、遗忘风险较高的知识点，系统同时支持遗忘项：
+\begin{equation}
+  P(L_{t+1})=
+  P(L_t\mid O_t)(1-P(F))+
+  \left(1-P(L_t\mid O_t)\right)P(T),
+  \label{eq:bkt-forget}
+\end{equation}
+其中 $P(F)$ 表示遗忘概率。通过式\eqref{eq:bkt-correct}--式\eqref{eq:bkt-forget}，系统能够区分“答对是因为掌握”与“答对可能只是猜测”，也能够区分“答错说明没学会”与“答错可能是失误”。这比单纯按照正确率更新掌握度更符合真实学习过程。
+
+\begin{algorithm}[H]
+  \caption{面向 KG 节点的 BKT 后验更新}
+  \label{alg:bkt-kg-node}
+  \begin{algorithmic}[1]
+    \Require 学习者 $u$，题目 $q_t$，关联节点集合 $\mathbf{k}_t$，观测结果 $y_t$
+    \Ensure 更新后的知识追踪状态集合 $\mathcal{Z}_{u,t+1}$
+    \For{每一个 KG 节点 $k\in\mathbf{k}_t$}
+      \State 读取节点 $k$ 的上一时刻掌握概率 $P(L_t)$ 与 BKT 参数
+      \If{$y_t=1$}
+        \State 根据式\eqref{eq:bkt-correct}计算答对后的掌握后验
+      \Else
+        \State 根据式\eqref{eq:bkt-incorrect}计算答错后的掌握后验
+      \EndIf
+      \State 根据式\eqref{eq:bkt-transition}和式\eqref{eq:bkt-forget}更新 $P(L_{t+1})$
+      \State 计算不确定性、置信度、证据次数和观测追踪信息
+      \State 写入 \texttt{knowledge\_tracing\_states}，并同步更新 \texttt{mastery\_by\_kg\_node}
+    \EndFor
+  \end{algorithmic}
+\end{algorithm}
+
+\section{不确定性估计与置信度表达}
+
+知识追踪的价值不仅在于输出一个掌握概率，还在于表达系统对该判断是否有把握。OralSage 使用概率熵刻画认知状态不确定性。设某节点掌握概率为 $p$，则不确定性定义为
+\begin{equation}
+  U(p)=
+  -\frac{p\log p+(1-p)\log(1-p)}{\log 2}.
+  \label{eq:kt-uncertainty}
+\end{equation}
+当 $p$ 接近 $0.5$ 时，系统最不确定；当 $p$ 接近 $0$ 或 $1$ 时，系统判断更明确。该指标使画像能够展示“掌握概率较高但证据不足”“掌握概率中等且不确定性高”“掌握概率低且证据稳定”等不同状态。
+
+模型置信度同时考虑证据数量和概率确定性：
+\begin{equation}
+  C_{u,k}=
+  \lambda
+  \left(1-e^{-n_{u,k}/\rho}\right)
+  +(1-\lambda)(1-U(p_{u,k})),
+  \label{eq:kt-confidence}
+\end{equation}
+其中 $n_{u,k}$ 为该节点累计观测次数，$\rho$ 控制证据增长速度，$\lambda$ 控制证据量与概率确定性的权重。该设计避免系统在单次答对后过度自信，也避免在多次稳定表现后仍然给出模糊判断。
+
+\begin{table}[H]
+  \centering
+  \caption{知识追踪状态的结构化输出}
+  \label{tab:kt-output-fields}
+  \begin{tabularx}{\linewidth}{p{0.28\linewidth}p{0.27\linewidth}X}
+    \toprule
+    输出字段 & 含义 & 用途 \\
+    \midrule
+    \texttt{p\_mastery} & KG 节点掌握后验概率 & 作为画像掌握度、复习调度和路径仿真的核心输入 \\
+    \texttt{uncertainty} & 掌握判断的不确定性 & 标记需要诊断题确认的知识点 \\
+    \texttt{confidence} & 综合证据量和概率确定性的置信度 & 向学生解释系统判断是否可靠 \\
+    \texttt{evidence\_count} & 节点累计观测次数 & 区分冷启动判断与稳定判断 \\
+    \texttt{last\_observation\_correct} & 最近一次答题观测 & 展示最新学习反馈 \\
+    \texttt{parameters} & BKT 参数集合 & 支持算法解释和参数校准 \\
+    \texttt{trace} & 先验、后验、来源和模型信息 & 支持答辩展示、调试和审计 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+前端画像页将该输出转化为“认知状态追踪”可视化：每个 KG 节点展示掌握概率条、不确定性标记、模型置信度、证据次数和最近观测。对于掌握概率低且不确定性高的节点，系统标记为“需要诊断”；对于掌握概率低且证据充分的节点，系统标记为“稳定薄弱”；对于掌握概率高但复习间隔较长的节点，系统交由 SM-2/FSRS 调度器判断复习窗口。
+
+\section{DKT 深度序列建模}
+
+BKT 在单个 skill 上具有清晰的概率解释，但口腔医学学习中还存在复杂的跨节点依赖。例如，学生在“牙周袋形成机制”上连续答对，往往意味着其对“附着丧失”“牙槽骨吸收进展”和“牙周炎分期”也具备更高的理解基础；学生在“根管治疗适应证”上反复错误，也可能影响其对“根尖周炎治疗原则”的后续表现。OralSage 因此采用 DKT 层对答题序列进行深度建模。
+
+设学生的第 $t$ 次答题输入为
+\begin{equation}
+  \mathbf{x}_t=
+  \operatorname{Embed}(k_t,y_t,s_t,\Delta t_t),
+  \label{eq:dkt-input}
+\end{equation}
+其中 $k_t$ 为知识点编号，$y_t$ 为答题结果，$s_t$ 为得分，$\Delta t_t$ 为距上次学习或答题的时间间隔。序列编码器使用 LSTM 或 Transformer 对历史答题轨迹进行建模：
+\begin{equation}
+  \mathbf{h}_t=
+  \operatorname{SeqEncoder}(\mathbf{x}_1,\mathbf{x}_2,\ldots,\mathbf{x}_t),
+  \label{eq:dkt-hidden}
+\end{equation}
+并输出所有 KG 节点的下一次答对概率：
+\begin{equation}
+  \hat{\mathbf{y}}_{t+1}=
+  \sigma(W\mathbf{h}_t+\mathbf{b}).
+  \label{eq:dkt-output}
+\end{equation}
+
+其中 $\hat y_{t+1,k}$ 表示学习者下一次遇到节点 $k$ 相关题目时答对的概率。与 BKT 不同，DKT 不要求每个 skill 只受自身历史影响，而是通过序列隐状态捕捉跨节点迁移。系统将 DKT 输出与 BKT 后验进行融合：
+\begin{equation}
+  \bar p_{u,k,t}=
+  \omega_k P_{\mathrm{BKT}}(L_{u,k,t})
+  +(1-\omega_k)\hat y_{u,k,t}^{\mathrm{DKT}},
+  \label{eq:bkt-dkt-fusion}
+\end{equation}
+其中 $\omega_k$ 由该节点证据数量、BKT 不确定性和序列模型置信度共同决定。证据较少或节点间迁移较强时，DKT 权重提高；证据充分且 BKT 后验稳定时，BKT 权重提高。该融合机制兼顾 BKT 的可解释性和 DKT 的表达能力。
+
+\section{知识图谱约束的跨节点迁移}
+
+为了使 DKT 输出符合口腔医学知识结构，系统在序列建模之外引入知识图谱约束。设 $A$ 为 KG 节点依赖矩阵，$A_{ij}$ 表示节点 $i$ 对节点 $j$ 的前置或关联强度，则跨节点掌握度传播定义为
+\begin{equation}
+  \tilde p_{u,j,t}=
+  \bar p_{u,j,t}
+  +
+  \mu
+  \sum_{i\in\operatorname{Pre}(j)}
+  A_{ij}
+  \left(\bar p_{u,i,t}-\bar p_{u,j,t}\right),
+  \label{eq:kg-constrained-kt}
+\end{equation}
+其中 $\operatorname{Pre}(j)$ 表示节点 $j$ 的前置知识集合，$\mu$ 为图传播强度。该公式使系统能够根据前置知识状态校准后继节点预测。例如，若“牙周组织解剖基础”掌握概率较低，则系统会降低对“牙周袋形成机制”和“牙槽骨吸收进展”的高阶掌握预测；若前置节点稳定掌握，则系统能够更合理地解释后续节点掌握概率提升。
+
+知识图谱约束还用于避免深度模型产生不符合课程结构的迁移。例如，若两个 KG 节点在图谱中没有明确依赖、共现或同章关系，则 DKT 的跨节点影响会被图约束削弱；若节点之间存在“前置”“组成”“鉴别”“治疗依据”等关系，则迁移权重相应增强。由此，知识追踪结果既具备序列模型的学习能力，又保持专业知识结构上的可解释性。
+
+\section{与学习画像、复习调度和数字孪生的协同}
+
+知识追踪模块位于 OralSage 个性化学习闭环的认知状态估计层。Assessment 产生答题观测，Knowledge Tracing 计算 KG 节点掌握后验，Memory/User Model 将后验写入长期学习画像，SM-2/FSRS Scheduler 根据掌握概率和遗忘风险生成复习窗口，Student Twin Agent 再基于这些状态模拟不同学习路径的收益。
+
+该协同链路可以表示为
+\[
+\begin{aligned}
+&\text{Assessment/QA/Tutor}
+\rightarrow
+\text{Knowledge Tracing}
+\rightarrow
+\text{Memory/User Model}
+\\
+&\rightarrow
+\text{SM-2/FSRS Scheduler}
+\rightarrow
+\text{Student Twin}
+\rightarrow
+\text{Study Plan}.
+\end{aligned}
+\]
+
+在画像层，\texttt{mastery\_by\_kg\_node} 保存的不再是单纯的累计分数，而是包含 \texttt{score}、\texttt{confidence}、\texttt{uncertainty}、\texttt{evidence\_count} 和 \texttt{model} 的认知状态摘要。在复习层，SM-2/FSRS 使用掌握后验和不确定性判断哪些节点需要复习、哪些节点需要诊断题确认。在数字孪生层，Student Twin 使用知识追踪状态估计学习路径收益，将“继续新课”“薄弱点复习”“复习后小测”等策略建立在更稳定的认知状态之上。
+
+\begin{table}[H]
+  \centering
+  \caption{知识追踪与下游模块的协同关系}
+  \label{tab:kt-downstream}
+  \begin{tabularx}{\linewidth}{p{0.22\linewidth}p{0.34\linewidth}X}
+    \toprule
+    下游模块 & 使用的知识追踪输出 & 技术作用 \\
+    \midrule
+    学习画像 & 掌握概率、置信度、不确定性、证据次数 & 将画像升级为动态认知状态模型 \\
+    SM-2/FSRS & 掌握概率、证据次数、最近观测、遗忘风险 & 计算复习优先级和最佳复习窗口 \\
+    Student Twin & 瓶颈节点、掌握概率、不确定性 & 模拟不同学习路径下的风险下降和掌握提升 \\
+    Study Plan & 低掌握节点、高不确定节点、复习债务 & 生成 \texttt{review\_section}、诊断题和小测任务 \\
+    前端可视化 & 概率条、置信度、不确定性、观测轨迹 & 向学生解释系统为什么推荐某个知识点 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{工程落地与接口结构}
+
+系统使用 \texttt{knowledge\_tracing\_states} 维护每个用户、每个 KG 节点的认知状态。该状态表采用用户编号和 KG 节点编号作为联合主键，保存 skill 名称、掌握概率、不确定性、置信度、证据次数、正确次数、错误次数、最近观测、BKT 参数和推断 trace。该结构既能支持 BKT 的实时更新，也能承载 DKT 序列模型输出，使上层模块始终读取统一认知状态。
+
+\begin{table}[H]
+  \centering
+  \caption{知识追踪状态表的核心字段}
+  \label{tab:kt-state-table}
+  \begin{tabularx}{\linewidth}{p{0.30\linewidth}p{0.25\linewidth}X}
+    \toprule
+    字段 & 类型含义 & 技术作用 \\
+    \midrule
+    \texttt{user\_id}、\texttt{kg\_node\_id} & 学生与 skill 标识 & 定位节点级认知状态 \\
+    \texttt{p\_mastery} & 掌握后验概率 & 替代简单累计掌握分数 \\
+    \texttt{uncertainty} & 概率熵归一化结果 & 表达模型不确定性 \\
+    \texttt{confidence} & 综合置信度 & 支持解释与前端展示 \\
+    \texttt{evidence\_count} & 观测次数 & 判断证据是否充分 \\
+    \texttt{correct\_count}、\texttt{incorrect\_count} & 正误统计 & 支持校准和评估 \\
+    \texttt{parameters\_json} & BKT 参数 & 保存 skill 级模型参数 \\
+    \texttt{trace\_json} & 推断过程 & 保存先验、后验、来源和模型信息 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+系统提供 \texttt{/api/learning/knowledge-tracing/\{user\_id\}} 接口返回学习者的知识追踪状态。接口输出包含 \texttt{schema\_version}、\texttt{model} 和 \texttt{states}，其中每个 state 对应一个 KG 节点。该接口使前端能够直接展示认知状态，也使答辩演示能够呈现系统如何从一次答题观测更新出新的掌握概率。
+
+\section{评估指标与展示方式}
+
+知识追踪模块从预测准确性、概率校准、认知解释和学习收益四个层面进行评估。预测准确性关注模型对下一次答题正确率的预测能力；概率校准关注掌握概率与真实正确率是否一致；认知解释关注系统能否清楚说明掌握判断来自哪些证据；学习收益关注基于知识追踪的复习计划是否提升后续表现。
+
+\begin{table}[H]
+  \centering
+  \caption{BKT/DKT 知识追踪模块评估指标}
+  \label{tab:kt-evaluation}
+  \begin{tabularx}{\linewidth}{p{0.25\linewidth}p{0.30\linewidth}X}
+    \toprule
+    指标类别 & 指标名称 & 含义 \\
+    \midrule
+    预测准确性 & Next Question AUC & 使用当前认知状态预测下一题是否答对 \\
+    概率校准 & Calibration Error & 比较 $P(\mathrm{mastery})$ 与真实正确率的一致性 \\
+    状态稳定性 & Posterior Stability & 多次观测后掌握概率是否趋于稳定 \\
+    不确定性质量 & Uncertainty Reduction & 证据增加后不确定性是否合理下降 \\
+    学习收益 & Mastery Uplift & 知识追踪驱动复习后的掌握度提升 \\
+    计划效果 & Review Hit Rate & 被模型标记为低掌握节点的复习命中率 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+在答辩展示中，系统可以选择一个口腔医学知识点展示完整推断过程：初始掌握概率为 $P(L_0)$，学生答对后根据猜测概率和失误概率计算后验，再经过学习转移得到新的 $P(L_{t+1})$；若学生随后答错，系统不会简单扣固定分，而是根据 slip 与 guess 参数重新解释该观测。前端同时展示掌握概率曲线、不确定性变化和证据次数，使评委能够直观看到系统如何把答题行为转化为动态认知状态。
+
+通过 BKT/DKT 知识追踪，OralSage 将学习画像从“记录型画像”提升为“推断型画像”。系统不再只保存学生做过什么，而是持续估计学生脑中对每个 KG 节点的隐含掌握状态，并将这一状态用于复习调度、数字孪生仿真和个性化计划生成，从而形成具有教育 AI 技术深度的认知建模闭环。

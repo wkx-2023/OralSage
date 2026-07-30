@@ -272,6 +272,26 @@ def _collect_review_candidates(
                 evidence_source="profile_mastery_by_kg_node",
             )
 
+    for row in memory.list_knowledge_trace_states(user_id, limit=200):
+        kg_id = str(row.get("kg_node_id") or "").strip()
+        if not kg_id:
+            continue
+        score = _as_float(row.get("p_mastery"), 0.5)
+        uncertainty = _as_float(row.get("uncertainty"), 0.5)
+        if score > _LOW_MASTERY_THRESHOLD and uncertainty < 0.35 and kg_id not in candidates:
+            continue
+        _merge_candidate(
+            candidates,
+            kg_node_id=kg_id,
+            label=str(row.get("skill_label") or kg_id),
+            mastery_score=score,
+            confidence=row.get("confidence"),
+            exposure_count=_as_int(row.get("evidence_count"), 0),
+            severity=max(0.0, (1.0 - score) * 0.72 + uncertainty * 0.28),
+            last_seen=row.get("updated_at"),
+            evidence_source="knowledge_tracing_state",
+        )
+
     for session in sessions:
         session_id = str(session.get("id") or "").strip()
         if not session_id:
