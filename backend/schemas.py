@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -95,6 +95,31 @@ class DecisionRequest(BaseModel):
     case_text: str
     top_k: int = 8
     allow_web: bool = True
+
+
+class ClinicalSpeakingStartRequest(BaseModel):
+    user_id: str = "demo"
+    request_id: str = Field(min_length=8, max_length=128)
+
+
+class ClinicalSpeakingTurnRequest(BaseModel):
+    user_id: str = "demo"
+    transcript: str = Field(min_length=1, max_length=4000)
+    request_id: str = Field(min_length=8, max_length=128)
+    input_mode: Literal["typed", "speech"] = "typed"
+
+
+class ClinicalSpeakingDiagnosisConfirmRequest(BaseModel):
+    user_id: str = "demo"
+    confirmed: bool
+    request_id: str = Field(min_length=8, max_length=128)
+
+
+class ClinicalSpeakingExamAnswerRequest(BaseModel):
+    user_id: str = "demo"
+    transcript: str = Field(min_length=1, max_length=6000)
+    request_id: str = Field(min_length=8, max_length=128)
+    input_mode: Literal["typed", "speech"] = "typed"
 
 
 class EvidenceSearchRequest(BaseModel):

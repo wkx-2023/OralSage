@@ -220,24 +220,24 @@ body {
 }
 
 .top-account-toggle {
-  border: 1px solid rgba(110, 92, 200, 0.16);
-  background: #ffffff;
+  border: 0;
+  background: transparent;
   color: #5249a8;
-  border-radius: 999px;
-  padding: 7px 10px 7px 7px;
-  min-width: 128px;
+  border-radius: 6px;
+  padding: 7px 6px;
+  min-width: 118px;
   max-width: 220px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  box-shadow: 0 8px 18px rgba(83, 67, 170, 0.08);
+  transition: color 160ms ease, background-color 160ms ease;
 }
 
 .top-account-toggle:hover,
 .top-account-toggle[aria-expanded="true"] {
-  border-color: rgba(110, 92, 200, 0.32);
-  background: #f8f5ff;
+  color: #4b3ea6;
+  background: rgba(110, 92, 200, 0.08);
 }
 
 .top-account.is-auth-pending .top-account-toggle {
@@ -245,8 +245,8 @@ body {
 }
 
 .top-account.is-auth-pending .top-account-avatar {
-  color: transparent;
-  background: #eeeaf8;
+  color: #a39bcf;
+  background: transparent;
 }
 
 .top-account.is-auth-pending .top-account-name,
@@ -265,23 +265,18 @@ body {
 }
 
 .top-account-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #efeaff;
-  color: #5d51b5;
+  width: 30px;
+  height: 30px;
+  color: #745fd1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1;
-  text-transform: uppercase;
 }
 
-.top-account.is-signed-in .top-account-avatar {
-  background: var(--accent);
-  color: #ffffff;
+.top-account-avatar svg {
+  width: 24px;
+  height: 24px;
+  display: block;
 }
 
 .top-account-copy {
@@ -603,8 +598,8 @@ button.btn:hover {
 
   .top-account-toggle {
     min-width: 0;
-    max-width: 46px;
-    padding: 7px;
+    max-width: 44px;
+    padding: 7px 5px;
   }
 
   .top-account-copy {

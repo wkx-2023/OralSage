@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999995 (MiKTeX 24.1) (preloaded format=xelatex 2025.4.12)  30 JUL 2026 11:43
+This is XeTeX, Version 3.141592653-2.6-0.999995 (MiKTeX 24.1) (preloaded format=xelatex 2025.4.12)  30 JUL 2026 12:12
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1507,120 +1507,120 @@ LaTeX Font Warning: Font shape `U/rsfs/m/n' in size <10.53937> not available
 \tf@toc=\write5
 \openout5 = `main.toc'.
 
- [5] [6
+ [5] (sections/01-overview.tex [6
 
-] (sections/01-overview.tex [7]
+]
 Chapter 1.
-[8
+[7
 
-] [9] [10]) (sections/02-system-design.tex [11]
+] [8] [9]) (sections/02-system-design.tex [10]
 Chapter 2.
 File: figures/overall-architecture.pdf Graphic file (type pdf)
 <use figures/overall-architecture.pdf>
-[12
+[11
 
-]) (sections/03-agent-collaboration.tex [13] [14]
+]) (sections/03-agent-collaboration.tex [12] [13]
 Chapter 3.
 File: figures/Collaboration-between-learning-resources-and-agents.pdf Graphic f
 ile (type pdf)
 <use figures/Collaboration-between-learning-resources-and-agents.pdf>
-[15
+[14
 
-] [16] [17] [18]
+] [15] [16] [17]
 Underfull \hbox (badness 10000) in paragraph at lines 238--238
 []|\TU/TimesNewRoman(0)/m/n/10.53937 Resource Factory
  []
 
-[19] [20]
+[18] [19]
 Package hyperref Info: bookmark level for unknown algorithm defaults to 0 on in
 put line 308.
- [21]
+ [20]
 Package hyperref Info: bookmark level for unknown lstlisting defaults to 0 on i
 nput line 361.
- [22]) (sections/04-image-analysis-agent.tex [23]
+ [21]) (sections/04-image-analysis-agent.tex [22]
 Chapter 4.
 File: figures/oralpath-fig17-multimodal-data.png Graphic file (type bmp)
 <figures/oralpath-fig17-multimodal-data.png>
-[24
+[23
 
-] [25]
+] [24]
 File: figures/oralpath-fig18-qwen-vl-design.png Graphic file (type bmp)
 <figures/oralpath-fig18-qwen-vl-design.png>
- [26]
+ [25]
 File: figures/oralpath-fig19-training-logic.png Graphic file (type bmp)
 <figures/oralpath-fig19-training-logic.png>
- [27]
+ [26]
 File: figures/oralpath-fig20-training-flow.png Graphic file (type bmp)
 <figures/oralpath-fig20-training-flow.png>
- [28]
+ [27]
 File: figures/oralpath-fig21-lora-scheme.png Graphic file (type bmp)
 <figures/oralpath-fig21-lora-scheme.png>
- [29]
+ [28]
 File: figures/oralpath-fig22-innovation-strategy.png Graphic file (type bmp)
 <figures/oralpath-fig22-innovation-strategy.png>
- [30] [31]
+ [29] [30]
 File: figures/oralpath-fig23-evaluation-strategy.png Graphic file (type bmp)
 <figures/oralpath-fig23-evaluation-strategy.png>
 File: figures/oralpath-fig24-summary-example.png Graphic file (type bmp)
 <figures/oralpath-fig24-summary-example.png>
- [32] [33]
+ [31] [32]
 File: figures/oralpath-fig25-detection-example.png Graphic file (type bmp)
 <figures/oralpath-fig25-detection-example.png>
- [34] [35])
-(sections/05-user-model-planning.tex [36]
+ [33] [34])
+(sections/05-user-model-planning.tex [35]
 Chapter 5.
 File: figures/profile-overall-architecture.pdf Graphic file (type pdf)
 <use figures/profile-overall-architecture.pdf>
-[37
+[36
 
-] [38]
+] [37]
 File: figures/trace-forest.pdf Graphic file (type pdf)
 <use figures/trace-forest.pdf>
- [39] [40]
+ [38] [39]
 File: figures/KG-knowledge-trace.pdf Graphic file (type pdf)
 <use figures/KG-knowledge-trace.pdf>
- [41]
+ [40]
 File: figures/profile-feedback-loop.pdf Graphic file (type pdf)
 <use figures/profile-feedback-loop.pdf>
- [42]) (sections/06-spaced-repetition-scheduling.tex
-[43]
+ [41]) (sections/06-spaced-repetition-scheduling.tex
+[42]
 Chapter 6.
-[44
+[43
 
-] [45] [46] [47]
+] [44] [45] [46]
 Overfull \hbox (34.42871pt too wide) detected at line 219
 [] \OMS/cmsy/m/n/10.53937 ! [] ! [] ! [] ! []\OML/cmm/m/it/10.53937 :
  []
 
-[48]) (sections/07-resource-generation.tex [49]
+[47]) (sections/07-resource-generation.tex [48]
 Chapter 7.
 File: figures/profile-resource-generation.pdf Graphic file (type pdf)
 <use figures/profile-resource-generation.pdf>
-[50
+[49
 
 ]
 File: figures/personalized-path-generation.pdf Graphic file (type pdf)
 <use figures/personalized-path-generation.pdf>
- [51] [52] [53]
+ [50] [51] [52]
 File: figures/resource-ppt-preview.png Graphic file (type bmp)
 <figures/resource-ppt-preview.png>
- [54] [55]) (sections/08-knowledge-base.tex [56]
+ [53] [54]) (sections/08-knowledge-base.tex [55]
 Chapter 8.
 File: figures/kb-data-process.pdf Graphic file (type pdf)
 <use figures/kb-data-process.pdf>
-[57
+[56
 
-] [58] [59] [60] [61] [62] [63] [64] [65]
+] [57] [58] [59] [60] [61] [62] [63] [64]
 File: figures/kb-architecture.pdf Graphic file (type pdf)
 <use figures/kb-architecture.pdf>
- [66]
+ [65]
 File: figures/kb-layered-architecture.pdf Graphic file (type pdf)
 <use figures/kb-layered-architecture.pdf>
- [67] [68]
+ [66] [67]
 File: figures/kb-search-process.pdf Graphic file (type pdf)
 <use figures/kb-search-process.pdf>
- [69] [70] [71]
-[72]) (sections/09-system-implementation.tex [73]
+ [68] [69] [70]
+[71]) (sections/09-system-implementation.tex [72]
 Chapter 9.
 
 Underfull \hbox (badness 10000) in paragraph at lines 20--20
@@ -1647,7 +1647,7 @@ Underfull \hbox (badness 10000) in paragraph at lines 20--20
 NewRoman(0)/m/n/10.53937 KG\TU/SimSun(1)/m/n/10.53937 、|  题 库、|
  []
 
-[74
+[73
 
 ]
 Underfull \hbox (badness 4621) in paragraph at lines 95--96
@@ -1709,53 +1709,53 @@ Underfull \hbox (badness 2343) in paragraph at lines 180--181
 []|\TU/TimesNewRoman(0)/m/n/9.03374 GET /api/learning/session/{session_
  []
 
-[75] [76]
+[74] [75]
 File: figures/ui-home.png Graphic file (type bmp)
 <figures/ui-home.png>
- [77]
+ [76]
 File: figures/ui-teaching-result.png Graphic file (type bmp)
 <figures/ui-teaching-result.png>
- [78]
+ [77]
 File: figures/ui-qa-result.png Graphic file (type bmp)
 <figures/ui-qa-result.png>
 File: figures/ui-study-plan-chat.png Graphic file (type bmp)
 <figures/ui-study-plan-chat.png>
- [79]
+ [78]
 File: figures/ui-learning-plan.png Graphic file (type bmp)
 <figures/ui-learning-plan.png>
- [80]
+ [79]
 File: figures/ui-literature-result.png Graphic file (type bmp)
 <figures/ui-literature-result.png>
 File: figures/ui-learning-profile.png Graphic file (type bmp)
 <figures/ui-learning-profile.png>
- [81]
+ [80]
 File: figures/ui-learning-plan.png Graphic file (type bmp)
 <figures/ui-learning-plan.png>
- [82]
+ [81]
 (D:\miktex\tex/latex/listings\lstlang1.sty
 File: lstlang1.sty 2023/02/27 1.9 listings language file
 )
 (D:\miktex\tex/latex/listings\lstlang1.sty
 File: lstlang1.sty 2023/02/27 1.9 listings language file
-) [83] [84]
+) [82] [83]
 Underfull \hbox (badness 2401) in paragraph at lines 432--432
 []|\TU/TimesNewRoman(0)/m/n/9.03374 package.json \TU/SimSun(1)/m/n/9.03374 声 明
  []
 
-[85]) (sections/10-testing-evaluation.tex [86]
+[84]) (sections/10-testing-evaluation.tex [85]
 Chapter 10.
-[87
+[86
 
-] [88] [89] [90] [91]) (sections/11-innovation-value.tex [92]
+] [87] [88] [89] [90]) (sections/11-innovation-value.tex [91]
 Chapter 11.
-[93
+[92
 
-] [94]
+] [93]
 Underfull \hbox (badness 3118) in paragraph at lines 100--100
 []|\TU/SimSun(1)/m/n/10.53937 同 一 课 程 节 点 下 组 织 讲 义、|  讲 解、|
  []
 
-[95]) (sections/12-deployment-demo.tex [96]
+[94]) (sections/12-deployment-demo.tex [95]
 Chapter 12.
 
 Underfull \hbox (badness 10000) in paragraph at lines 24--24
@@ -1793,7 +1793,7 @@ Underfull \hbox (badness 10000) in paragraph at lines 51--51
 \TU/TimesNewRoman(0)/m/n/10.53937 yun.com/v1/private/dts_
  []
 
-[97
+[96
 
 ]) (sections/13-conclusion.tex
 Underfull \hbox (badness 1308) in paragraph at lines 77--1
@@ -1802,17 +1802,17 @@ Underfull \hbox (badness 1308) in paragraph at lines 77--1
 /10.53937 http://127.0.0.1:8000/\TU/SimSun(1)/m/n/10.53937 ，|  接 口 文 档 地 址 为
  []
 
-[98]
+[97]
 Chapter 13.
-[99
+[98
 
-] [100]) (sections/appendix-a.tex [101] [102
+] [99]) (sections/appendix-a.tex [100] [101
 
-]) [103] (main.bbl [104
+]) [102] (main.bbl [103
 
 
-]
-[105]) [106] (main.aux)
+] [104])
+[105] (main.aux)
  ***********
 LaTeX2e <2023-11-01> patch level 1
 L3 programming layer <2022/08/05>
@@ -1834,4 +1834,4 @@ Here is how much of TeX's memory you used:
  1348 hyphenation exceptions out of 8191
  93i,13n,99p,727b,2329s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on main.pdf (107 pages).
+Output written on main.pdf (106 pages).

@@ -7,10 +7,10 @@
   const NAV_ITEMS = [
     { key: 'home', name: '\u603b\u63a7\u5de5\u4f5c\u53f0', path: '/' },
     { key: 'master-chat', name: '\u667a\u80fd\u95ee\u7b54', path: '/pages/master-chat.html' },
+    { key: 'clinical-speaking', name: '问诊模拟', path: '/pages/clinical-speaking.html' },
     { key: 'learning-plan', name: '学习计划', path: '/pages/learning-plan.html' },
     { key: 'learning-profile', name: '\u5b66\u4e60\u753b\u50cf', path: '/pages/learning-profile.html' },
-    { key: 'evidence', name: '\u77e5\u8bc6\u5e93\u67e5\u770b', path: '/pages/evidence.html' },
-    { key: 'knowledge-graph', name: '\u77e5\u8bc6\u56fe\u8c31\u67e5\u770b', path: '/pages/knowledge-graph.html' },
+    { key: 'knowledge-graph', name: '\u77e5\u8bc6\u56fe\u8c31', path: '/pages/knowledge-graph.html' },
   ];
 
   const BRAND_HTML = `
@@ -24,6 +24,7 @@
     '/': { key: 'home', title: 'OralSage', subtitle: '\u53e3\u8154\u533b\u5b66\u667a\u80fd\u5b66\u4e60\u5de5\u4f5c\u53f0' },
     '/index.html': { key: 'home', title: 'OralSage', subtitle: '\u53e3\u8154\u533b\u5b66\u667a\u80fd\u5b66\u4e60\u5de5\u4f5c\u53f0' },
     '/pages/master-chat.html': { key: 'master-chat', title: '\u667a\u80fd\u95ee\u7b54', subtitle: TEXT.learningChatSubtitle },
+    '/pages/clinical-speaking.html': { key: 'clinical-speaking', title: '问诊模拟', subtitle: '' },
     '/pages/weixin-account.html': { key: 'weixin-account', title: '微信连接', subtitle: '连接 ClawBot，用微信接收每日计划、打卡和修改计划' },
     '/pages/learning-plan.html': { key: 'learning-plan', title: '学习计划', subtitle: '按日记录学习计划、完成反馈和节奏记忆' },
     '/pages/learning-profile.html': { key: 'learning-profile', title: '\u5b66\u4e60\u753b\u50cf', subtitle: '\u67e5\u770b\u957f\u671f\u8bb0\u5fc6\u3001\u638c\u63e1\u5ea6\u548c\u753b\u50cf\u8bc1\u636e' },
@@ -138,7 +139,12 @@
     account.className = 'top-account is-auth-pending';
     account.innerHTML = `
       <button id="top-account-toggle" class="top-account-toggle" type="button" aria-haspopup="menu" aria-expanded="false">
-        <span id="top-account-avatar" class="top-account-avatar" aria-hidden="true"></span>
+        <span id="top-account-avatar" class="top-account-avatar" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+            <circle cx="12" cy="8" r="3.25"></circle>
+            <path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>
+          </svg>
+        </span>
         <span class="top-account-copy">
           <span id="top-account-name" class="top-account-name"></span>
           <span id="top-account-role" class="top-account-role"></span>
@@ -183,7 +189,6 @@
     const account = byId('top-account');
     const name = byId('top-account-name');
     const role = byId('top-account-role');
-    const avatar = byId('top-account-avatar');
     const logout = account?.querySelector('[data-account-logout]');
     const login = account?.querySelector('[data-account-login]');
     const displayName = String(user?.display_name || user?.username || user?.user_id || '').trim();
@@ -192,7 +197,6 @@
 
     if (name) name.textContent = signedIn ? displayName : '未登录';
     if (role) role.textContent = signedIn ? (roleText || 'user') : '去登录/注册';
-    if (avatar) avatar.textContent = signedIn ? displayName.slice(0, 1).toUpperCase() : '?';
     if (account) account.classList.toggle('is-signed-in', signedIn);
     if (account) account.classList.remove('is-auth-pending');
     if (logout) logout.hidden = !signedIn;

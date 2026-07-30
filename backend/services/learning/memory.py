@@ -783,20 +783,47 @@ class LearningMemory:
     # -- session -------------------------------------------------------
 
     def create_session(
-        self, user_id: str, topic: str, mode: str = "course_learning"
+        self,
+        user_id: str,
+        topic: str,
+        mode: str = "course_learning",
+        *,
+        session_id: str | None = None,
     ) -> dict:
-        """Create a new learning session and return it as a dict."""
+        """Create a learning session, optionally idempotent by session id."""
         self.ensure_user(user_id)
-        sid = _new_id("lesson_")
+        sid = str(session_id or _new_id("lesson_")).strip()
+        if not sid:
+            raise ValueError("session_id must not be empty")
+        existing = self._conn.execute(
+            "SELECT * FROM learning_sessions WHERE id = ?", (sid,)
+        ).fetchone()
+        if existing is not None:
+            stored = dict(existing)
+            if (
+                stored["user_id"] != user_id
+                or stored["topic"] != topic
+                or stored["mode"] != mode
+            ):
+                raise ValueError(f"Session id conflicts with existing session: {sid}")
+            return stored
         now = _now()
         self._conn.execute(
             """INSERT INTO learning_sessions
                (id, user_id, topic, mode, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, 'active', ?, ?)""",
+               VALUES (?, ?, ?, ?, 'active', ?, ?)
+               ON CONFLICT(id) DO NOTHING""",
             (sid, user_id, topic, mode, now, now),
         )
         self._conn.commit()
-        return self.get_session(sid)
+        stored = self.get_session(sid)
+        if (
+            stored["user_id"] != user_id
+            or stored["topic"] != topic
+            or stored["mode"] != mode
+        ):
+            raise ValueError(f"Session id conflicts with existing session: {sid}")
+        return stored
 
     def get_session(self, session_id: str) -> dict:
         """Return a session dict.  Raises ``KeyError`` when not found."""
@@ -806,6 +833,21 @@ class LearningMemory:
         if row is None:
             raise KeyError(f"Session not found: {session_id}")
         return dict(row)
+
+    def set_session_status(self, session_id: str, status: str) -> dict:
+        """Persist a lifecycle status for a learning session."""
+        normalized = str(status or "").strip()
+        if normalized not in {"active", "completed", "abandoned"}:
+            raise ValueError(f"Unsupported learning session status: {status}")
+        cursor = self._conn.execute(
+            "UPDATE learning_sessions SET status = ?, updated_at = ? WHERE id = ?",
+            (normalized, _now(), session_id),
+        )
+        if cursor.rowcount != 1:
+            self._conn.rollback()
+            raise KeyError(f"Session not found: {session_id}")
+        self._conn.commit()
+        return self.get_session(session_id)
 
     def list_sessions_for_user(
         self,
@@ -905,6 +947,46 @@ class LearningMemory:
         )
         self._conn.commit()
         return eid
+
+    def record_event_once(
+        self,
+        event_id: str,
+        session_id: str,
+        user_id: str,
+        event_type: str,
+        outline_node_id: str | None,
+        payload: dict,
+    ) -> str:
+        """Insert a deterministic event once and reject id collisions."""
+        normalized_id = str(event_id or "").strip()
+        if not normalized_id:
+            raise ValueError("event_id must not be empty")
+        self._conn.execute(
+            """INSERT INTO lesson_events
+               (id, session_id, user_id, event_type, outline_node_id, payload_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO NOTHING""",
+            (
+                normalized_id,
+                session_id,
+                user_id,
+                event_type,
+                outline_node_id,
+                json.dumps(payload or {}, ensure_ascii=False),
+                _now(),
+            ),
+        )
+        self._conn.commit()
+        stored = self.get_event(normalized_id)
+        if stored is None or any(
+            (
+                stored["session_id"] != session_id,
+                stored["user_id"] != user_id,
+                stored["event_type"] != event_type,
+            )
+        ):
+            raise ValueError(f"Event id conflicts with existing event: {normalized_id}")
+        return normalized_id
 
     def get_event(
         self,
@@ -1268,6 +1350,7 @@ class LearningMemory:
         evidence: dict[str, Any] | None = None,
         confidence_delta: float = 0.05,
         exposure_increment: int = 0,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Insert or update a mastery record.
 
@@ -1295,6 +1378,10 @@ class LearningMemory:
 
         if existing_row:
             existing = dict(existing_row)
+            if idempotency_key:
+                existing_evidence = json.loads(existing.get("evidence_json") or "{}")
+                if existing_evidence.get("idempotency_key") == idempotency_key:
+                    return self._mastery_row_to_dict(existing["id"])
             new_score = max(0.0, min(1.0, existing["mastery_score"] + mastery_delta))
             new_confidence = max(
                 0.0, min(1.0, existing["confidence"] + confidence_delta)
@@ -1310,7 +1397,10 @@ class LearningMemory:
                     new_score,
                     new_confidence,
                     new_exposure,
-                    json.dumps(evidence or {}, ensure_ascii=False),
+                    json.dumps(
+                        {**(evidence or {}), **({"idempotency_key": idempotency_key} if idempotency_key else {})},
+                        ensure_ascii=False,
+                    ),
                     _now(),
                     existing["id"],
                 ),
@@ -1336,7 +1426,10 @@ class LearningMemory:
                     new_score,
                     new_confidence,
                     new_exposure,
-                    json.dumps(evidence or {}, ensure_ascii=False),
+                    json.dumps(
+                        {**(evidence or {}), **({"idempotency_key": idempotency_key} if idempotency_key else {})},
+                        ensure_ascii=False,
+                    ),
                     _now(),
                 ),
             )

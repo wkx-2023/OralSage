@@ -70,6 +70,45 @@ class LlmStreamingTests(unittest.TestCase):
         self.assertEqual(captured, ["hello ", "world"])
         self.assertEqual(result, "hello world")
 
+    def test_chat_completion_ignores_reasoning_only_sse_deltas(self) -> None:
+        captured = []
+        response = _StreamingResponse([
+            b'data: {"choices":[{"delta":{"reasoning_content":"private reasoning"}}]}\n',
+            b'\n',
+            b'data: {"choices":[{"delta":{"content":"{\\"ok\\":"}}]}\n',
+            b'data: {"choices":[{"delta":{"content":"true}"}}]}\n',
+            b'data: [DONE]\n',
+        ])
+        with (
+            patch.dict(os.environ, {"QWEN_API_KEY": "test-key"}),
+            patch("backend.services.llm_client.urlopen", return_value=response),
+        ):
+            result = chat_completion(
+                [{"role": "user", "content": "test"}],
+                stream_callback=captured.append,
+            )
+
+        self.assertEqual(result, '{"ok":true}')
+        self.assertEqual(captured, ['{"ok":', "true}"])
+
+    def test_chat_completion_rejects_reasoning_only_sse_response(self) -> None:
+        response = _StreamingResponse([
+            b'data: {"choices":[{"delta":{"reasoning_content":"private reasoning"}}]}\n',
+            b'data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}]}\n',
+            b'data: [DONE]\n',
+        ])
+        with (
+            patch.dict(os.environ, {"QWEN_API_KEY": "test-key"}),
+            patch("backend.services.llm_client.urlopen", return_value=response),
+            self.assertRaises(LLMRequestError) as raised,
+        ):
+            chat_completion(
+                [{"role": "user", "content": "test"}],
+                stream_callback=lambda _delta: None,
+            )
+
+        self.assertIn("no text content", str(raised.exception))
+
     def test_chat_completion_retries_without_json_mode_on_400(self) -> None:
         calls = []
 
@@ -122,6 +161,18 @@ class LlmStreamingTests(unittest.TestCase):
 
         self.assertEqual(classify_llm_error(raised.exception), "unsupported")
 
+    def test_http_429_is_classified_as_retryable_rate_limit(self) -> None:
+        request_error = LLMRequestError("HTTP Error 429: Too Many Requests")
+        request_error.__cause__ = HTTPError(
+            "https://example.test/v2/chat/completions",
+            429,
+            "Too Many Requests",
+            hdrs=None,
+            fp=BytesIO(b'{"message":"rate limited"}'),
+        )
+
+        self.assertEqual(classify_llm_error(request_error), "rate_limit")
+
     def test_chat_completion_uses_explicit_timeout(self) -> None:
         observed_timeouts = []
 
@@ -142,6 +193,73 @@ class LlmStreamingTests(unittest.TestCase):
 
         self.assertEqual(result, "ok")
         self.assertEqual(observed_timeouts, [7])
+
+    def test_chat_completion_sends_xfyun_reasoning_request_to_v2_endpoint(self) -> None:
+        response = _JsonResponse({
+            "choices": [{"message": {"content": '{"ok": true}'}}],
+        })
+        clinical_env = {
+            "CLINICAL_SPEAKING_LLM_API_KEY": "test-key",
+            "CLINICAL_SPEAKING_LLM_BASE_URL": "https://maas-api.cn-huabei-1.xf-yun.com/v2",
+            "CLINICAL_SPEAKING_LLM_MODEL": "xsparkx2flash",
+        }
+        with (
+            patch.dict(os.environ, clinical_env),
+            patch("backend.services.llm_client.urlopen", return_value=response) as mocked,
+        ):
+            result = chat_completion(
+                [{"role": "user", "content": "test"}],
+                api_key_names=("CLINICAL_SPEAKING_LLM_API_KEY",),
+                base_url_names=("CLINICAL_SPEAKING_LLM_BASE_URL",),
+                model_names=("CLINICAL_SPEAKING_LLM_MODEL",),
+                extra_body={"search_disable": True},
+            )
+
+        request = mocked.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(
+            request.full_url,
+            "https://maas-api.cn-huabei-1.xf-yun.com/v2/chat/completions",
+        )
+        self.assertEqual(payload["model"], "xsparkx2flash")
+        self.assertNotIn("response_format", payload)
+        self.assertTrue(payload["search_disable"])
+        self.assertEqual(request.headers["Authorization"], "Bearer test-key")
+        self.assertEqual(result, '{"ok": true}')
+
+    def test_chat_completion_rejects_extra_body_core_field_overrides(self) -> None:
+        with (
+            patch.dict(os.environ, {"QWEN_API_KEY": "test-key"}),
+            self.assertRaises(ValueError),
+        ):
+            chat_completion(
+                [{"role": "user", "content": "test"}],
+                extra_body={"model": "unexpected-model"},
+            )
+
+    def test_chat_completion_does_not_duplicate_full_endpoint_suffix(self) -> None:
+        response = _JsonResponse({
+            "choices": [{"message": {"content": "ok"}}],
+        })
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "QWEN_API_KEY": "test-key",
+                    "QWEN_BASE_URL": "https://example.test/v1/chat/completions",
+                },
+            ),
+            patch("backend.services.llm_client.urlopen", return_value=response) as mocked,
+        ):
+            chat_completion(
+                [{"role": "user", "content": "test"}],
+                base_url_names=("QWEN_BASE_URL",),
+            )
+
+        self.assertEqual(
+            mocked.call_args.args[0].full_url,
+            "https://example.test/v1/chat/completions",
+        )
 
     def test_tutor_parser_only_emits_teaching_text(self) -> None:
         chunks = []
