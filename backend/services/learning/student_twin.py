@@ -368,6 +368,191 @@ def _plan_items_from_path(
     return items
 
 
+def _path_display_label(path: dict[str, Any]) -> str:
+    strategy = str(path.get("strategy") or path.get("path_id") or "")
+    if strategy == "new_lesson_first":
+        return "继续新课"
+    if strategy == "review_first":
+        return "间隔复习"
+    if strategy == "review_then_practice":
+        return "复习 + 小测"
+    return str(path.get("name") or "学习路径")
+
+
+def _build_mastery_forecast(
+    *,
+    overall_mastery: float,
+    paths: list[dict[str, Any]],
+    horizon_days: int = 3,
+) -> dict[str, Any]:
+    series: list[dict[str, Any]] = []
+    colors = {
+        "new_lesson_first": "#8b97a8",
+        "review_first": "#0f766e",
+        "review_then_practice": "#2563eb",
+    }
+    for path in paths:
+        gain = _as_float(path.get("mastery_gain"), 0.06)
+        risk_drop = _as_float(path.get("risk_reduction"), 0.05)
+        load = _as_float(path.get("cognitive_load"), 0.06)
+        points: list[dict[str, Any]] = []
+        for day in range(horizon_days + 1):
+            if day == 0:
+                mastery = overall_mastery
+            else:
+                retention_decay = 0.012 * day + load * 0.03
+                consolidation = gain * (1 - (0.54 ** day)) + risk_drop * 0.18 * (day / horizon_days)
+                mastery = overall_mastery + consolidation - retention_decay
+            points.append({
+                "day": day,
+                "mastery": round(_clamp(mastery, 0.0, 0.98), 3),
+            })
+        strategy = str(path.get("strategy") or "")
+        series.append({
+            "path_id": path.get("path_id"),
+            "label": _path_display_label(path),
+            "color": colors.get(strategy, "#6d5bd0"),
+            "recommended": bool(path.get("recommended")),
+            "points": points,
+        })
+    return {
+        "horizon_days": horizon_days,
+        "target_retention": 0.9,
+        "series": series,
+    }
+
+
+def _risk_status(*, risk: float, mastery: float) -> str:
+    if risk >= 0.68 or mastery < 0.45:
+        return "danger"
+    if risk >= 0.5 or mastery < 0.62:
+        return "warn"
+    if risk >= 0.34 or mastery < 0.76:
+        return "mid"
+    return "ok"
+
+
+def _build_cognitive_map(bottlenecks: list[dict[str, Any]]) -> dict[str, Any]:
+    default_nodes = [
+        {"label": "核心概念", "mastery_score": 0.72, "risk_score": 0.28},
+        {"label": "前置知识", "mastery_score": 0.66, "risk_score": 0.36},
+        {"label": "病例迁移", "mastery_score": 0.54, "risk_score": 0.52},
+        {"label": "高风险节点", "mastery_score": 0.39, "risk_score": 0.74},
+        {"label": "复习巩固", "mastery_score": 0.71, "risk_score": 0.3},
+        {"label": "易混淆点", "mastery_score": 0.42, "risk_score": 0.69},
+    ]
+    source_nodes = list(bottlenecks[:6])
+    while len(source_nodes) < 6:
+        source_nodes.append(default_nodes[len(source_nodes)])
+
+    nodes: list[dict[str, Any]] = []
+    for index, item in enumerate(source_nodes[:6]):
+        mastery = _as_float(item.get("mastery_score"), 0.55)
+        risk = _as_float(item.get("risk_score"), 0.4)
+        nodes.append({
+            "node_index": index,
+            "kg_node_id": item.get("kg_node_id") or f"synthetic:{index}",
+            "label": str(item.get("label") or default_nodes[index]["label"]),
+            "mastery": round(_clamp(mastery, 0.0, 1.0), 3),
+            "risk": round(_clamp(risk, 0.0, 0.98), 3),
+            "status": _risk_status(risk=risk, mastery=mastery),
+            "reason": item.get("reason"),
+        })
+
+    base_edges = [
+        {"source_index": 0, "target_index": 1, "type": "prerequisite"},
+        {"source_index": 0, "target_index": 2, "type": "transfer"},
+        {"source_index": 1, "target_index": 3, "type": "concept_link"},
+        {"source_index": 2, "target_index": 3, "type": "risk_bridge"},
+        {"source_index": 2, "target_index": 4, "type": "reinforcement"},
+        {"source_index": 3, "target_index": 5, "type": "confusion_link"},
+    ]
+    ranked = sorted(nodes, key=lambda node: float(node["risk"]), reverse=True)
+    high_risk_indices = [int(node["node_index"]) for node in ranked[:3]]
+    risk_edges: list[dict[str, Any]] = []
+    if len(high_risk_indices) >= 2:
+        risk_edges.append({
+            "source_index": high_risk_indices[0],
+            "target_index": high_risk_indices[1],
+            "risk_flow": round((ranked[0]["risk"] + ranked[1]["risk"]) / 2, 3),
+        })
+    if len(high_risk_indices) >= 3:
+        risk_edges.append({
+            "source_index": high_risk_indices[1],
+            "target_index": high_risk_indices[2],
+            "risk_flow": round((ranked[1]["risk"] + ranked[2]["risk"]) / 2, 3),
+        })
+    return {
+        "layout": "fixed_six_node_v1",
+        "nodes": nodes,
+        "edges": base_edges,
+        "risk_edges": risk_edges,
+        "caption": "红色链路表示预测卡点传播路径",
+    }
+
+
+def _build_optimal_strategy(
+    *,
+    recommended_path: dict[str, Any],
+    recommended_items: list[dict[str, Any]],
+    available_minutes: int,
+) -> dict[str, Any]:
+    steps: list[dict[str, Any]] = []
+    for item in recommended_items[:3]:
+        minutes = _as_int(item.get("estimated_minutes"), 0)
+        steps.append({
+            "minutes": minutes or max(5, min(available_minutes, 12)),
+            "title": item.get("title") or item.get("learning_target") or "数字孪生学习任务",
+            "description": item.get("reason") or item.get("notes") or "根据数字孪生仿真结果生成。",
+            "task_type": item.get("task_type"),
+            "kg_node_ids": item.get("kg_node_ids", []),
+        })
+    if not steps:
+        steps.append({
+            "minutes": available_minutes,
+            "title": recommended_path.get("name") or "执行推荐学习路径",
+            "description": recommended_path.get("summary") or "按推荐路径完成今日学习。",
+            "task_type": "student_twin",
+            "kg_node_ids": [],
+        })
+    return {
+        "title": f"今日最优 {available_minutes} 分钟策略",
+        "subtitle": f"推荐路径：{recommended_path.get('name') or '数字孪生推荐路径'}",
+        "path_id": recommended_path.get("path_id"),
+        "can_generate_plan": bool(recommended_items),
+        "steps": steps,
+    }
+
+
+def _build_dashboard(
+    *,
+    overall_mastery: float,
+    bottlenecks: list[dict[str, Any]],
+    paths: list[dict[str, Any]],
+    recommended_path: dict[str, Any],
+    recommended_items: list[dict[str, Any]],
+    available_minutes: int,
+) -> dict[str, Any]:
+    return {
+        "path_simulation": {
+            "title": "学习路径仿真对比",
+            "subtitle": "虚拟学生 Agent 先模拟不同路径，再选择单位时间收益最高方案",
+            "paths": paths,
+            "recommended_path_id": recommended_path.get("path_id"),
+        },
+        "mastery_forecast": _build_mastery_forecast(
+            overall_mastery=overall_mastery,
+            paths=paths,
+        ),
+        "cognitive_map": _build_cognitive_map(bottlenecks),
+        "optimal_strategy": _build_optimal_strategy(
+            recommended_path=recommended_path,
+            recommended_items=recommended_items,
+            available_minutes=available_minutes,
+        ),
+    }
+
+
 def build_student_twin_simulation(
     memory: LearningMemory,
     *,
@@ -424,6 +609,14 @@ def build_student_twin_simulation(
         plan_date=target.isoformat(),
         bottlenecks=bottlenecks,
     ) if recommended_path else []
+    dashboard = _build_dashboard(
+        overall_mastery=overall_mastery,
+        bottlenecks=bottlenecks,
+        paths=paths,
+        recommended_path=recommended_path,
+        recommended_items=recommended_items,
+        available_minutes=minutes,
+    )
     next_best = paths[1] if len(paths) > 1 else None
     counterfactual = ""
     if recommended_path and next_best:
@@ -461,6 +654,7 @@ def build_student_twin_simulation(
         "recommended_path_id": recommended_path.get("path_id"),
         "recommended_plan_items": recommended_items,
         "counterfactual": counterfactual,
+        "dashboard": dashboard,
         "trace": {
             "model": "student_twin_v1",
             "simulation_type": "deterministic_counterfactual_path_scoring",

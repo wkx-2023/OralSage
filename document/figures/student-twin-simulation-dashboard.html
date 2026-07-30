@@ -1,0 +1,1111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>数字孪生学生仿真 Agent 界面稿</title>
+  <style>
+    :root {
+      --bg: #f3f6f9;
+      --panel: #ffffff;
+      --panel-soft: #f8fafc;
+      --ink: #182230;
+      --muted: #667085;
+      --line: #d8e1ea;
+      --blue: #2563eb;
+      --teal: #0f766e;
+      --green: #15803d;
+      --amber: #b7791f;
+      --red: #c2413b;
+      --violet: #6d5bd0;
+      --shadow: 0 18px 42px rgba(24, 34, 48, 0.11);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    .canvas {
+      width: 1440px;
+      min-height: 960px;
+      margin: 0 auto;
+      padding: 28px 34px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(243, 246, 249, 0.96)),
+        var(--bg);
+    }
+
+    .topbar {
+      height: 66px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: #1f3a5f;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    .brand h1 {
+      font-size: 22px;
+      line-height: 1.12;
+    }
+
+    .brand p {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav span {
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 14px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .nav .active {
+      color: var(--blue);
+      background: #eaf1ff;
+      border-color: #c9d9ff;
+      font-weight: 700;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 360px 1fr 360px;
+      gap: 22px;
+      padding-top: 24px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 18px;
+      align-content: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .panel-title {
+      font-size: 17px;
+      line-height: 1.25;
+      font-weight: 800;
+    }
+
+    .panel-desc {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .panel-body {
+      padding: 18px 20px 20px;
+    }
+
+    .tag {
+      height: 28px;
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 9px;
+      border-radius: 5px;
+      border: 1px solid;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .tag.blue {
+      color: var(--blue);
+      background: #eef4ff;
+      border-color: #bfd2ff;
+    }
+
+    .tag.green {
+      color: var(--green);
+      background: #edf9f0;
+      border-color: #bfe6ca;
+    }
+
+    .tag.red {
+      color: var(--red);
+      background: #fff1f0;
+      border-color: #f2c0bd;
+    }
+
+    .tag.amber {
+      color: var(--amber);
+      background: #fff7e8;
+      border-color: #efd19a;
+    }
+
+    .twin-profile {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    .avatar {
+      width: 92px;
+      height: 112px;
+      border-radius: 8px;
+      border: 1px solid #c8d4e1;
+      background: #edf3f8;
+      display: grid;
+      place-items: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .avatar::before {
+      content: "";
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: #2c5282;
+      position: absolute;
+      top: 20px;
+    }
+
+    .avatar::after {
+      content: "";
+      width: 66px;
+      height: 50px;
+      border-radius: 22px 22px 8px 8px;
+      background: #5b7ca5;
+      position: absolute;
+      top: 64px;
+    }
+
+    .scan-line {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      height: 2px;
+      top: 48px;
+      background: var(--teal);
+      box-shadow: 0 0 10px rgba(15, 118, 110, 0.65);
+    }
+
+    .profile-name {
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .profile-meta {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .metric {
+      min-height: 86px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 25px;
+      line-height: 1;
+    }
+
+    .metric small {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .state-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .state-item {
+      display: grid;
+      grid-template-columns: 88px 1fr 44px;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .bar {
+      height: 8px;
+      border-radius: 5px;
+      background: #e6ecf2;
+      overflow: hidden;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--blue);
+    }
+
+    .bar.green span {
+      background: var(--green);
+    }
+
+    .bar.amber span {
+      background: var(--amber);
+    }
+
+    .bar.red span {
+      background: var(--red);
+    }
+
+    .center-hero {
+      min-height: 314px;
+    }
+
+    .simulation-grid {
+      display: grid;
+      grid-template-columns: 1.04fr 0.96fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .knowledge-map {
+      height: 254px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .knowledge-map svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .map-caption {
+      position: absolute;
+      left: 14px;
+      bottom: 12px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+    }
+
+    .decision-card {
+      min-height: 254px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+    }
+
+    .decision-title {
+      font-size: 15px;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+
+    .decision-row {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 12px;
+      padding: 11px 0;
+      border-top: 1px solid #e3e9ef;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .decision-row:first-of-type {
+      border-top: 0;
+    }
+
+    .decision-row b {
+      color: var(--ink);
+    }
+
+    .decision-row span {
+      color: var(--muted);
+    }
+
+    .path-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .path {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      padding: 15px;
+      min-height: 204px;
+      display: grid;
+      align-content: start;
+      gap: 12px;
+    }
+
+    .path.recommended {
+      border-color: #8bb8ff;
+      background: #f4f8ff;
+    }
+
+    .path-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .path h3 {
+      font-size: 15px;
+      line-height: 1.3;
+    }
+
+    .path p {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .path-score {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .path-score div {
+      min-height: 56px;
+      padding: 9px 7px;
+      border-radius: 6px;
+      border: 1px solid #e0e7ef;
+      background: #fff;
+    }
+
+    .path-score span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .path-score strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 16px;
+    }
+
+    .chart-wrap {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 18px;
+    }
+
+    .line-chart,
+    .gain-list {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      min-height: 250px;
+    }
+
+    .line-chart {
+      padding: 14px;
+    }
+
+    .line-chart svg {
+      width: 100%;
+      height: 222px;
+      display: block;
+    }
+
+    .legend {
+      display: flex;
+      gap: 16px;
+      margin: 0 0 10px 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend i {
+      width: 18px;
+      height: 3px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+
+    .gain-list {
+      padding: 16px;
+    }
+
+    .gain-list h3 {
+      font-size: 15px;
+      margin-bottom: 13px;
+    }
+
+    .gain-row {
+      display: grid;
+      grid-template-columns: 86px 1fr 54px;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 0;
+      border-top: 1px solid #e3e9ef;
+      font-size: 13px;
+    }
+
+    .gain-row:first-of-type {
+      border-top: 0;
+    }
+
+    .gain-row strong {
+      color: var(--green);
+      text-align: right;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 12px;
+    }
+
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 74px 1fr;
+      gap: 12px;
+      align-items: start;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e3e9ef;
+    }
+
+    .timeline-item:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .time {
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 5px;
+      background: #eef4ff;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .timeline-item h3 {
+      font-size: 14px;
+      line-height: 1.3;
+      margin-bottom: 5px;
+    }
+
+    .timeline-item p {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .signal-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .signal-table th,
+    .signal-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #e3e9ef;
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    .signal-table th {
+      color: var(--muted);
+      font-weight: 700;
+      background: #f8fafc;
+    }
+
+    .signal-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .pill {
+      display: inline-flex;
+      height: 24px;
+      align-items: center;
+      padding: 0 8px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 700;
+      background: #eef2f6;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .pill.red {
+      background: #fff1f0;
+      color: var(--red);
+    }
+
+    .pill.amber {
+      background: #fff7e8;
+      color: var(--amber);
+    }
+
+    .pill.green {
+      background: #edf9f0;
+      color: var(--green);
+    }
+
+    .action-panel {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .action {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      background: var(--panel-soft);
+    }
+
+    .action h3 {
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+
+    .action p {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .btn {
+      height: 38px;
+      border-radius: 6px;
+      border: 1px solid #bdd1f6;
+      background: #eef4ff;
+      color: var(--blue);
+      padding: 0 14px;
+      font-weight: 800;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn.primary {
+      color: #fff;
+      background: var(--blue);
+      border-color: var(--blue);
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">OS</div>
+        <div>
+          <h1>数字孪生学生仿真 Agent</h1>
+          <p>基于知识追踪、学习节奏与历史作答序列的学习路径预测面板</p>
+        </div>
+      </div>
+      <nav class="nav" aria-label="学习系统导航">
+        <span>学习画像</span>
+        <span class="active">数字孪生</span>
+        <span>复习计划</span>
+        <span>模拟考试</span>
+      </nav>
+    </header>
+
+    <section class="layout">
+      <aside class="stack">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">虚拟学生状态</h2>
+              <p class="panel-desc">由答题序列、BKT 后验概率和学习行为日志实时映射</p>
+            </div>
+            <span class="tag blue">Twin-01</span>
+          </div>
+          <div class="panel-body">
+            <div class="twin-profile">
+              <div class="avatar" aria-hidden="true">
+                <span class="scan-line"></span>
+              </div>
+              <div>
+                <div class="profile-name">demo 学生分身</div>
+                <p class="profile-meta">当前学习主题：病理学总论<br />仿真窗口：未来 20 分钟</p>
+              </div>
+            </div>
+            <div class="metric-grid">
+              <div class="metric">
+                <span>认知能力指数</span>
+                <strong>68</strong>
+                <small>较上轮 +5</small>
+              </div>
+              <div class="metric">
+                <span>遗忘风险</span>
+                <strong>中高</strong>
+                <small>3 个节点需干预</small>
+              </div>
+              <div class="metric">
+                <span>学习稳定性</span>
+                <strong>0.74</strong>
+                <small>短时高频更优</small>
+              </div>
+              <div class="metric">
+                <span>预测置信度</span>
+                <strong>82%</strong>
+                <small>证据链完整</small>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">核心认知变量</h2>
+              <p class="panel-desc">分身模型输入向量的可解释投影</p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="state-list">
+              <div class="state-item">
+                <span>概念保持</span>
+                <div class="bar green"><span style="width: 72%"></span></div>
+                <b>72%</b>
+              </div>
+              <div class="state-item">
+                <span>病例迁移</span>
+                <div class="bar amber"><span style="width: 54%"></span></div>
+                <b>54%</b>
+              </div>
+              <div class="state-item">
+                <span>鉴别推理</span>
+                <div class="bar red"><span style="width: 41%"></span></div>
+                <b>41%</b>
+              </div>
+              <div class="state-item">
+                <span>复习紧迫度</span>
+                <div class="bar red"><span style="width: 78%"></span></div>
+                <b>78%</b>
+              </div>
+              <div class="state-item">
+                <span>注意力窗口</span>
+                <div class="bar"><span style="width: 64%"></span></div>
+                <b>64%</b>
+              </div>
+            </div>
+          </div>
+        </article>
+      </aside>
+
+      <section class="stack">
+        <article class="panel center-hero">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">认知图谱仿真态势</h2>
+              <p class="panel-desc">系统在 KG node 层面模拟薄弱点扩散、遗忘衰减与路径干预收益</p>
+            </div>
+            <span class="tag red">需干预</span>
+          </div>
+          <div class="panel-body">
+            <div class="simulation-grid">
+              <div class="knowledge-map">
+                <svg viewBox="0 0 520 254" role="img" aria-label="认知图谱仿真态势图">
+                  <defs>
+                    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+                      <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#182230" flood-opacity="0.12"/>
+                    </filter>
+                  </defs>
+                  <line x1="106" y1="74" x2="245" y2="56" stroke="#b9c6d4" stroke-width="2"/>
+                  <line x1="106" y1="74" x2="198" y2="158" stroke="#b9c6d4" stroke-width="2"/>
+                  <line x1="245" y1="56" x2="370" y2="94" stroke="#b9c6d4" stroke-width="2"/>
+                  <line x1="198" y1="158" x2="370" y2="94" stroke="#b9c6d4" stroke-width="2"/>
+                  <line x1="198" y1="158" x2="330" y2="198" stroke="#b9c6d4" stroke-width="2"/>
+                  <line x1="370" y1="94" x2="430" y2="178" stroke="#b9c6d4" stroke-width="2"/>
+                  <g filter="url(#softShadow)">
+                    <circle cx="106" cy="74" r="34" fill="#ffffff" stroke="#7fb49f" stroke-width="3"/>
+                    <circle cx="245" cy="56" r="31" fill="#ffffff" stroke="#5d8de6" stroke-width="3"/>
+                    <circle cx="198" cy="158" r="37" fill="#ffffff" stroke="#d8a545" stroke-width="3"/>
+                    <circle cx="370" cy="94" r="42" fill="#ffffff" stroke="#d56a63" stroke-width="4"/>
+                    <circle cx="330" cy="198" r="30" fill="#ffffff" stroke="#7fb49f" stroke-width="3"/>
+                    <circle cx="430" cy="178" r="33" fill="#ffffff" stroke="#d56a63" stroke-width="3"/>
+                  </g>
+                  <text x="106" y="69" text-anchor="middle" font-size="13" fill="#182230" font-weight="700">坏死</text>
+                  <text x="106" y="88" text-anchor="middle" font-size="12" fill="#667085">72%</text>
+                  <text x="245" y="52" text-anchor="middle" font-size="13" fill="#182230" font-weight="700">炎症</text>
+                  <text x="245" y="70" text-anchor="middle" font-size="12" fill="#667085">65%</text>
+                  <text x="198" y="153" text-anchor="middle" font-size="13" fill="#182230" font-weight="700">肉芽</text>
+                  <text x="198" y="172" text-anchor="middle" font-size="12" fill="#667085">54%</text>
+                  <text x="370" y="89" text-anchor="middle" font-size="13" fill="#182230" font-weight="700">肿瘤分级</text>
+                  <text x="370" y="109" text-anchor="middle" font-size="12" fill="#c2413b">39%</text>
+                  <text x="330" y="194" text-anchor="middle" font-size="13" fill="#182230" font-weight="700">修复</text>
+                  <text x="330" y="212" text-anchor="middle" font-size="12" fill="#667085">71%</text>
+                  <text x="430" y="174" text-anchor="middle" font-size="13" fill="#182230" font-weight="700">异型性</text>
+                  <text x="430" y="192" text-anchor="middle" font-size="12" fill="#c2413b">42%</text>
+                  <path d="M342 92 C298 108, 266 132, 218 152" fill="none" stroke="#c2413b" stroke-width="3" stroke-dasharray="5 6"/>
+                  <path d="M398 124 C410 142, 420 156, 430 178" fill="none" stroke="#c2413b" stroke-width="3" stroke-dasharray="5 6"/>
+                </svg>
+                <div class="map-caption"><span class="dot"></span> 红色链路表示预测卡点传播路径</div>
+              </div>
+              <div class="decision-card">
+                <h3 class="decision-title">Agent 推理摘要</h3>
+                <div class="decision-row">
+                  <b>输入</b>
+                  <span>BKT 掌握概率、SM-2 遗忘间隔、历史错题、学习耗时分布</span>
+                </div>
+                <div class="decision-row">
+                  <b>仿真</b>
+                  <span>对复习、新学、测验三类策略进行 20 分钟收益估计</span>
+                </div>
+                <div class="decision-row">
+                  <b>判断</b>
+                  <span>肿瘤分级与异型性存在联动薄弱，优先复习收益最高</span>
+                </div>
+                <div class="decision-row">
+                  <b>输出</b>
+                  <span>推荐路径：薄弱点复习 + 2 道病例迁移题 + 间隔复习锁定</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">学习路径仿真对比</h2>
+              <p class="panel-desc">同一虚拟学生在不同策略下的预计收益、风险下降与诊断增益</p>
+            </div>
+            <span class="tag green">推荐路径 A</span>
+          </div>
+          <div class="panel-body">
+            <div class="path-grid">
+              <div class="path recommended">
+                <div class="path-head">
+                  <h3>路径 A：先复习薄弱点</h3>
+                  <span class="pill green">最优</span>
+                </div>
+                <p>聚焦肿瘤分级、异型性与病例鉴别，优先修复低掌握节点。</p>
+                <div class="path-score">
+                  <div><span>掌握提升</span><strong>+12%</strong></div>
+                  <div><span>风险下降</span><strong>18%</strong></div>
+                  <div><span>耗时</span><strong>20m</strong></div>
+                </div>
+                <div class="bar green"><span style="width: 86%"></span></div>
+              </div>
+              <div class="path">
+                <div class="path-head">
+                  <h3>路径 B：继续学习新内容</h3>
+                  <span class="pill amber">收益中</span>
+                </div>
+                <p>进入下一节内容，知识覆盖增加，但原薄弱链路仍可能拖累迁移表现。</p>
+                <div class="path-score">
+                  <div><span>掌握提升</span><strong>+6%</strong></div>
+                  <div><span>风险下降</span><strong>4%</strong></div>
+                  <div><span>耗时</span><strong>20m</strong></div>
+                </div>
+                <div class="bar amber"><span style="width: 58%"></span></div>
+              </div>
+              <div class="path">
+                <div class="path-head">
+                  <h3>路径 C：先做模拟测验</h3>
+                  <span class="pill">诊断强</span>
+                </div>
+                <p>通过阶段题组提升诊断精度，适合考前定位，但短期补弱效率偏低。</p>
+                <div class="path-score">
+                  <div><span>掌握提升</span><strong>+8%</strong></div>
+                  <div><span>诊断增益</span><strong>15%</strong></div>
+                  <div><span>耗时</span><strong>20m</strong></div>
+                </div>
+                <div class="bar"><span style="width: 69%"></span></div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">未来 20 分钟掌握度预测</h2>
+              <p class="panel-desc">数字孪生模型输出不同路径下的认知状态演化曲线</p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="chart-wrap">
+              <div class="line-chart">
+                <div class="legend">
+                  <span><i style="background:#15803d"></i>路径 A</span>
+                  <span><i style="background:#b7791f"></i>路径 B</span>
+                  <span><i style="background:#2563eb"></i>路径 C</span>
+                </div>
+                <svg viewBox="0 0 520 222" role="img" aria-label="路径收益折线图">
+                  <line x1="48" y1="18" x2="48" y2="184" stroke="#c8d4e1"/>
+                  <line x1="48" y1="184" x2="492" y2="184" stroke="#c8d4e1"/>
+                  <line x1="48" y1="142" x2="492" y2="142" stroke="#e2e8f0"/>
+                  <line x1="48" y1="100" x2="492" y2="100" stroke="#e2e8f0"/>
+                  <line x1="48" y1="58" x2="492" y2="58" stroke="#e2e8f0"/>
+                  <text x="17" y="188" font-size="11" fill="#667085">55</text>
+                  <text x="17" y="146" font-size="11" fill="#667085">62</text>
+                  <text x="17" y="104" font-size="11" fill="#667085">69</text>
+                  <text x="17" y="62" font-size="11" fill="#667085">76</text>
+                  <text x="48" y="207" font-size="11" fill="#667085">0m</text>
+                  <text x="154" y="207" font-size="11" fill="#667085">5m</text>
+                  <text x="264" y="207" font-size="11" fill="#667085">10m</text>
+                  <text x="374" y="207" font-size="11" fill="#667085">15m</text>
+                  <text x="474" y="207" font-size="11" fill="#667085">20m</text>
+                  <polyline points="48,145 158,126 268,96 378,69 492,48" fill="none" stroke="#15803d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                  <polyline points="48,145 158,137 268,126 378,114 492,104" fill="none" stroke="#b7791f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                  <polyline points="48,145 158,132 268,116 378,101 492,88" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                  <circle cx="492" cy="48" r="5" fill="#15803d"/>
+                  <circle cx="492" cy="104" r="5" fill="#b7791f"/>
+                  <circle cx="492" cy="88" r="5" fill="#2563eb"/>
+                </svg>
+              </div>
+              <div class="gain-list">
+                <h3>知识点增益预测</h3>
+                <div class="gain-row">
+                  <span>肿瘤分级</span>
+                  <div class="bar green"><span style="width: 76%"></span></div>
+                  <strong>+18%</strong>
+                </div>
+                <div class="gain-row">
+                  <span>异型性</span>
+                  <div class="bar green"><span style="width: 69%"></span></div>
+                  <strong>+15%</strong>
+                </div>
+                <div class="gain-row">
+                  <span>肉芽组织</span>
+                  <div class="bar amber"><span style="width: 48%"></span></div>
+                  <strong>+8%</strong>
+                </div>
+                <div class="gain-row">
+                  <span>坏死类型</span>
+                  <div class="bar"><span style="width: 36%"></span></div>
+                  <strong>+5%</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <aside class="stack">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">干预时间线</h2>
+              <p class="panel-desc">推荐路径被拆解为可执行学习动作</p>
+            </div>
+            <span class="tag green">20m</span>
+          </div>
+          <div class="panel-body">
+            <div class="timeline">
+              <div class="timeline-item">
+                <span class="time">0-5m</span>
+                <div>
+                  <h3>重建核心概念</h3>
+                  <p>回看肿瘤分级与异型性的判定依据，压缩知识盲区。</p>
+                </div>
+              </div>
+              <div class="timeline-item">
+                <span class="time">5-12m</span>
+                <div>
+                  <h3>病例迁移训练</h3>
+                  <p>生成 2 道临床情境题，检测概念到病例的迁移能力。</p>
+                </div>
+              </div>
+              <div class="timeline-item">
+                <span class="time">12-17m</span>
+                <div>
+                  <h3>错因归纳</h3>
+                  <p>对选项混淆点进行解释，更新画像中的误区标签。</p>
+                </div>
+              </div>
+              <div class="timeline-item">
+                <span class="time">17-20m</span>
+                <div>
+                  <h3>锁定复习节点</h3>
+                  <p>写入间隔重复调度器，生成下一次最优复习时间。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">仿真证据链</h2>
+              <p class="panel-desc">模型预测由多源学习信号共同支撑</p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <table class="signal-table">
+              <thead>
+                <tr>
+                  <th>信号</th>
+                  <th>状态</th>
+                  <th>权重</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>BKT 后验</td>
+                  <td><span class="pill green">稳定</span></td>
+                  <td>0.34</td>
+                </tr>
+                <tr>
+                  <td>错题轨迹</td>
+                  <td><span class="pill red">异常</span></td>
+                  <td>0.27</td>
+                </tr>
+                <tr>
+                  <td>遗忘间隔</td>
+                  <td><span class="pill amber">临界</span></td>
+                  <td>0.21</td>
+                </tr>
+                <tr>
+                  <td>学习节奏</td>
+                  <td><span class="pill">正常</span></td>
+                  <td>0.18</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">Agent 决策输出</h2>
+              <p class="panel-desc">面向学习计划、测评和复习调度的统一动作</p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="action-panel">
+              <div class="action">
+                <h3>生成专项复习 section</h3>
+                <p>围绕低掌握 KG node 生成微讲义、例题与错因解释。</p>
+              </div>
+              <div class="action">
+                <h3>追加病例迁移 quiz</h3>
+                <p>题目 Bloom 层级锁定为应用/分析，检测迁移能力。</p>
+              </div>
+              <div class="action">
+                <h3>写入复习调度</h3>
+                <p>将关键节点加入 SM-2/FSRS 队列，避免短期遗忘反弹。</p>
+              </div>
+            </div>
+            <div class="button-row">
+              <div class="btn primary">采用推荐路径</div>
+              <div class="btn">重新仿真</div>
+            </div>
+          </div>
+        </article>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

@@ -67,6 +67,11 @@ class StudentTwinSimulationTests(unittest.TestCase):
                     result["recommended_plan_items"][0]["learning_scope"]["scope_type"],
                     "student_twin_simulation",
                 )
+                self.assertIn("dashboard", result)
+                self.assertTrue(result["dashboard"]["path_simulation"]["paths"])
+                self.assertTrue(result["dashboard"]["mastery_forecast"]["series"])
+                self.assertTrue(result["dashboard"]["cognitive_map"]["nodes"])
+                self.assertTrue(result["dashboard"]["optimal_strategy"]["steps"])
                 self.assertIn("path_score_formula", result["trace"])
             finally:
                 memory._conn.close()
@@ -92,6 +97,7 @@ class StudentTwinSimulationTests(unittest.TestCase):
                 self.assertEqual(body["action"], "student_twin")
                 self.assertEqual(body["result"]["agent"], "StudentTwinAgent")
                 self.assertTrue(body["result"]["bottlenecks"])
+                self.assertTrue(body["result"]["dashboard"]["cognitive_map"]["nodes"])
             finally:
                 learning_orchestrator.memory = original_memory
                 memory._conn.close()

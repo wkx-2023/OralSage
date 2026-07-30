@@ -14,7 +14,7 @@
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <link rel="stylesheet" href="/css/base.css?v=20260716-brand-font-stable">
   <link rel="stylesheet" href="/css/learner-assessment.css?v=20260708-assessment-scroll-v5">
-  <link rel="stylesheet" href="/css/learning-plan.css?v=20260730-student-twin">
+  <link rel="stylesheet" href="/css/learning-plan.css?v=20260730-twin-map-card">
 </head>
 <body class="learning-plan-page">
   <div class="app-shell plan-shell">
@@ -59,46 +59,198 @@
               </div>
             </section>
 
-            <section id="student-twin-card" class="student-twin-card" aria-label="学习数字孪生仿真">
-              <div class="student-twin-loading">正在生成数字孪生仿真...</div>
-            </section>
-
             <section class="daily-boost-card" aria-label="学习鼓励">
               <img class="daily-boost-image" src="/assets/images/learning-plan-encourage.png" alt="学习鼓励插画">
               <p class="daily-boost-copy">今日事今日毕，继续加油↖(^ω^)↗<br>有什么问题都可以问我哦</p>
             </section>
+
+            <section id="student-twin-detail-panel" class="student-twin-detail-panel" aria-label="数字孪生仿真详情" hidden>
+              <header class="twin-detail-head">
+                <div>
+                  <h2>数字孪生仿真驾驶舱</h2>
+                  <p>模拟不同学习路径下的掌握度演化、卡点传播与干预收益</p>
+                </div>
+                <div class="twin-detail-actions">
+                  <button id="twin-plan-create" class="twin-plan-create" type="button" data-twin-plan-create>生成仿真计划</button>
+                  <button class="twin-detail-close" type="button" data-twin-detail-close>返回日历</button>
+                </div>
+              </header>
+
+              <section class="twin-detail-grid twin-detail-grid-minimal">
+                <article class="twin-panel twin-simulation-card">
+                  <div class="twin-panel-head">
+                    <div>
+                      <h3>学习路径仿真对比</h3>
+                      <p>虚拟学生 Agent 先模拟不同路径，再选择单位时间收益最高方案</p>
+                    </div>
+                    <span class="twin-pill">Student Twin</span>
+                  </div>
+
+                  <div id="twin-path-cards" class="twin-path-cards twin-path-cards-large">
+                    <div class="twin-path-card">
+                      <h4>路径 A：继续学习新章节</h4>
+                      <p>直接进入“牙周治疗原则”，保留当前复习债务。</p>
+                      <div><span>掌握 +6%</span><span>风险 -5%</span><span>收益 0.42</span></div>
+                    </div>
+                    <div class="twin-path-card recommended">
+                      <i class="twin-check">✓</i>
+                      <h4>路径 B：薄弱点复习 + 小测</h4>
+                      <p>先修复鉴别诊断，再用病例题验证迁移。</p>
+                      <div><span>掌握 +13%</span><span>风险 -28%</span><span>收益 0.87</span></div>
+                    </div>
+                    <div class="twin-path-card">
+                      <h4>路径 C：病例题集中训练</h4>
+                      <p>以题目暴露错因，但知识框架补足较弱。</p>
+                      <div><span>掌握 +10%</span><span>风险 -18%</span><span>收益 0.68</span></div>
+                    </div>
+                  </div>
+
+                  <div id="twin-three-day-chart" class="twin-three-day-chart" aria-hidden="true">
+                    <div id="twin-chart-title" class="twin-chart-title">
+                      <span>未来 3 天预计综合掌握度</span>
+                      <span>目标保持率阈值 90%</span>
+                    </div>
+                    <svg id="twin-forecast-svg" viewBox="0 0 620 222">
+                      <defs>
+                        <pattern id="twin-grid" width="62" height="37" patternUnits="userSpaceOnUse">
+                          <path d="M 62 0 L 0 0 0 37" fill="none" stroke="#e5ebf2" stroke-width="1"></path>
+                        </pattern>
+                      </defs>
+                      <rect x="0" y="0" width="620" height="222" fill="url(#twin-grid)"></rect>
+                      <line x1="34" y1="184" x2="598" y2="184" stroke="#a9b4c2" stroke-width="1.2"></line>
+                      <line x1="34" y1="18" x2="34" y2="184" stroke="#a9b4c2" stroke-width="1.2"></line>
+                      <path d="M 46 145 C 130 140, 180 129, 244 121 C 342 113, 444 107, 584 99" fill="none" stroke="#8b97a8" stroke-width="4" stroke-linecap="round"></path>
+                      <path d="M 46 145 C 130 120, 180 104, 244 88 C 342 67, 444 53, 584 42" fill="none" stroke="#2563eb" stroke-width="5" stroke-linecap="round"></path>
+                      <path d="M 46 145 C 130 128, 180 116, 244 101 C 342 86, 444 76, 584 67" fill="none" stroke="#0f766e" stroke-width="4" stroke-linecap="round"></path>
+                      <line x1="34" y1="62" x2="598" y2="62" stroke="#b7791f" stroke-width="1.5" stroke-dasharray="7 7"></line>
+                      <circle cx="244" cy="88" r="6" fill="#2563eb"></circle>
+                      <circle cx="584" cy="42" r="6" fill="#2563eb"></circle>
+                      <text x="38" y="204" font-size="12" fill="#627083">今天</text>
+                      <text x="230" y="204" font-size="12" fill="#627083">明天</text>
+                      <text x="420" y="204" font-size="12" fill="#627083">第 2 天</text>
+                      <text x="552" y="204" font-size="12" fill="#627083">第 3 天</text>
+                      <text x="546" y="34" font-size="12" fill="#2563eb" font-weight="700">路径 B 最优</text>
+                    </svg>
+                    <div id="twin-chart-legend" class="twin-chart-legend">
+                      <span><i class="gray"></i>继续新课</span>
+                      <span><i class="blue"></i>复习 + 小测</span>
+                      <span><i class="teal"></i>病例训练</span>
+                      <span><i class="amber"></i>目标阈值</span>
+                    </div>
+                  </div>
+                </article>
+
+                <aside class="twin-detail-side">
+                  <article class="twin-panel twin-map-card">
+                    <div class="twin-panel-head">
+                      <div>
+                        <h3>认知图谱仿真态势</h3>
+                        <p>系统在 KG node 层面模拟薄弱点扩散、遗忘衰减与路径干预收益</p>
+                      </div>
+                      <span class="twin-pill danger">需干预</span>
+                    </div>
+                    <div id="twin-cognitive-map" class="twin-kg-map twin-kg-map-compact" aria-hidden="true">
+                      <svg viewBox="0 0 520 254">
+                        <line x1="106" y1="74" x2="245" y2="56"></line>
+                        <line x1="106" y1="74" x2="198" y2="158"></line>
+                        <line x1="245" y1="56" x2="370" y2="94"></line>
+                        <line x1="198" y1="158" x2="370" y2="94"></line>
+                        <line x1="198" y1="158" x2="330" y2="198"></line>
+                        <line x1="370" y1="94" x2="430" y2="178"></line>
+                        <path class="risk-path" d="M342 92 C298 108, 266 132, 218 152"></path>
+                        <path class="risk-path" d="M398 124 C410 142, 420 156, 430 178"></path>
+                        <g>
+                          <circle class="node ok" cx="106" cy="74" r="34"></circle>
+                          <circle class="node mid" cx="245" cy="56" r="31"></circle>
+                          <circle class="node warn" cx="198" cy="158" r="37"></circle>
+                          <circle class="node danger" cx="370" cy="94" r="42"></circle>
+                          <circle class="node ok" cx="330" cy="198" r="30"></circle>
+                          <circle class="node danger" cx="430" cy="178" r="33"></circle>
+                        </g>
+                        <text x="106" y="69">坏死</text>
+                        <text x="106" y="88" class="rate">72%</text>
+                        <text x="245" y="52">炎症</text>
+                        <text x="245" y="70" class="rate">65%</text>
+                        <text x="198" y="153">肉芽</text>
+                        <text x="198" y="172" class="rate">54%</text>
+                        <text x="370" y="89">肿瘤分级</text>
+                        <text x="370" y="109" class="rate danger-text">39%</text>
+                        <text x="330" y="194">修复</text>
+                        <text x="330" y="212" class="rate">71%</text>
+                        <text x="430" y="174">异型性</text>
+                        <text x="430" y="192" class="rate danger-text">42%</text>
+                      </svg>
+                      <div class="twin-map-caption"><span></span>红色链路表示预测卡点传播路径</div>
+                    </div>
+                  </article>
+
+                  <article class="twin-panel twin-optimal-card">
+                    <div class="twin-panel-head">
+                      <div>
+                        <h3 id="twin-optimal-title">今日最优 20 分钟策略</h3>
+                        <p id="twin-optimal-subtitle">推荐路径 B：先修复前置薄弱点，再做迁移训练</p>
+                      </div>
+                      <span class="twin-pill success">可生成计划</span>
+                    </div>
+                    <div id="twin-optimal-steps" class="twin-plan-block">
+                      <div class="twin-step">
+                        <div class="twin-minutes">12m</div>
+                        <div>
+                          <h4>复习：牙龈炎与牙周炎鉴别</h4>
+                          <p>回看诊断边界、探诊出血、附着丧失和影像学依据。</p>
+                        </div>
+                      </div>
+                      <div class="twin-step">
+                        <div class="twin-minutes">8m</div>
+                        <div>
+                          <h4>病例题：牙周袋深度判断</h4>
+                          <p>完成 5 道病例题，记录错因并更新 KG 掌握度。</p>
+                        </div>
+                      </div>
+                    </div>
+                    <button class="twin-card-cta" type="button" data-twin-plan-create>生成今日计划</button>
+                  </article>
+                </aside>
+              </section>
+            </section>
           </section>
 
-          <aside class="todo-book" aria-label="计划本">
-            <header class="todo-head">
-              <div>
-                <h2 id="todo-date"></h2>
-              </div>
-              <div id="todo-stats" class="todo-stats"></div>
-            </header>
-
-            <div class="todo-actions" aria-label="计划操作">
-              <button id="recommend-button" class="text-button recommend-button" type="button">系统推荐</button>
-              <button id="recommend-clear" class="text-button recommend-clear" type="button" hidden>清空推荐</button>
-            </div>
-            <section id="recommend-panel" class="recommend-panel" aria-label="推荐计划预览" hidden>
-              <div class="recommend-head">
-                <div>
-                  <h3>系统推荐</h3>
-                </div>
-                <button id="recommend-accept-all" class="text-button recommend-accept-all" type="button">全部采纳</button>
-              </div>
-              <div id="recommend-list" class="recommend-list"></div>
+          <section class="todo-column" aria-label="学习计划与数字孪生状态">
+            <section id="student-twin-summary-card" class="student-twin-summary-card" aria-label="虚拟学生状态">
+              <div class="student-twin-summary-loading">正在生成虚拟学生状态...</div>
             </section>
-            <div id="todo-list" class="todo-list"></div>
-            <div id="plan-status" class="plan-status" aria-live="polite"></div>
-            <form id="plan-form" class="plan-form">
-              <input id="plan-title" type="text" maxlength="180" placeholder="写下一个学习计划" autocomplete="off">
-              <button class="add-button" type="submit" title="添加计划" aria-label="添加计划">
-                <i data-lucide="plus"></i>
-              </button>
-            </form>
-          </aside>
+
+            <aside class="todo-book" aria-label="计划本">
+              <header class="todo-head">
+                <div>
+                  <h2 id="todo-date"></h2>
+                </div>
+                <div id="todo-stats" class="todo-stats"></div>
+              </header>
+
+              <div class="todo-actions" aria-label="计划操作">
+                <button id="recommend-button" class="text-button recommend-button" type="button">系统推荐</button>
+                <button id="recommend-clear" class="text-button recommend-clear" type="button" hidden>清空推荐</button>
+              </div>
+              <section id="recommend-panel" class="recommend-panel" aria-label="推荐计划预览" hidden>
+                <div class="recommend-head">
+                  <div>
+                    <h3>系统推荐</h3>
+                  </div>
+                  <button id="recommend-accept-all" class="text-button recommend-accept-all" type="button">全部采纳</button>
+                </div>
+                <div id="recommend-list" class="recommend-list"></div>
+              </section>
+              <div id="todo-list" class="todo-list"></div>
+              <div id="plan-status" class="plan-status" aria-live="polite"></div>
+              <form id="plan-form" class="plan-form">
+                <input id="plan-title" type="text" maxlength="180" placeholder="写下一个学习计划" autocomplete="off">
+                <button class="add-button" type="submit" title="添加计划" aria-label="添加计划">
+                  <i data-lucide="plus"></i>
+                </button>
+              </form>
+            </aside>
+          </section>
         </section>
       </main>
     </main>
@@ -106,6 +258,6 @@
 
   <script src="/js/common.js?v=20260716-nav-no-weixin-v2"></script>
   <script src="/js/learner-assessment-ui.js?v=20260708-assessment-ui-v4"></script>
-  <script src="/js/learning-plan.js?v=20260730-student-twin"></script>
+  <script src="/js/learning-plan.js?v=20260730-twin-map-card"></script>
 </body>
 </html>

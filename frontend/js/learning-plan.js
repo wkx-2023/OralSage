@@ -50,12 +50,13 @@
     recommendations: [],
     recommendationDate: '',
     recommendationLoading: false,
-    studentTwin: null,
-    studentTwinDate: '',
-    studentTwinLoading: false,
-    studentTwinError: '',
-    studentTwinToken: 0,
-    studentTwinCreating: false,
+    studentTwinSummary: null,
+    studentTwinSummaryDate: '',
+    studentTwinSummaryLoading: false,
+    studentTwinSummaryError: '',
+    studentTwinSummaryToken: 0,
+    studentTwinDetailOpen: false,
+    studentTwinPlanCreating: false,
     assessmentPrompted: false,
     toastTimer: 0,
     draftBaseDate: '',
@@ -400,163 +401,374 @@
     return `${Math.round(number * 100)}%`;
   }
 
-  function studentTwinStatusLabel(status) {
+  function signedPct(value, fallback = 0) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return `${fallback >= 0 ? '+' : ''}${fallback}%`;
+    const rounded = Math.round(number * 100);
+    return `${rounded >= 0 ? '+' : ''}${rounded}%`;
+  }
+
+  function pathLabel(path, fallback = '学习路径') {
+    return String(path?.name || path?.label || fallback).trim() || fallback;
+  }
+
+  function twinStatusLabel(status) {
     const key = String(status || '').trim();
-    if (key === 'high_risk') return '高卡点风险';
+    if (key === 'high_risk') return '需干预';
     if (key === 'watch') return '重点观察';
     return '状态稳定';
   }
 
-  function studentTwinStatusClass(status) {
+  function twinStatusClass(status) {
     const key = String(status || '').trim();
     if (key === 'high_risk') return 'high-risk';
     if (key === 'watch') return 'watch';
     return 'stable';
   }
 
-  function renderStudentTwinRisk(item) {
-    const risk = Math.max(0, Math.min(Number(item?.risk_score || 0), 0.98));
-    const label = String(item?.label || item?.kg_node_id || '薄弱知识点');
-    const reason = String(item?.reason || '该知识点存在后续学习卡点风险。');
-    return `
-      <article class="student-twin-risk">
-        <div class="student-twin-risk-top">
-          <span>${escapeHtml(label)}</span>
-          <span class="student-twin-risk-score">${risk.toFixed(2)}</span>
-        </div>
-        <div class="student-twin-bar" aria-hidden="true"><i style="width:${Math.round(risk * 100)}%"></i></div>
-        <p class="student-twin-reason">${escapeHtml(reason)}</p>
-      </article>
-    `;
-  }
-
-  function renderStudentTwinPath(path) {
-    const score = Number(path?.score || 0);
-    const gain = pct(path?.mastery_gain);
-    const riskDrop = pct(path?.risk_reduction);
-    const recommended = path?.recommended ? ' recommended' : '';
-    return `
-      <article class="student-twin-path${recommended}">
-        <div>
-          <p class="student-twin-path-name">${escapeHtml(path?.name || '学习路径')}</p>
-          <div class="student-twin-path-meta">掌握 +${escapeHtml(gain)} · 风险 -${escapeHtml(riskDrop)}</div>
-        </div>
-        <strong class="student-twin-path-score">${Number.isFinite(score) ? score.toFixed(2) : '0.00'}</strong>
-      </article>
-    `;
-  }
-
-  function renderStudentTwin() {
-    const card = byId('student-twin-card');
+  function renderStudentTwinSummary() {
+    const card = byId('student-twin-summary-card');
     if (!card) return;
-    if (state.studentTwinLoading && state.studentTwinDate !== state.selectedDate) {
-      card.innerHTML = '<div class="student-twin-loading">正在生成数字孪生仿真...</div>';
+    if (state.studentTwinSummaryLoading && state.studentTwinSummaryDate !== state.selectedDate) {
+      card.innerHTML = '<div class="student-twin-summary-loading">正在生成虚拟学生状态...</div>';
       return;
     }
-    if (state.studentTwinError) {
-      card.innerHTML = `<div class="student-twin-empty">${escapeHtml(state.studentTwinError)}</div>`;
+    if (state.studentTwinSummaryError) {
+      card.innerHTML = `<div class="student-twin-summary-empty">${escapeHtml(state.studentTwinSummaryError)}</div>`;
       return;
     }
-    const twin = state.studentTwinDate === state.selectedDate ? state.studentTwin : null;
+    const twin = state.studentTwinSummaryDate === state.selectedDate ? state.studentTwinSummary : null;
     if (!twin) {
-      card.innerHTML = '<div class="student-twin-loading">正在生成数字孪生仿真...</div>';
+      card.innerHTML = '<div class="student-twin-summary-loading">正在生成虚拟学生状态...</div>';
       return;
     }
     const stateInfo = twin.state || {};
-    const bottlenecks = Array.isArray(twin.bottlenecks) ? twin.bottlenecks.slice(0, 2) : [];
-    const paths = Array.isArray(twin.paths) ? twin.paths.slice(0, 3) : [];
-    const planItems = Array.isArray(twin.recommended_plan_items) ? twin.recommended_plan_items : [];
-    const canCreate = canEditSelectedDate() && planItems.length && !state.studentTwinCreating;
+    const status = String(twin.status || 'stable');
     card.innerHTML = `
-      <div class="student-twin-head">
+      <div class="student-twin-summary-head">
         <div>
-          <h2 class="student-twin-title">学习数字孪生仿真</h2>
-          <p class="student-twin-subtitle">模拟今日不同学习路径，预测卡点风险与收益</p>
+          <h2 class="student-twin-summary-title">虚拟学生状态</h2>
+          <p class="student-twin-summary-subtitle">由答题序列、BKT 后验概率和学习行为日志实时映射</p>
         </div>
-        <span class="student-twin-badge ${escapeHtml(studentTwinStatusClass(twin.status))}">
-          ${escapeHtml(studentTwinStatusLabel(twin.status))}
-        </span>
+        <div class="student-twin-summary-badges">
+          <span class="student-twin-summary-tag">Twin-01</span>
+          <span class="student-twin-summary-status ${escapeHtml(twinStatusClass(status))}">
+            ${escapeHtml(twinStatusLabel(status))}
+          </span>
+          <button class="student-twin-summary-open" type="button" data-twin-detail-open>
+            展开仿真面板
+          </button>
+        </div>
       </div>
-      <div class="student-twin-metrics">
-        <div class="student-twin-metric"><span>综合掌握</span><strong>${escapeHtml(pct(stateInfo.overall_mastery, 72))}</strong></div>
-        <div class="student-twin-metric"><span>卡点风险</span><strong>${escapeHtml(pct(stateInfo.overall_risk, 0))}</strong></div>
-        <div class="student-twin-metric"><span>保持率</span><strong>${escapeHtml(pct(stateInfo.retention_estimate, 72))}</strong></div>
-        <div class="student-twin-metric"><span>复习债务</span><strong>${escapeHtml(String(stateInfo.review_debt ?? 0))}</strong></div>
-      </div>
-      <div class="student-twin-grid">
+      <div class="student-twin-summary-body">
         <div>
-          <p class="student-twin-section-title">未来卡点</p>
-          <div class="student-twin-risk-list">
-            ${bottlenecks.length ? bottlenecks.map(renderStudentTwinRisk).join('') : '<p class="student-twin-empty">暂无明显高风险卡点</p>'}
+          <p class="student-twin-summary-name">${escapeHtml(state.userId)} 学生分身</p>
+          <p class="student-twin-summary-meta">当前计划日期：${escapeHtml(state.selectedDate)}<br>仿真窗口：未来 20 分钟</p>
+        </div>
+        <div class="student-twin-summary-metrics">
+          <div class="student-twin-summary-metric"><span>认知能力</span><strong>${escapeHtml(pct(stateInfo.overall_mastery, 68))}</strong></div>
+          <div class="student-twin-summary-metric"><span>遗忘风险</span><strong>${escapeHtml(pct(stateInfo.overall_risk, 0))}</strong></div>
+          <div class="student-twin-summary-metric"><span>保持率</span><strong>${escapeHtml(pct(stateInfo.retention_estimate, 72))}</strong></div>
+          <div class="student-twin-summary-metric"><span>复习债务</span><strong>${escapeHtml(String(stateInfo.review_debt ?? 0))}</strong></div>
+        </div>
+      </div>
+    `;
+    renderStudentTwinDashboard();
+  }
+
+  function renderStudentTwinDashboard() {
+    const twin = state.studentTwinSummaryDate === state.selectedDate ? state.studentTwinSummary : null;
+    if (!twin) return;
+    const dashboard = twin.dashboard || {};
+    renderTwinPaths(dashboard.path_simulation?.paths || twin.paths || []);
+    renderTwinForecast(dashboard.mastery_forecast || null, dashboard.path_simulation?.paths || twin.paths || []);
+    renderTwinCognitiveMap(dashboard.cognitive_map || null, twin.bottlenecks || []);
+    renderTwinOptimalStrategy(dashboard.optimal_strategy || null, twin.recommended_plan_items || []);
+  }
+
+  function renderTwinPaths(paths) {
+    const container = byId('twin-path-cards');
+    if (!container) return;
+    const list = Array.isArray(paths) && paths.length ? paths.slice(0, 3) : [];
+    if (!list.length) {
+      container.innerHTML = '<p class="twin-dashboard-empty">暂无路径仿真数据</p>';
+      return;
+    }
+    container.innerHTML = list.map((path, index) => {
+      const recommended = path?.recommended ? ' recommended' : '';
+      const check = path?.recommended ? '<i class="twin-check">✓</i>' : '';
+      const name = pathLabel(path, `路径 ${String.fromCharCode(65 + index)}`);
+      const summary = String(path?.summary || path?.description || '根据当前学习画像生成的候选路径。');
+      const score = Number(path?.score);
+      return `
+        <div class="twin-path-card${recommended}">
+          ${check}
+          <h4>路径 ${String.fromCharCode(65 + index)}：${escapeHtml(name)}</h4>
+          <p>${escapeHtml(summary)}</p>
+          <div>
+            <span>掌握 ${escapeHtml(signedPct(path?.mastery_gain))}</span>
+            <span>风险 -${escapeHtml(pct(path?.risk_reduction, 0))}</span>
+            <span>收益 ${escapeHtml(Number.isFinite(score) ? score.toFixed(2) : '0.00')}</span>
           </div>
         </div>
-        <div>
-          <p class="student-twin-section-title">路径仿真</p>
-          <div class="student-twin-path-list">
-            ${paths.map(renderStudentTwinPath).join('')}
-          </div>
-        </div>
-      </div>
-      <div class="student-twin-actions">
-        <p class="student-twin-counterfactual">${escapeHtml(twin.counterfactual || '当前建议按推荐路径安排今日学习。')}</p>
-        <button class="student-twin-create" type="button" data-student-twin-action="create-plan"${canCreate ? '' : ' disabled'}>
-          ${state.studentTwinCreating ? '生成中...' : '生成仿真计划'}
-        </button>
-      </div>
+      `;
+    }).join('');
+  }
+
+  function renderTwinForecast(forecast, paths) {
+    const svg = byId('twin-forecast-svg');
+    const title = byId('twin-chart-title');
+    const legend = byId('twin-chart-legend');
+    if (!svg || !legend) return;
+    let series = Array.isArray(forecast?.series) ? forecast.series : [];
+    const horizon = Number(forecast?.horizon_days || 3);
+    const target = Number(forecast?.target_retention || 0.9);
+    if (!series.length && Array.isArray(paths) && paths.length) {
+      const twin = state.studentTwinSummaryDate === state.selectedDate ? state.studentTwinSummary : null;
+      const startMastery = Number(twin?.state?.overall_mastery || 0.62);
+      const colors = ['#8b97a8', '#2563eb', '#0f766e', '#6d5bd0'];
+      series = paths.slice(0, 4).map((path, index) => {
+        const gain = Number(path?.mastery_gain || 0.06);
+        const riskDrop = Number(path?.risk_reduction || 0.05);
+        const load = Number(path?.cognitive_load || 0.06);
+        const points = Array.from({ length: horizon + 1 }, (_, day) => {
+          const mastery = day === 0
+            ? startMastery
+            : startMastery + gain * (1 - (0.54 ** day)) + riskDrop * 0.18 * (day / horizon) - (0.012 * day + load * 0.03);
+          return { day, mastery: Math.max(0, Math.min(0.98, mastery)) };
+        });
+        return {
+          path_id: path?.path_id || `path-${index}`,
+          label: pathLabel(path, `路径 ${String.fromCharCode(65 + index)}`),
+          color: colors[index % colors.length],
+          recommended: Boolean(path?.recommended),
+          points,
+        };
+      });
+    }
+    if (title) {
+      title.innerHTML = `
+        <span>未来 ${escapeHtml(String(horizon))} 天预计综合掌握度</span>
+        <span>目标保持率阈值 ${escapeHtml(pct(target, 90))}</span>
+      `;
+    }
+    if (!series.length) return;
+    const width = 620;
+    const height = 222;
+    const left = 34;
+    const right = 598;
+    const top = 18;
+    const bottom = 184;
+    const yMin = 0.3;
+    const yMax = 1.0;
+    const xFor = (day) => left + (Number(day) / Math.max(1, horizon)) * (right - left);
+    const yFor = (mastery) => bottom - ((Number(mastery) - yMin) / (yMax - yMin)) * (bottom - top);
+    const lineParts = series.map((item) => {
+      const points = Array.isArray(item.points) ? item.points : [];
+      const polyPoints = points.map((point) => {
+        const x = xFor(point.day || 0).toFixed(1);
+        const y = yFor(point.mastery || 0).toFixed(1);
+        return `${x},${y}`;
+      }).join(' ');
+      const stroke = String(item.color || '#6d5bd0');
+      const widthValue = item.recommended ? 5 : 4;
+      const marker = points.length
+        ? `<circle cx="${xFor(points[points.length - 1].day || horizon).toFixed(1)}" cy="${yFor(points[points.length - 1].mastery || 0).toFixed(1)}" r="5" fill="${escapeHtml(stroke)}"></circle>`
+        : '';
+      return `<polyline points="${escapeHtml(polyPoints)}" fill="none" stroke="${escapeHtml(stroke)}" stroke-width="${widthValue}" stroke-linecap="round" stroke-linejoin="round"></polyline>${marker}`;
+    }).join('');
+    const targetY = yFor(target).toFixed(1);
+    svg.innerHTML = `
+      <defs>
+        <pattern id="twin-grid-dynamic" width="62" height="37" patternUnits="userSpaceOnUse">
+          <path d="M 62 0 L 0 0 0 37" fill="none" stroke="#e5ebf2" stroke-width="1"></path>
+        </pattern>
+      </defs>
+      <rect x="0" y="0" width="${width}" height="${height}" fill="url(#twin-grid-dynamic)"></rect>
+      <line x1="${left}" y1="${bottom}" x2="${right}" y2="${bottom}" stroke="#a9b4c2" stroke-width="1.2"></line>
+      <line x1="${left}" y1="${top}" x2="${left}" y2="${bottom}" stroke="#a9b4c2" stroke-width="1.2"></line>
+      ${lineParts}
+      <line x1="${left}" y1="${targetY}" x2="${right}" y2="${targetY}" stroke="#b7791f" stroke-width="1.5" stroke-dasharray="7 7"></line>
+      <text x="38" y="204" font-size="12" fill="#627083">今天</text>
+      <text x="230" y="204" font-size="12" fill="#627083">明天</text>
+      <text x="420" y="204" font-size="12" fill="#627083">第 2 天</text>
+      <text x="552" y="204" font-size="12" fill="#627083">第 3 天</text>
+      <text x="520" y="34" font-size="12" fill="#2563eb" font-weight="700">推荐路径最优</text>
+    `;
+    legend.innerHTML = series.map((item) => `
+      <span><i style="background:${escapeHtml(item.color || '#6d5bd0')}"></i>${escapeHtml(item.label || pathLabel(paths.find((path) => path.path_id === item.path_id), '路径'))}</span>
+    `).join('') + '<span><i class="amber"></i>目标阈值</span>';
+  }
+
+  function renderTwinCognitiveMap(map, bottlenecks) {
+    const container = byId('twin-cognitive-map');
+    if (!container) return;
+    const coords = [
+      { x: 106, y: 74, r: 34 },
+      { x: 245, y: 56, r: 31 },
+      { x: 198, y: 158, r: 37 },
+      { x: 370, y: 94, r: 42 },
+      { x: 330, y: 198, r: 30 },
+      { x: 430, y: 178, r: 33 },
+    ];
+    const nodes = Array.isArray(map?.nodes) ? map.nodes.slice(0, 6) : [];
+    if (!nodes.length && Array.isArray(bottlenecks)) {
+      bottlenecks.slice(0, 6).forEach((item, index) => {
+        nodes.push({
+          node_index: index,
+          label: item.label || item.kg_node_id || '薄弱点',
+          mastery: Number(item.mastery_score || 0.5),
+          risk: Number(item.risk_score || 0.4),
+          status: Number(item.risk_score || 0) >= 0.68 ? 'danger' : 'warn',
+        });
+      });
+    }
+    const padded = nodes.slice();
+    while (padded.length < 6) {
+      padded.push({ node_index: padded.length, label: '关联节点', mastery: 0.68, risk: 0.28, status: 'ok' });
+    }
+    const edges = Array.isArray(map?.edges) && map.edges.length
+      ? map.edges
+      : [
+        { source_index: 0, target_index: 1 },
+        { source_index: 0, target_index: 2 },
+        { source_index: 1, target_index: 3 },
+        { source_index: 2, target_index: 3 },
+        { source_index: 2, target_index: 4 },
+        { source_index: 3, target_index: 5 },
+      ];
+    const riskEdges = Array.isArray(map?.risk_edges) ? map.risk_edges : [];
+    const edgeSvg = edges.map((edge) => {
+      const a = coords[Number(edge.source_index || 0)] || coords[0];
+      const b = coords[Number(edge.target_index || 0)] || coords[1];
+      return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"></line>`;
+    }).join('');
+    const riskSvg = riskEdges.map((edge) => {
+      const a = coords[Number(edge.source_index || 0)] || coords[0];
+      const b = coords[Number(edge.target_index || 0)] || coords[1];
+      const mx = ((a.x + b.x) / 2).toFixed(1);
+      const my = (Math.min(a.y, b.y) - 28).toFixed(1);
+      return `<path class="risk-path" d="M${a.x} ${a.y} C${mx} ${my}, ${mx} ${my}, ${b.x} ${b.y}"></path>`;
+    }).join('');
+    const nodeSvg = padded.map((node, index) => {
+      const point = coords[index];
+      const status = ['ok', 'mid', 'warn', 'danger'].includes(node.status) ? node.status : 'mid';
+      const label = String(node.label || '节点').slice(0, 8);
+      const mastery = pct(node.mastery, 60);
+      const valueClass = status === 'danger' ? 'rate danger-text' : 'rate';
+      return `
+        <circle class="node ${escapeHtml(status)}" cx="${point.x}" cy="${point.y}" r="${point.r}"></circle>
+        <text x="${point.x}" y="${point.y - 5}">${escapeHtml(label)}</text>
+        <text x="${point.x}" y="${point.y + 14}" class="${valueClass}">${escapeHtml(mastery)}</text>
+      `;
+    }).join('');
+    container.innerHTML = `
+      <svg viewBox="0 0 520 254">
+        ${edgeSvg}
+        ${riskSvg}
+        <g>${nodeSvg}</g>
+      </svg>
+      <div class="twin-map-caption"><span></span>${escapeHtml(map?.caption || '红色链路表示预测卡点传播路径')}</div>
     `;
   }
 
-  async function loadStudentTwin({ silent = false } = {}) {
-    const token = state.studentTwinToken + 1;
-    state.studentTwinToken = token;
-    state.studentTwinLoading = true;
-    state.studentTwinError = '';
-    if (!silent) renderStudentTwin();
+  function renderTwinOptimalStrategy(strategy, planItems) {
+    const title = byId('twin-optimal-title');
+    const subtitle = byId('twin-optimal-subtitle');
+    const stepsNode = byId('twin-optimal-steps');
+    if (title) title.textContent = strategy?.title || '今日最优 20 分钟策略';
+    if (subtitle) subtitle.textContent = strategy?.subtitle || '推荐路径：数字孪生最优路径';
+    if (!stepsNode) return;
+    const steps = Array.isArray(strategy?.steps) && strategy.steps.length
+      ? strategy.steps
+      : (Array.isArray(planItems) ? planItems.map((item) => ({
+        minutes: item.estimated_minutes || 10,
+        title: item.title || item.learning_target || '推荐任务',
+        description: item.reason || item.notes || '根据数字孪生仿真结果生成。',
+      })) : []);
+    stepsNode.innerHTML = steps.slice(0, 3).map((step) => `
+      <div class="twin-step">
+        <div class="twin-minutes">${escapeHtml(String(step.minutes || 10))}m</div>
+        <div>
+          <h4>${escapeHtml(step.title || '数字孪生学习任务')}</h4>
+          <p>${escapeHtml(step.description || '根据数字孪生仿真结果生成。')}</p>
+        </div>
+      </div>
+    `).join('') || '<p class="twin-dashboard-empty">暂无最优策略步骤</p>';
+  }
+
+  function setStudentTwinDetailMode(open) {
+    state.studentTwinDetailOpen = Boolean(open);
+    const column = document.querySelector('.calendar-column');
+    const panel = byId('student-twin-detail-panel');
+    column?.classList.toggle('twin-detail-mode', state.studentTwinDetailOpen);
+    if (panel) panel.hidden = !state.studentTwinDetailOpen;
+    renderStudentTwinPlanButton();
+  }
+
+  function renderStudentTwinPlanButton() {
+    const button = byId('twin-plan-create');
+    if (!button) return;
+    button.disabled = Boolean(state.studentTwinPlanCreating);
+    button.textContent = state.studentTwinPlanCreating ? '生成中...' : '生成仿真计划';
+  }
+
+  async function loadStudentTwinSummary({ silent = false } = {}) {
+    const token = state.studentTwinSummaryToken + 1;
+    state.studentTwinSummaryToken = token;
+    state.studentTwinSummaryLoading = true;
+    state.studentTwinSummaryError = '';
+    if (!silent) renderStudentTwinSummary();
     try {
       const url = `/api/learning/student-twin/${encodeURIComponent(state.userId)}?plan_date=${encodeURIComponent(state.selectedDate)}&max_bottlenecks=4`;
       const body = await apiGet(url);
-      if (token !== state.studentTwinToken) return;
-      state.studentTwin = body.result || null;
-      state.studentTwinDate = state.selectedDate;
-      state.studentTwinError = '';
+      if (token !== state.studentTwinSummaryToken) return;
+      state.studentTwinSummary = body.result || null;
+      state.studentTwinSummaryDate = state.selectedDate;
+      state.studentTwinSummaryError = '';
     } catch (err) {
-      if (token !== state.studentTwinToken) return;
-      state.studentTwin = null;
-      state.studentTwinDate = state.selectedDate;
-      state.studentTwinError = err.message || '数字孪生仿真暂不可用';
+      if (token !== state.studentTwinSummaryToken) return;
+      state.studentTwinSummary = null;
+      state.studentTwinSummaryDate = state.selectedDate;
+      state.studentTwinSummaryError = err.message || '虚拟学生状态暂不可用';
     } finally {
-      if (token === state.studentTwinToken) {
-        state.studentTwinLoading = false;
-        renderStudentTwin();
+      if (token === state.studentTwinSummaryToken) {
+        state.studentTwinSummaryLoading = false;
+        renderStudentTwinSummary();
       }
     }
   }
 
-  async function createStudentTwinPlan() {
+  async function createStudentTwinSimulationPlan() {
     if (!canEditSelectedDate()) {
       setStatus('过去的日期只支持查看', 'error');
       return;
     }
-    const twin = state.studentTwinDate === state.selectedDate ? state.studentTwin : null;
+    if (state.studentTwinPlanCreating) return;
+    let twin = state.studentTwinSummaryDate === state.selectedDate ? state.studentTwinSummary : null;
+    if (!twin && !state.studentTwinSummaryLoading) {
+      await loadStudentTwinSummary({ silent: true });
+      twin = state.studentTwinSummaryDate === state.selectedDate ? state.studentTwinSummary : null;
+    }
     const items = Array.isArray(twin?.recommended_plan_items) ? twin.recommended_plan_items : [];
     if (!items.length) {
       showPlanToast('当前没有可生成的仿真计划');
       return;
     }
-    state.studentTwinCreating = true;
-    renderStudentTwin();
+    state.studentTwinPlanCreating = true;
+    renderStudentTwinPlanButton();
     try {
       for (const item of items) {
         await apiPost('/api/learning/plan/items', recommendationPayload(normalizePlanDisplayItem(item)));
       }
       setStatus('');
-      showPlanToast('已生成数字孪生仿真计划');
+      showPlanToast('已根据数字孪生仿真生成今日计划');
       await loadMonth({ silent: true });
     } catch (err) {
       setStatus(err.message || '仿真计划生成失败', 'error');
     } finally {
-      state.studentTwinCreating = false;
-      renderStudentTwin();
+      state.studentTwinPlanCreating = false;
+      renderStudentTwinPlanButton();
     }
   }
 
@@ -604,7 +816,7 @@
     state.editingId = '';
     if (state.recommendationDate !== state.selectedDate) clearRecommendations();
     loadMonth();
-    loadStudentTwin({ silent: true });
+    loadStudentTwinSummary({ silent: true });
   }
 
   function render() {
@@ -614,7 +826,8 @@
     renderAssessmentCard();
     refineAssessmentCardPresentation();
     renderRecommendations();
-    renderStudentTwin();
+    renderStudentTwinSummary();
+    renderStudentTwinPlanButton();
   }
 
   function renderSelectors() {
@@ -1396,12 +1609,17 @@
       }
     });
 
-    byId('student-twin-card')?.addEventListener('click', async (event) => {
-      const button = event.target.closest('[data-student-twin-action]');
-      if (!button) return;
-      const action = button.getAttribute('data-student-twin-action');
-      if (action === 'create-plan') {
-        await createStudentTwinPlan();
+    byId('student-twin-summary-card')?.addEventListener('click', (event) => {
+      if (event.target.closest('[data-twin-detail-open]')) {
+        setStudentTwinDetailMode(true);
+      }
+    });
+
+    byId('student-twin-detail-panel')?.addEventListener('click', (event) => {
+      if (event.target.closest('[data-twin-detail-close]')) {
+        setStudentTwinDetailMode(false);
+      } else if (event.target.closest('[data-twin-plan-create]')) {
+        createStudentTwinSimulationPlan();
       }
     });
 
@@ -1438,7 +1656,7 @@
       state.editingId = '';
       if (state.recommendationDate !== state.selectedDate) clearRecommendations();
       render();
-      loadStudentTwin({ silent: true });
+      loadStudentTwinSummary({ silent: true });
       if (window.lucide) window.lucide.createIcons();
     });
 
@@ -1498,7 +1716,7 @@
     bindEvents();
     loadProfile();
     await loadMonth();
-    await loadStudentTwin({ silent: true });
+    await loadStudentTwinSummary({ silent: true });
     if (state.planDraftId) {
       await loadPlanDraft(state.planDraftId);
     }
