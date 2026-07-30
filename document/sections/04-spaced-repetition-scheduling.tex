@@ -1,0 +1,256 @@
+% !TeX root = ../main.tex
+
+\chapter{认知科学驱动的间隔重复复习调度}
+\label{sec:spaced-repetition-scheduling}
+
+\section{技术定位与设计目标}
+
+口腔医学学习不仅要求学生理解单个概念，还要求其在较长周期内稳定保持对疾病机制、诊断依据、鉴别诊断、治疗原则和临床决策链条的记忆。传统学习计划通常依据固定规则安排复习，例如“答错后次日复习”或“章节结束后统一回顾”。这类规则能够覆盖基本补救需求，但没有显式刻画记忆随时间衰减的过程，也难以回答“某一个具体知识点在今天是否已经到达最佳复习窗口”这一问题。
+
+OralSage 在学习计划模块中进一步引入认知科学驱动的间隔重复调度思想，将复习安排从经验规则提升为面向知识点的记忆状态建模。系统不再仅根据任务完成状态或错误记录静态生成计划，而是读取学习画像中的 \texttt{weak\_kg\_node\_ids}、\texttt{mastery\_by\_kg\_node}、课程掌握记录和直接问答掌握记录，为每一个薄弱 KG 节点计算下一次复习时间、记忆保持率估计和复习优先级，并输出为 \texttt{review\_section} 类型的学习计划项。
+
+该模块的核心目标包括三个方面。第一，建立面向 KG 节点的记忆单元，使复习对象从“章节”细化到“具体知识点”。第二，引入 SM-2 与 FSRS 两类间隔重复算法框架，使计划推荐具备可解释的数学依据。第三，将复习调度结果写入学习计划，使 Planner、Assessment、QA 和 Memory/User Model 之间形成可闭环的复习决策链路。
+
+\section{基于 SM-2 的确定性复习调度}
+
+SM-2 是经典间隔重复算法之一，其主要思想是根据学习者每次回忆质量更新重复次数、难度因子和下次复习间隔\cite{wozniak1990sm2}。OralSage 将该算法从传统卡片级复习扩展为 KG 节点级复习，使口腔医学知识图谱中的每一个概念节点都可以拥有独立的复习状态。
+
+\subsection{知识点记忆状态建模}
+
+设第 $k$ 个知识点的记忆状态为
+\begin{equation}
+  \mathcal{M}_k=(m_k,c_k,d_k,n_k,EF_k,I_k,t_k),
+\end{equation}
+其中 $m_k$ 表示掌握度，$c_k$ 表示置信度，$d_k$ 表示知识点难度，$n_k$ 表示连续成功复习次数，$EF_k$ 表示易度因子，$I_k$ 表示当前复习间隔，$t_k$ 表示上次学习或复习时间。与普通背词软件不同，OralSage 的状态不是由用户手动维护，而是由多源学习证据自动融合得到。
+
+\begin{table}[H]
+  \centering
+  \caption{间隔重复调度器的输入信号}
+  \label{tab:spaced-review-inputs}
+  \begin{tabularx}{\linewidth}{p{0.26\linewidth}p{0.27\linewidth}X}
+    \toprule
+    输入来源 & 主要字段 & 技术作用 \\
+    \midrule
+    长期学习记忆 & \texttt{weaknesses}、\texttt{mastery} & 抽取薄弱知识点、错误理解和低掌握度节点 \\
+    学习画像 & \texttt{mastery\_by\_kg\_node} & 提供跨课程的节点级掌握状态 \\
+    课程掌握记录 & \texttt{mastery\_records} & 记录课程学习、讲授覆盖和题目表现后的掌握度变化 \\
+    直接问答记录 & \texttt{direct\_qa\_mastery\_records} & 捕捉学生主动提问暴露出的困惑节点 \\
+    学习计划记录 & \texttt{study\_plan\_items} & 避免重复推荐，并为后续执行反馈提供闭环入口 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+在候选知识点合并阶段，系统按照 KG 节点编号进行聚合，保留最小掌握度、最高薄弱严重度、最近一次学习时间、证据来源和关联课程信息。该设计使同一知识点即使来自课程学习、直接问答和错题反馈等不同路径，也能被统一映射到同一个复习调度单元。
+
+\subsection{掌握度到回忆质量的映射}
+
+传统 SM-2 依赖用户在复习后给出 $0$ 到 $5$ 的回忆质量评分。面向智能学习系统时，OralSage 使用学习画像中的掌握度自动估计回忆质量。设 $m_k\in[0,1]$ 为知识点掌握度，$b_k$ 表示该节点是否为薄弱点，则质量分数 $q_k$ 定义为
+\begin{equation}
+  q_k =
+  \begin{cases}
+  2, & \tilde m_k < 0.35,\\
+  3, & 0.35 \le \tilde m_k < 0.55,\\
+  4, & 0.55 \le \tilde m_k < 0.78,\\
+  5, & \tilde m_k \ge 0.78,
+  \end{cases}
+  \quad
+  \tilde m_k =
+  \begin{cases}
+  m_k-0.08, & b_k=1,\\
+  m_k, & b_k=0.
+  \end{cases}
+  \label{eq:sm2-quality-mapping}
+\end{equation}
+
+该映射保留了 SM-2 对回忆质量的离散判断，同时引入薄弱点惩罚项，使系统在识别到“概念混淆”“机制链条不完整”“诊断依据遗漏”等风险时，更倾向于缩短复习间隔。对于口腔医学中容易混淆的知识，例如牙龈炎与牙周炎鉴别、牙髓炎与根尖周炎鉴别、牙周袋深度与附着丧失关系，该设计能够比单纯正确率更敏感地捕捉复习需求。
+
+\subsection{SM-2 状态更新公式}
+
+设知识点当前易度因子为 $EF_k$，复习质量为 $q_k$，则 SM-2 的易度因子更新为
+\begin{equation}
+  EF'_k = \max\left(1.3,\ EF_k + 0.1 - (5-q_k)\left(0.08+(5-q_k)0.02\right)\right).
+  \label{eq:sm2-ef}
+\end{equation}
+
+若 $q_k<3$，说明本次回忆失败，系统将连续成功次数重置为 $0$，并将复习间隔设为 $1$ 天。若 $q_k\ge3$，则进入成功复习分支：
+\begin{equation}
+  I'_k =
+  \begin{cases}
+  1, & n'_k=1,\\
+  6, & n'_k=2,\\
+  \operatorname{round}(I_k EF'_k), & n'_k>2.
+  \end{cases}
+  \label{eq:sm2-interval}
+\end{equation}
+
+在工程实现中，为避免稀疏学习记录导致过长间隔，系统对 $I'_k$ 设置上界，并将其与知识点难度、掌握度和证据置信度共同用于优先级排序，而不是机械地只按到期日期排序。
+
+\section{遗忘曲线与复习优先级函数}
+
+SM-2 给出了下次复习间隔，但学习计划推荐还需要在多个候选知识点之间排序。OralSage 因此进一步构建遗忘曲线估计与优先级函数，将“是否到期”“薄弱程度”“知识点难度”和“距上次学习时间”统一纳入调度。
+
+设 $\Delta t_k$ 为当前日期与上次学习日期之间的间隔，$S_k$ 为知识稳定度估计，则知识点 $k$ 的记忆保持率估计为
+\begin{equation}
+  \hat R_k = \exp\left(-\frac{\Delta t_k}{S_k}\right),
+  \quad
+  S_k = I'_k(0.85+0.3c_k).
+  \label{eq:retention-estimate}
+\end{equation}
+
+其中，$c_k$ 为证据置信度。掌握证据越稳定，系统越允许间隔略微延长；置信度较低或薄弱证据较强时，系统会更保守地安排复习。对于计划推荐排序，OralSage 使用如下优先级函数：
+\begin{equation}
+  P_k=\operatorname{clip}\left(
+  0.28+
+  \frac{(1-m_k)\cdot O_k\cdot H_k\cdot B_k}{2.8},
+  0,\ 0.98
+  \right),
+  \label{eq:review-priority}
+\end{equation}
+其中
+\begin{equation}
+  O_k=1+\min\left(2,\frac{\max(0,\ t_{\mathrm{now}}-(t_k+I'_k))}{\max(1,I'_k)}\right),
+  \quad
+  H_k=0.85+0.65d_k,
+  \quad
+  B_k =
+  \begin{cases}
+  1.18, & k\in \mathcal{W},\\
+  1.00, & k\notin \mathcal{W}.
+  \end{cases}
+\end{equation}
+
+$O_k$ 表示逾期因子，$H_k$ 表示难度因子，$B_k$ 表示薄弱点权重。该公式使推荐排序不只关注“错没错”，而是同时考虑“掌握得是否牢固”“是否已经越过最佳复习窗口”“知识点本身是否困难”和“是否被多源证据识别为薄弱点”。因此，系统能够将学习计划推荐从规则触发升级为可解释的算法调度。
+
+\begin{algorithm}[H]
+  \caption{面向 KG 节点的 SM-2 复习调度}
+  \label{alg:kg-sm2-review}
+  \begin{algorithmic}[1]
+    \Require 学习者编号 $u$，目标日期 $T$，长期记忆 $L$，课程掌握记录 $C$
+    \Ensure 排序后的复习候选集合 $\mathcal{R}$
+    \State 从 $L$ 和 $C$ 中抽取薄弱节点、低掌握节点和问答困惑节点
+    \State 按 KG 节点编号聚合同一知识点的掌握度、置信度、难度和证据来源
+    \For{每一个候选知识点 $k$}
+      \State 根据式\eqref{eq:sm2-quality-mapping}计算回忆质量 $q_k$
+      \State 根据式\eqref{eq:sm2-ef}和式\eqref{eq:sm2-interval}更新 $EF'_k$ 与 $I'_k$
+      \State 根据式\eqref{eq:retention-estimate}估计保持率 $\hat R_k$
+      \State 根据式\eqref{eq:review-priority}计算复习优先级 $P_k$
+      \State 生成包含 \texttt{kg\_node\_ids} 与 \texttt{spaced\_repetition} 追踪信息的候选项
+    \EndFor
+    \State 按 $P_k$、复习到期日期和知识点名称排序，输出前若干项
+  \end{algorithmic}
+\end{algorithm}
+
+\section{面向 FSRS 的高级记忆状态扩展}
+
+SM-2 的优点是计算稳定、解释直接、对数据量要求低，适合在当前系统中作为确定性调度器落地。为了进一步提升长期个性化能力，OralSage 同时预留 FSRS（Free Spaced Repetition Scheduler）扩展方向。FSRS 使用 DSR 记忆模型，将每个记忆单元表示为 Difficulty、Stability 和 Retrievability 三个核心变量\cite{openfsrs2025algorithm}，比 SM-2 更适合在积累大量复习日志后进行参数学习和个体化拟合。
+
+\subsection{DSR 记忆模型}
+
+在 FSRS 框架下，知识点 $k$ 的记忆状态可表示为
+\begin{equation}
+  \mathcal{F}_k=(D_k,S_k,R_k),
+\end{equation}
+其中 $D_k$ 表示知识点对该学习者的主观难度，$S_k$ 表示记忆稳定度，$R_k$ 表示在当前时刻成功回忆该知识点的概率。其遗忘曲线可写为
+\begin{equation}
+  R_k(t,S_k)=\left(1+\mathrm{FACTOR}\cdot\frac{t}{S_k}\right)^{\mathrm{DECAY}},
+  \label{eq:fsrs-forgetting}
+\end{equation}
+其中 $t$ 为距上次复习的时间。FSRS 通过设置 \texttt{DECAY} 与 \texttt{FACTOR}，使 $t=S_k$ 时保持率接近目标阈值，例如 $R=0.9$。当系统设定期望保持率为 $\rho$ 时，可以反推出下一次复习间隔：
+\begin{equation}
+  I_{\rho,k}=
+  \frac{S_k}{\mathrm{FACTOR}}
+  \left(\rho^{1/\mathrm{DECAY}}-1\right).
+  \label{eq:fsrs-interval}
+\end{equation}
+
+与 SM-2 相比，FSRS 不再只使用连续成功次数和易度因子控制间隔，而是显式估计“知识点难度”和“记忆稳定度”。这使系统能够区分两类不同情况：一类是学生暂时答错但长期稳定度较高的知识点，另一类是学生偶尔答对但稳定度很低的知识点。后者在口腔医学学习中更危险，因为其表面正确率可能掩盖对诊断边界、机制推理或治疗适应证的不稳定理解。
+
+\subsection{从系统日志学习 FSRS 参数}
+
+FSRS 的高级性在于其参数可以由学习者历史复习记录反向拟合。设一次复习日志为
+\begin{equation}
+  x_i=(k_i,t_i,g_i,y_i),
+\end{equation}
+其中 $k_i$ 为知识点，$t_i$ 为距上次复习时间，$g_i$ 为系统或学习者给出的回忆等级，$y_i\in\{0,1\}$ 表示是否成功回忆。系统可以使用历史日志最小化预测回忆概率与真实表现之间的交叉熵：
+\begin{equation}
+  \mathcal{L}(\theta)=
+  -\sum_i
+  \left[
+  y_i\log R_{\theta}(t_i,S_{k_i})
+  +(1-y_i)\log(1-R_{\theta}(t_i,S_{k_i}))
+  \right].
+  \label{eq:fsrs-loss}
+\end{equation}
+
+在 OralSage 中，FSRS 参数学习可以直接利用现有的学习事件表、掌握度记录、直接问答记录和学习计划完成记录。随着学生完成更多 \texttt{review\_section} 任务，系统能够从真实复习正确率、任务延迟情况和答题结果中学习个体化参数，使复习调度从“基于通用遗忘曲线的估计”逐步升级为“基于个人记忆曲线的预测”。
+
+\begin{table}[H]
+  \centering
+  \caption{SM-2 与 FSRS 在 OralSage 中的技术分工}
+  \label{tab:sm2-fsrs-comparison}
+  \begin{tabularx}{\linewidth}{p{0.18\linewidth}X X}
+    \toprule
+    维度 & SM-2 调度器 & FSRS 扩展调度器 \\
+    \midrule
+    状态变量 & 重复次数、易度因子、复习间隔 & 难度、稳定度、可回忆概率 \\
+    数据需求 & 少量掌握度和薄弱点记录即可运行 & 需要持续积累复习日志和正确率反馈 \\
+    可解释性 & 公式简单，适合展示单次调度过程 & 可展示个体遗忘曲线与目标保持率 \\
+    个性化程度 & 基于掌握度和薄弱证据进行轻量个性化 & 可通过历史日志训练学习者级或群体级参数 \\
+    工程角色 & 当前确定性落地方案，稳定生成 \texttt{review\_section} & 后续高级优化方向，用于自适应记忆预测和工作量模拟 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{与多智能体学习闭环的协同}
+
+间隔重复调度并不是孤立的日程工具，而是 OralSage 多智能体学习闭环中的一个算法决策层。Tutor 在讲授过程中记录知识点覆盖和学习进度，QA 根据学生追问识别困惑节点，Assessment 根据答题结果生成错误原因和补救建议，Memory/User Model 将上述证据写入长期学习画像，Study-Planner 再根据 SM-2 或 FSRS 调度结果生成复习任务。
+
+该闭环可以表示为
+\[
+\text{Tutor/QA/Assessment}
+\rightarrow
+\text{Memory/User Model}
+\rightarrow
+\text{SM-2/FSRS Scheduler}
+\rightarrow
+\text{Study Plan}
+\rightarrow
+\text{Review Feedback}.
+\]
+
+在学习计划输出层，调度器将候选知识点转换为结构化计划项：
+\begin{itemize}
+  \item \texttt{task\_type}: 设为 \texttt{review\_section}，表示该任务是面向知识点的复习区块；
+  \item \texttt{kg\_node\_ids}: 保存需要复习的 KG 节点，支持后续定位讲义、题目和证据片段；
+  \item \texttt{learning\_scope}: 保存调度算法、掌握度、难度、易度因子、间隔天数、下次复习日期和保持率估计；
+  \item \texttt{priority}: 保存由掌握度、逾期因子、难度因子和薄弱点权重共同计算得到的复习优先级。
+\end{itemize}
+
+这种结构化输出使复习计划具备可追溯性。答辩时不仅可以说明系统推荐了某个复习任务，还可以解释推荐的数学依据：该知识点掌握度较低，距上次学习已经超过模型计算出的最佳复习间隔，记忆保持率估计下降，因此被提升到今日计划中。
+
+\section{评估指标与展示方式}
+
+为了验证该模块的有效性，OralSage 可以从算法准确性、学习效果和计划执行三个层面构建评估指标。算法层面关注保持率预测与实际复习正确率之间的偏差；学习效果层面关注薄弱知识点在复习后的掌握度提升；执行层面关注推荐任务是否被学生完成，以及逾期复习债务是否下降。
+
+\begin{table}[H]
+  \centering
+  \caption{间隔重复调度模块的评估指标}
+  \label{tab:spaced-review-evaluation}
+  \begin{tabularx}{\linewidth}{p{0.24\linewidth}p{0.32\linewidth}X}
+    \toprule
+    指标类别 & 指标名称 & 含义 \\
+    \midrule
+    预测准确性 & Retention Calibration & 比较模型估计保持率与实际复习正确率是否一致 \\
+    学习收益 & Mastery Uplift & 统计复习前后相关 KG 节点掌握度提升幅度 \\
+    计划质量 & Review Debt Reduction & 统计逾期复习节点数量和逾期天数是否下降 \\
+    执行行为 & Completion Rate & 统计 \texttt{review\_section} 任务完成比例 \\
+    算法对比 & SM-2/FSRS A/B Test & 比较不同调度策略下的正确率、完成率和任务负担 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+在作品展示中，可以将某一学生的薄弱知识点绘制为遗忘曲线图，横轴表示距上次学习的天数，纵轴表示保持率估计。当曲线下降到目标保持率阈值附近时，系统生成复习任务；当学生完成复习并答对相关题目后，稳定度提升，下一次复习间隔随之延长。该展示能够直观体现系统并非简单堆叠大模型能力，而是在学习计划层引入了具有数学模型、状态变量和反馈优化机制的智能调度算法。
+
+\section{小结}
+
+间隔重复复习调度为 OralSage 增加了一个独立的算法创新层。SM-2 负责在当前数据条件下稳定生成可解释的知识点复习计划，FSRS 则为后续个体记忆曲线拟合、目标保持率控制和复习工作量优化提供高级扩展方向。通过将掌握度、薄弱点、时间间隔、知识点难度和复习反馈统一建模，系统能够把“学习计划推荐”从经验规则升级为认知科学与数据驱动结合的自适应调度过程，进一步增强作品在技术性、算法性和可答辩性上的深度。

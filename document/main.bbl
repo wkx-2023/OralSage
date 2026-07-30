@@ -1,0 +1,156 @@
+\begin{thebibliography}{10}
+
+\bibitem{wei2025aipbl}
+H.~Wei, Y.~Dai, K.~Yuan, et~al.
+\newblock {AI}-powered problem- and case-based learning in medical and dental
+  education: A systematic review and meta-analysis.
+\newblock {\em International Dental Journal}, 2025.
+\newblock PMID: 40578029. \url{https://pubmed.ncbi.nlm.nih.gov/40578029/}.
+
+\bibitem{liu2026socratic}
+W.~Liu, X.~Huang, M.~Zhan, et~al.
+\newblock Large language model-driven socratic questioning for endodontic case
+  analysis: A randomised controlled trial.
+\newblock {\em International Endodontic Journal}, 2026.
+\newblock PMID: 42423313. \url{https://pubmed.ncbi.nlm.nih.gov/42423313/}.
+
+\bibitem{sharmin2025oralhealthllm}
+N.~Sharmin and A.~K. Chow.
+\newblock Application of large language models in oral health education: A
+  review of the literature.
+\newblock {\em Canadian Journal of Dental Hygiene}, 2025.
+\newblock PMID: 41195319. \url{https://pubmed.ncbi.nlm.nih.gov/41195319/}.
+
+\bibitem{doubleday2026llmaccuracy}
+A.~F. Doubleday, C.~M. Cheverko, O.~Bolgova, et~al.
+\newblock Temporal trends in large language model accuracy: A meta-analysis of
+  multiple-choice question performance in dentistry and dental education.
+\newblock {\em Journal of Dentistry}, 2026.
+\newblock PMID: 42066887. \url{https://pubmed.ncbi.nlm.nih.gov/42066887/}.
+
+\bibitem{collaco2026ft_rag}
+B.~G. Collaco, P.~Srinivasagam, C.~A. Gomez-Cabello, S.~A. Haider, A.~Genovese,
+  N.~G. Wood, S.~Bagaria, M.~A. Lifson, and A.~J. Forte.
+\newblock Integrating fine-tuning and retrieval-augmented generation for
+  healthcare ai systems: A scoping review.
+\newblock {\em Bioengineering}, 13(2):225, 2026.
+
+\bibitem{corbett1994knowledge}
+Albert~T. Corbett and John~R. Anderson.
+\newblock Knowledge tracing: Modeling the acquisition of procedural knowledge.
+\newblock {\em User Modeling and User-Adapted Interaction}, 4:253--278, 1994.
+
+\bibitem{vanlehn2011relative}
+Kurt VanLehn.
+\newblock The relative effectiveness of human tutoring, intelligent tutoring
+  systems, and other tutoring systems.
+\newblock {\em Educational Psychologist}, 46(4):197--221, 2011.
+
+\bibitem{deeptutor2026}
+Bingxi Zhao, Jiahao Zhang, Xubin Ren, Zirui Guo, Tianzhe Chu, Yi~Ma, and Chao
+  Huang.
+\newblock {DeepTutor}: Towards agentic personalized tutoring.
+\newblock {\em arXiv preprint arXiv:2604.26962}, 2026.
+\newblock \url{https://arxiv.org/abs/2604.26962}.
+
+\bibitem{wood1976tutoring}
+David Wood, Jerome~S. Bruner, and Gail Ross.
+\newblock The role of tutoring in problem solving.
+\newblock {\em Journal of Child Psychology and Psychiatry}, 17(2):89--100,
+  1976.
+
+\bibitem{koren2009temporal}
+Yehuda Koren.
+\newblock Collaborative filtering with temporal dynamics.
+\newblock {\em Communications of the ACM}, 53(4):89--97, 2010.
+
+\bibitem{piech2015deep}
+Chris Piech, Jonathan Bassen, Jonathan Huang, Surya Ganguli, Mehran Sahami,
+  Leonidas~J. Guibas, and Jascha Sohl-Dickstein.
+\newblock Deep knowledge tracing.
+\newblock In {\em Advances in Neural Information Processing Systems},
+  volume~28. Curran Associates, Inc., 2015.
+
+\bibitem{bloom1968mastery}
+Benjamin~S. Bloom.
+\newblock Learning for mastery.
+\newblock Evaluation Comment 1(2), University of California, Los Angeles,
+  Center for the Study of Evaluation of Instructional Programs, 1968.
+
+\bibitem{wozniak1990sm2}
+Piotr~A. Wozniak.
+\newblock Algorithm {SM-2}.
+\newblock \url{https://super-memory.com/english/ol/sm2.htm}, 1990.
+\newblock Description of the computer-based SuperMemo SM-2 spaced repetition
+  algorithm.
+
+\bibitem{openfsrs2025algorithm}
+{Open Spaced Repetition}.
+\newblock The {FSRS} algorithm.
+\newblock
+  \url{https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm},
+  2025.
+\newblock Technical description of FSRS based on the DSR memory model.
+
+\bibitem{lie2024harnessing}
+Margaret Lie, Adam Rodman, and Byron Crowe.
+\newblock Harnessing generative artificial intelligence for medical education.
+\newblock {\em Academic Medicine}, 2024.
+
+\bibitem{rodman2024using}
+Adam Rodman, Nicholas~M. Mark, Anthony~R. Artino, and Juan~N. Lessing.
+\newblock Using generative artificial intelligence in medical education.
+\newblock {\em Academic Medicine}, 2024.
+
+\bibitem{mayer2021multimedia}
+Richard~E. Mayer.
+\newblock {\em Multimedia Learning}.
+\newblock Cambridge University Press, 3 edition, 2021.
+
+\bibitem{w3c-prov-dm}
+Luc Moreau and Paolo Missier.
+\newblock {PROV-DM}: The {PROV} data model.
+\newblock W3c recommendation, World Wide Web Consortium, 2013.
+\newblock \url{https://www.w3.org/TR/prov-dm/}.
+
+\bibitem{chen2024m3embedding}
+Jianlv Chen, Shitao Xiao, Peitian Zhang, Kun Luo, Defu Lian, and Zheng Liu.
+\newblock {M3-Embedding}: Multi-linguality, multi-functionality,
+  multi-granularity text embeddings through self-knowledge distillation.
+\newblock {\em arXiv preprint arXiv:2402.03216}, 2024.
+\newblock \url{https://arxiv.org/abs/2402.03216}.
+
+\bibitem{liang2024kag}
+Lei Liang, Mengshu Sun, Zhengke Gui, Zhongshu Zhu, Zhouyu Jiang, Ling Zhong,
+  Yuan Qu, Peilong Zhao, Zhongpu Bo, Jin Yang, Huaidong Xiong, Lin Yuan, Jun
+  Xu, Zaoyang Wang, Zhiqiang Zhang, Wen Zhang, Huajun Chen, Wenguang Chen, and
+  Jun Zhou.
+\newblock {KAG}: Boosting {LLMs} in professional domains via knowledge
+  augmented generation.
+\newblock {\em arXiv preprint arXiv:2409.13731}, 2024.
+\newblock \url{https://arxiv.org/abs/2409.13731}.
+
+\bibitem{page1999pagerank}
+Lawrence Page, Sergey Brin, Rajeev Motwani, and Terry Winograd.
+\newblock The pagerank citation ranking: Bringing order to the web.
+\newblock Technical report, Stanford InfoLab, 1999.
+\newblock Technical report.
+
+\bibitem{cormack2009rrf}
+Gordon~V. Cormack, Charles L.~A. Clarke, and Stefan Buettcher.
+\newblock Reciprocal rank fusion outperforms condorcet and individual rank
+  learning methods.
+\newblock In {\em Proceedings of the 32nd International ACM SIGIR Conference on
+  Research and Development in Information Retrieval}, pages 758--759. ACM,
+  2009.
+
+\bibitem{mirage2024}
+Jirui Qi, Gabriele Sarti, Raquel Fern{\'a}ndez, and Arianna Bisazza.
+\newblock Model internals-based answer attribution for trustworthy
+  retrieval-augmented generation.
+\newblock In {\em Proceedings of the 2024 Conference on Empirical Methods in
+  Natural Language Processing}. Association for Computational Linguistics,
+  2024.
+\newblock \url{https://aclanthology.org/2024.emnlp-main.347/}.
+
+\end{thebibliography}

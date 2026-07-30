@@ -1,0 +1,191 @@
+% !TeX encoding = UTF-8
+% !TeX program = xelatex
+
+\documentclass[a4paper]{report}
+
+\usepackage[UTF8]{ctex}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{titling}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{tcolorbox}
+\usepackage{ulem}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{bm}
+\usepackage{siunitx}
+\usepackage{fontspec}
+\usepackage{xcolor}
+\usepackage{setspace}
+\usepackage{listings}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows, positioning, fit}
+
+\usepackage[colorlinks=true, linkcolor=blue, citecolor=red, urlcolor=blue, hidelinks]{hyperref}
+\usepackage{cite}
+\usepackage{mathrsfs}
+\usepackage{mathptmx}
+\usepackage{pifont}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+\geometry{left=2.86cm, right=2.86cm, top=2.54cm, bottom=2.54cm}
+\graphicspath{{figures/}}
+\setstretch{1.5}
+\setmainfont{Times New Roman}
+\setCJKmainfont{SimSun}[AutoFakeBold=true]
+\setmonofont{Consolas}
+\setCJKmonofont{SimSun}[AutoFakeBold=true]
+\setlength{\tabcolsep}{4pt}
+\everymath{\displaystyle}
+
+\titleformat{\chapter}[block]{\centering\huge\bfseries}{第\zhnumber{\thechapter}章}{1em}{}
+
+\newcommand{\competitionname}{中国软件杯大学生软件设计大赛}
+\newcommand{\documentname}{作品报告}
+\newcommand{\projectname}{OralSage：面向口腔医学学习的个性化资源生成与多智能体学习系统}
+\newcommand{\projectshortname}{OralSage：口腔医学学习多智能体系统}
+\newcommand{\trackname}{A3-基于大模型的个性化资源生成与学习多智能体系统开发}
+
+
+\definecolor{background}{RGB}{240,240,240}
+\definecolor{string}{RGB}{163,21,21}
+\definecolor{number}{RGB}{0,0,128}
+\definecolor{key}{RGB}{0,0,255}
+\definecolor{comment}{RGB}{0,128,0}
+\definecolor{punctuation}{RGB}{128,0,0}
+\definecolor{softcupblue}{RGB}{31,78,121}
+\definecolor{softcupgray}{RGB}{245,247,250}
+\definecolor{softcupred}{RGB}{180,35,24}
+\definecolor{oralsagepurple}{RGB}{87,44,133}
+\definecolor{covermuted}{RGB}{102,102,112}
+\definecolor{coverpanel}{RGB}{248,246,251}
+
+
+\newcommand{\softid}[1]{\texttt{#1}}
+\newcommand{\coverfield}[2]{%
+  \noindent
+  \begin{tabularx}{\linewidth}{@{}>{\color{covermuted}\bfseries}p{5.4em}@{\hspace{1.2em}}>{\raggedright\arraybackslash}X@{}}
+    #1 & #2
+  \end{tabularx}\par%
+}
+\newcommand{\docplaceholder}[2]{%
+  \begin{center}
+    \fbox{%
+      \begin{minipage}[c][#2][c]{0.92\linewidth}
+        \centering\color{softcupblue}#1
+      \end{minipage}%
+    }
+  \end{center}
+}
+
+\lstdefinestyle{softcupcode}{
+  basicstyle=\ttfamily\small,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  numbersep=8pt,
+  showstringspaces=false,
+  breaklines=true,
+  backgroundcolor=\color{softcupgray},
+  frame=single,
+  tabsize=2
+}
+\lstset{style=softcupcode}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\competitionname}
+\fancyhead[R]{\projectshortname}
+\fancyfoot[C]{\thepage}
+
+\begin{document}
+
+\begin{titlepage}
+  \thispagestyle{empty}
+  \vspace*{1.6cm}
+  \noindent
+  \begin{minipage}[t]{0.68\linewidth}
+    \includegraphics[width=4.80cm]{oralsage-logo.png}
+  \end{minipage}%
+  \begin{minipage}[t]{0.28\linewidth}
+    \raggedleft
+    \begin{tikzpicture}[x=1cm,y=1cm]
+      \fill[oralsagepurple] (0,0) rectangle (1.20,4.60);
+      \fill[oralsagepurple] (0,-0.72) rectangle (1.20,-0.16);
+      \fill[oralsagepurple] (0,-1.22) rectangle (1.20,-0.86);
+    \end{tikzpicture}
+  \end{minipage}
+
+  \vspace*{4.2cm}
+  {\fontsize{21pt}{27pt}\selectfont \competitionname\par}
+
+  \vspace*{1.0cm}
+  {\fontsize{39pt}{46pt}\selectfont OralSage作品报告\par}
+
+  \vspace*{0.7cm}
+  {\fontsize{14pt}{20pt}\selectfont \trackname\par}
+
+  \vspace*{0.75cm}
+  \noindent
+  \begin{tikzpicture}[x=1cm,y=1cm]
+    \draw[oralsagepurple,line width=1.5pt] (0,0) -- (9.37,0);
+    \fill[oralsagepurple] (0,0) circle[radius=0.16];
+    \fill[oralsagepurple] (9.37,0) circle[radius=0.16];
+  \end{tikzpicture}
+
+  \vfill
+  {\fontsize{15pt}{22pt}\selectfont 提交日期：\quad \today\par}
+\end{titlepage}
+
+\tableofcontents
+
+\chapter*{摘要}
+\phantomsection
+\addcontentsline{toc}{chapter}{摘要}
+
+OralSage 是面向口腔医学专业学习场景的个性化资源生成与多智能体学习系统，拟参加第十五届中国软件杯 A3 赛题“基于大模型的个性化资源生成与学习多智能体系统开发”。系统以口腔医学教材、题库、知识图谱和检索索引构建 KAG 知识底座，通过学习者画像、学习路径规划、讲义与课件生成、智能讲解答疑、阶段测评和学习计划反馈，形成“画像构建--资源生成--学习辅导--效果评估--动态调整”的闭环学习流程。本文档采用单一技术文档形式组织内容，覆盖赛题要求中的需求分析、系统开发说明、测试说明、部署运行、创新价值和合规说明，避免将材料拆分为多份独立文档。
+
+针对口腔医学知识体系复杂、学习资料分散、复习节奏难以持续以及个体学习差异明显等问题，本文设计并实现了 OralSage 个性化资源生成与多智能体学习系统。系统以口腔医学教材、临床资料、知识图谱、题库和检索索引为基础，构建面向专业学习的 KAG 知识底座，并通过学习画像、知识状态和学习行为记录描述学习者的目标、基础水平、讲解偏好、薄弱知识点和计划执行情况。
+
+在系统实现方面，OralSage 采用 Orchestrator 统一调度 Planner、Resource Factory、Tutor、QA、Assessment 和 Memory/User Model 等智能体。Planner 根据学习主题、知识关系和学习者状态生成个性化学习路径；Resource Factory 围绕课程节点生成讲义、课件、思维导图、练习题、阶段卷和语音等学习资源；Tutor 基于当前讲义开展连续讲解；QA 支持当前章节答疑、课程延伸答疑和讲解过程中的即时追问；Assessment 根据练习结果返回评分、解析、错因和补救建议；Memory/User Model 将学习事件、掌握度和薄弱点回写到长期学习状态，进一步影响后续课程和计划安排。网页端与 ClawBot 微信学习入口共同支持课程学习、计划查看、任务打卡和学习反馈。
+
+系统当前覆盖 14 门口腔学科，包含 1,390 个核心条目、9,907 个知识概念、5,758 条知识关系和 3,161 道关联题目；统一检索语料包含 34,805 条文本片段。以“牙周炎”为主题的真实学习流程能够生成 5 个课程节点，首节课程节点绑定 1 个知识节点和 2 条资料片段，生成包含 177 字概述和 4 个主要知识点的讲义。当前章节答疑使用 2 条证据直接回答，课程延伸答疑生成 2 条定向检索计划并使用 4 条证据完成回答。系统完成 961 项 Python 后端测试以及学习计划、主对话计划草稿和主对话等前端测试，核心学习流程实测中课程大纲于 145.088 秒就绪，Tutor 首次内容于 195.103 秒返回。部署方案采用讯飞星火 4.0 Ultra API 处理文本智能体任务，并采用讯飞长文本语音合成 API 生成课程音频。
+
+测试结果表明，OralSage 已形成从专业知识检索、个性化路径规划、学习资源生成、智能讲解答疑到练习反馈和计划调整的连续学习闭环，能够为口腔医学生提供面向专题学习、考试复习和日常巩固的个性化学习支持。
+
+\noindent\textbf{关键词：} 口腔医学教育；个性化学习；多智能体系统；知识增强生成；学习画像；智能答疑；资源生成
+
+\input{sections/01-overview.tex}
+\input{sections/02-system-design.tex}
+\input{sections/03-agent-collaboration.tex}
+\input{sections/04-image-analysis-agent.tex}
+\input{sections/04-user-model-planning.tex}
+\input{sections/04-spaced-repetition-scheduling.tex}
+\input{sections/05-resource-generation.tex}
+\input{sections/06-knowledge-base.tex}
+\input{sections/07-system-implementation.tex}
+\input{sections/08-testing-evaluation.tex}
+\input{sections/09-innovation-value.tex}
+\input{sections/10-deployment-demo.tex}
+\input{sections/11-conclusion.tex}
+
+\input{sections/appendix-a.tex}
+
+\cleardoublepage
+\phantomsection
+\addcontentsline{toc}{chapter}{参考文献}
+\bibliographystyle{unsrt}
+\bibliography{references}
+
+\end{document}

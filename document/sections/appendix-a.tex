@@ -1,0 +1,64 @@
+\chapter*{附录}
+\phantomsection
+\addcontentsline{toc}{chapter}{附录}
+
+\section*{附录 A：补充材料}
+\phantomsection
+\addcontentsline{toc}{section}{附录 A：补充材料}
+
+本附录汇总正文中不便展开但可供评审核查的补充材料，包括核心接口调用示例、演示流程脚本、测试数据说明、主要开源依赖与 AI 服务使用边界，以及本地演示账号信息。相关内容与正文中的系统实现、测试评估和部署说明保持一致，便于在演示和技术核查时快速定位。
+
+\subsection*{核心接口调用示例}
+
+\begin{lstlisting}
+POST /api/learning/session/start
+Content-Type: application/json
+
+{
+  "user_id": "demo-user",
+  "topic": "牙周炎",
+  "goal": "exam_prep"
+}
+\end{lstlisting}
+
+
+\subsection*{开源依赖与 AI 工具说明}
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{主要 AI 工具与外部服务说明}
+  \label{tab:ai-tools-and-services}
+  \begin{tabularx}{\linewidth}{p{0.24\linewidth}p{0.28\linewidth}X}
+    \toprule
+    工具或服务 & 使用方式 & 项目中的使用位置与边界 \\
+    \midrule
+    iFlyCode 智能编程助手 & 讯飞官方 AI Coding 工具 & 辅助代码生成、代码检查、单元测试和调试；不参与系统运行时请求 \\
+    讯飞星火 4.0 Ultra API & HTTP/OpenAI 兼容接口 & 用于课程规划、讲义生成、Tutor、QA、Assessment 和学习状态分析 \\
+    讯飞长文本语音合成 API & \texttt{dts\_create}/\texttt{dts\_query} 异步接口 & 将课程讲稿和 Tutor 内容生成 MP3 音频；密钥只在后端使用 \\
+    BGE-M3 & 本地向量模型 & 生成知识片段向量并支持本地语义检索 \\
+    FastAPI/Uvicorn/Pydantic & Python 开源组件 & 提供后端接口、服务运行和数据模型校验 \\
+    LangGraph & Python 开源组件 & 支持多智能体工作流和任务编排 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+讯飞平台的产品名称、接口地址和鉴权方式以官方文档为准；真实 API Key、APISecret、APIPassword 和演示账号口令不写入报告或提交仓库。第三方组件的版本和许可证以项目依赖声明、组件许可证文件及其官方发布信息为准。
+
+\subsection*{演示账号}
+
+系统支持使用固定演示用户进行本地展示。演示登录不需要真实生产账号，也不授予管理员权限；如部署环境启用登录，则由现场部署人员在环境变量和本地数据库中创建短期演示会话。
+
+\begin{table}[H]
+  \centering
+  \caption{演示账号信息}
+  \label{tab:demo-account}
+  \begin{tabularx}{\linewidth}{p{0.22\linewidth}p{0.24\linewidth}X}
+    \toprule
+    账号类型 & 账号 & 说明 \\
+    \midrule
+    普通用户 & \texttt{demo} & 固定本地演示用户；用于查看学习画像、启动课程、生成计划和展示资源。 \\
+    管理员 & 不提供 & 演示流程不需要管理员权限；部署管理通过服务器环境和受控配置完成。 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}

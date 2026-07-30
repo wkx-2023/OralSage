@@ -16,6 +16,7 @@ from typing import Any, Callable
 from .memory import LearningMemory
 from .planner import preflight_scope_resources
 from .profile_memory import reduce_memory_signals
+from .spaced_repetition import build_spaced_review_schedule
 
 STUDY_PLAN_SESSION_ID = "study_plan"
 
@@ -8211,6 +8212,15 @@ def recommend_study_plan(
         existing_titles,
         _recommend_continue_lesson(active_session),
     )
+    for item in _recommend_spaced_reviews(
+        memory,
+        user_id=user_id,
+        target_date=target_date,
+        learner_memory=learner_memory,
+        sessions=sessions,
+        profile=profile,
+    ):
+        _append_recommendation(recommendations, seen_keys, existing_titles, item)
     for item in _recommend_weakness_reviews(
         profile=profile,
         learner_memory=learner_memory,
@@ -8260,6 +8270,10 @@ def recommend_study_plan(
             "active_session_id": active_session.get("id") if active_session else None,
             "active_session_topic": active_session.get("topic") if active_session else None,
             "recommendation_count": len(recommendations),
+            "spaced_review_count": sum(
+                1 for item in recommendations
+                if item.get("category") == "spaced_review"
+            ),
             "daily_available_minutes": daily_minutes,
             "assessment_preference": assessment_preference,
             "planning_support_need": planning_support_need,
@@ -8420,12 +8434,13 @@ def _recommendation(
     learning_target: str | None = None,
     kg_node_ids: list[str] | None = None,
     notes: str | None = None,
+    learning_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     clean_title = _clean_text(title, limit=180)
     clean_reason = _clean_text(reason, limit=220)
     clean_notes = _clean_text(notes or f"系统推荐：{clean_reason}", limit=800)
     kg_ids = [str(item).strip() for item in (kg_node_ids or []) if str(item).strip()]
-    return {
+    result = {
         "recommendation_id": recommendation_id,
         "title": clean_title,
         "category": category,
@@ -8439,6 +8454,9 @@ def _recommendation(
         "kg_node_ids": kg_ids[:12],
         "notes": clean_notes,
     }
+    if isinstance(learning_scope, dict) and learning_scope:
+        result["learning_scope"] = learning_scope
+    return result
 
 
 def _append_recommendation(
@@ -8506,6 +8524,90 @@ def _recommend_continue_lesson(active_session: dict[str, Any] | None) -> dict[st
         learning_target=node_title,
         kg_node_ids=node.get("kg_node_ids") or [],
     )
+
+
+def _recommend_spaced_reviews(
+    memory: LearningMemory,
+    *,
+    user_id: str,
+    target_date: str,
+    learner_memory: dict[str, Any],
+    sessions: list[dict[str, Any]],
+    profile: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build SM-2 based KG-node review recommendations."""
+    scheduled = build_spaced_review_schedule(
+        memory,
+        user_id=user_id,
+        target_date=target_date,
+        learner_memory=learner_memory,
+        sessions=sessions,
+        profile=profile,
+        max_items=3,
+    )
+    results: list[dict[str, Any]] = []
+    for item in scheduled:
+        kg_id = str(item.get("kg_node_id") or "").strip()
+        if not kg_id:
+            continue
+        label = _study_plan_display_label({
+            "learning_target": item.get("label"),
+            "kg_node_ids": [kg_id],
+            "learning_scope": {"kg_node_ids": [kg_id]},
+        })[:72]
+        mastery_pct = round(float(item.get("mastery_score", 0.0)) * 100)
+        retention_pct = round(float(item.get("retention_estimate", 0.0)) * 100)
+        interval_days = int(item.get("interval_days") or 1)
+        next_review = str(item.get("next_review_date") or target_date)
+        overdue_days = int(item.get("overdue_days") or 0)
+        if overdue_days > 0:
+            due_text = f"已超过最佳复习点 {overdue_days} 天"
+        elif next_review <= target_date:
+            due_text = "今天已到最佳复习点"
+        else:
+            due_text = f"最佳复习点为 {next_review}"
+        scope = {
+            "scope_type": "spaced_review_kg_node",
+            "kg_node_ids": [kg_id],
+            "spaced_repetition": {
+                "algorithm": "sm2_kg_node_v1",
+                "mastery_score": item.get("mastery_score"),
+                "difficulty": item.get("difficulty"),
+                "ease_factor": item.get("ease_factor"),
+                "quality": item.get("quality"),
+                "repetition_count": item.get("repetition_count"),
+                "interval_days": item.get("interval_days"),
+                "last_reviewed_at": item.get("last_reviewed_at"),
+                "next_review_date": item.get("next_review_date"),
+                "retention_estimate": item.get("retention_estimate"),
+                "priority": item.get("priority"),
+                "evidence_sources": item.get("evidence_sources", []),
+            },
+        }
+        results.append(
+            _recommendation(
+                recommendation_id=f"spaced-review:{kg_id}:{next_review}",
+                title=f"间隔复习：{label}",
+                category="spaced_review",
+                task_type="review_section",
+                reason=(
+                    f"SM-2 调度建议：掌握度约 {mastery_pct}%，"
+                    f"记忆保持率估计 {retention_pct}%，{due_text}。"
+                ),
+                priority=float(item.get("priority", 0.0)),
+                estimated_minutes=12 if interval_days <= 3 else 15,
+                linked_course_id=item.get("linked_course_id"),
+                linked_course_title=item.get("linked_course_title"),
+                learning_target=label,
+                kg_node_ids=[kg_id],
+                learning_scope=scope,
+                notes=(
+                    "间隔重复复习：基于 SM-2 遗忘曲线调度，综合掌握度、"
+                    f"上次学习间隔、知识点难度和薄弱点证据。{due_text}。"
+                ),
+            )
+        )
+    return results
 
 
 def _recommend_weakness_reviews(

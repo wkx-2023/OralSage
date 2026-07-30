@@ -1,0 +1,436 @@
+\chapter{系统实现}
+\label{sec:implementation}
+
+\section{技术栈}
+
+\begin{table}[H]
+  \centering
+  \caption{技术栈说明}
+  \label{tab:tech-stack-implementation}
+  \begin{tabularx}{\linewidth}{p{0.20\linewidth}p{0.24\linewidth}X}
+    \toprule
+    层次 & 技术或组件 & 说明 \\
+    \midrule
+    前端 & HTML/CSS/JavaScript & 实现学习入口、画像、学习页、资源展示和计划页等。 \\
+    后端 & Python、FastAPI、Pydantic、Uvicorn & 提供 API、参数校验、静态资源和流式进度接口。 \\
+    智能体 & Orchestrator、Planner、Resource Factory、Tutor、QA、Assessment、Memory/User Model & 实现学习规划、资源生成、答疑、测评和记忆更新。 \\
+    知识库 & KAG、KG、题库、BM25、BGE-M3/FAISS & 支撑证据检索、路径规划和测评。 \\
+    多模态资源 & PPT/slides、TTS 音频、思维导图、阶段卷 & 支撑多类型个性化学习资源生成。 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{讯飞平台与 API 集成}
+
+作品的开发工具和运行时服务分别采用讯飞平台中的不同产品。开发阶段使用讯飞官方的 \textbf{iFlyCode 智能编程助手}，用于代码生成、代码续写、代码检查、单元测试和调试辅助；iFlyCode 只参与项目开发过程，不作为用户请求处理时的运行时依赖。
+
+系统运行时的文本智能体统一接入讯飞星火 4.0 Ultra API，用于课程规划、讲义生成、Tutor 讲解、即时答疑、学习测评和学习状态分析。该接口采用 OpenAI 兼容的 HTTP 调用方式，后端通过统一的模型客户端读取 Base URL、模型名称和服务端密钥，各 Agent 不直接依赖具体模型厂商的请求格式。部署配置如下：
+
+\begin{lstlisting}
+LEARNING_LLM_BASE_URL=https://spark-api-open.xf-yun.com/v1
+LEARNING_LLM_MODEL=4.0Ultra
+LEARNING_LLM_API_KEY=<APIPassword>
+\end{lstlisting}
+
+课程讲稿和 Tutor 内容的语音资源采用讯飞长文本语音合成 API。后端先调用 \texttt{dts\_create} 创建合成任务，再通过 \texttt{dts\_query} 查询任务状态并下载生成的音频文件。部署版本使用中文发音人 \texttt{x4\_mingge}，输出 MP3 音频，服务端保存音频文件并向前端返回资源路径。该方式适合课程讲义和连续讲解等较长文本，不在浏览器端直接保存或暴露讯飞鉴权信息。
+
+\begin{table}[H]
+  \centering
+  \caption{讯飞平台组件与项目使用位置}
+  \label{tab:xfyun-integration}
+  \begin{tabularx}{\linewidth}{p{0.25\linewidth}p{0.30\linewidth}X}
+    \toprule
+    平台组件 & 使用阶段或接口 & 项目中的使用位置 \\
+    \midrule
+    iFlyCode 智能编程助手 & 开发辅助工具 & 代码生成、代码检查、单元测试和调试，不参与运行时请求 \\
+    星火 4.0 Ultra API & \texttt{/v1/chat/completions} & Planner、Resource Factory、Tutor、QA、Assessment 和学习状态分析 \\
+    长文本语音合成 API & \texttt{dts\_create}/\texttt{dts\_query} & 将课程讲稿和 Tutor 内容生成 MP3 音频 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+讯飞 API 的 AppID、APIKey、APISecret 和 APIPassword 只在服务端环境变量中配置，不写入源代码、前端静态文件或提交文档。项目保留统一的服务适配层，使模型服务切换不会改变课程规划、资源生成和学习状态模块的数据结构。
+
+\section{后端接口设计}
+
+OralSage 后端基于 FastAPI 构建，围绕学习测评、课程会话、教学互动、学习画像、学习计划和多模态资源等业务域组织接口。后端使用 Pydantic 模型定义请求字段并完成参数校验，使用户标识、学习主题、会话状态、测评答案和计划任务等数据能够按照统一结构进入相应业务模块。
+
+系统根据任务执行特点提供普通请求和流式请求两类接口。画像查询、计划管理和资源状态查询等操作采用普通 HTTP 接口，以 JSON 格式返回处理结果；主题课程启动、课程内答疑和继续学习等耗时操作同时提供基于 Server-Sent Events（SSE）的流式接口，使前端能够持续展示请求接收、智能体调度、资源生成和执行完成等阶段状态。核心接口如表~\ref{tab:core-backend-api} 所示。
+
+{\small
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{
+  p{0.14\linewidth}
+  p{0.31\linewidth}
+  p{0.23\linewidth}
+  p{0.23\linewidth}
+}
+  \caption{OralSage 后端核心接口}
+  \label{tab:core-backend-api}\\
+  \toprule
+  功能 & 方法与路径 & 主要请求参数 & 主要返回内容 \\
+  \midrule
+  \endfirsthead
+
+  \multicolumn{4}{c}{续表~\thetable}\\
+  \toprule
+  功能 & 方法与路径 & 主要请求参数 & 主要返回内容 \\
+  \midrule
+  \endhead
+
+  \bottomrule
+  \endfoot
+
+  系统健康检查
+  & \texttt{GET /api/system/health}
+  & 无
+  & 系统运行状态、工作模式和状态说明 \\
+
+  获取初始测评
+  & \texttt{GET /api/learning/assessment}
+  & 无
+  & 测评题目、选项和测评版本 \\
+
+  提交初始测评
+  & \texttt{POST /api/learning/assessment/submit}
+  & \texttt{user\_id}、测评答案、目标考试和跳过状态
+  & 初始学习画像和测评状态 \\
+
+  启动主题学习
+  & \texttt{POST /api/learning/session/start}
+  & 用户标识、学习主题、显示名称和初始画像信息
+  & 新建学习会话及课程启动结果 \\
+
+  流式启动学习
+  & \texttt{POST /api/learning/session/start/stream}
+  & 与主题学习启动接口一致
+  & 知识检索、课程规划和资源准备的 SSE 事件 \\
+
+  查询会话状态
+  & \texttt{GET /api/learning/session/\{session\_id\}/state}
+  & 路径参数 \texttt{session\_id}
+  & 当前策略状态和学习会话摘要 \\
+
+  课程内提问
+  & \texttt{POST /api/learning/interruption}
+  & 会话标识、用户问题和调度策略选项
+  & QA 调度决策、回答结果和更新后的会话状态 \\
+
+  继续课程学习
+  & \texttt{POST /api/learning/continue}
+  & 会话标识和调度策略选项
+  & 下一阶段调度决策、Tutor 执行结果和会话状态 \\
+
+  提交随堂答案
+  & \texttt{POST /api/learning/answer}
+  & 会话标识、题目信息和用户答案
+  & Assessment 执行结果、答题反馈和状态更新 \\
+
+  获取与生成阶段卷
+  & \texttt{GET/POST /api/learning/session/\{session\_id\}/stage-exam}
+  & 会话标识、是否重新生成和每节题目数量
+  & 阶段试卷内容及当前测评状态 \\
+
+  提交阶段卷
+  & \texttt{POST /api/learning/session/\{session\_id\}/stage-exam/submit}
+  & 题目标识和所选答案列表
+  & 得分、题目解析、薄弱内容和测评结果 \\
+
+  查询学习画像
+  & \texttt{GET /api/learning/profile/\{user\_id\}}
+  & 路径参数 \texttt{user\_id}
+  & 基础画像、长期记忆、学习摘要和近期事件 \\
+
+  获取画像切片
+  & \texttt{POST /api/learning/profile/slice}
+  & 用户标识、Agent 角色、任务上下文和数量限制
+  & 面向当前 Agent 的学习画像子集 \\
+
+  推荐学习计划
+  & \texttt{POST /api/learning/plan/recommend}
+  & 用户标识、计划日期、任务数量和自然语言需求
+  & 指定日期的学习计划推荐草案 \\
+
+  查询学习计划
+  & \texttt{GET /api/learning/plan/\{user\_id\}/month}
+  & 年份和月份
+  & 按日期组织的月度学习任务 \\
+
+  管理计划任务
+  & \texttt{POST/DELETE /api/learning/plan/items}
+  & 日期、标题、任务类型、课程和知识节点信息
+  & 创建、修改、完成、延期或删除后的任务状态 \\
+
+  获取课程资源
+  & \texttt{GET /api/learning/session/\{session\_id\}/slides}
+  & 会话标识
+  & 当前课程的结构化课件数据 \\
+
+  获取课件预览
+  & \texttt{GET /api/learning/session/\{session\_id\}/ppt-preview}
+  & 会话标识
+  & 课件页面信息和预览图片地址 \\
+
+  下载 PPT 文件
+  & \texttt{GET /api/learning/session/\{session\_id\}/pptx}
+  & 会话标识
+  & 当前课程生成的 PPTX 文件 \\
+
+  获取语音资源
+  & \texttt{GET /api/learning/session/\{session\_id\}/audio-manifest}
+  & 会话标识
+  & 分节语音资源及其文件清单 \\
+\end{longtable}
+}
+
+普通接口采用统一的 JSON 响应结构。响应中的 \texttt{ok} 表示本次调用是否成功，\texttt{module} 标识所属业务模块，\texttt{action} 表示实际执行动作，\texttt{result} 保存学习会话、课程资源、画像或计划任务等业务数据。以主题学习启动接口为例，其基础响应结构如下：
+
+\begin{lstlisting}
+{
+  "ok": true,
+  "module": "learning",
+  "action": "start_lesson",
+  "result": {
+    "...": "课程启动与会话结果"
+  }
+}
+\end{lstlisting}
+
+流式接口使用 \texttt{text/event-stream} 返回执行过程。事件主要包括 \texttt{start}、\texttt{progress}、\texttt{complete} 和 \texttt{error}。其中，开始事件用于确认请求已经进入系统，进度事件用于提示当前正在进行知识检索、课程规划或智能体执行，完成事件返回最终业务结果，错误事件则记录发生异常的阶段和错误信息。该机制使前端在等待课程与资源生成时仍能展示明确的执行进度。
+
+后端同时根据错误类型返回相应的 HTTP 状态码，主要错误处理规则如表~\ref{tab:backend-error-codes} 所示。
+
+\begin{table}[H]
+  \centering
+  \caption{后端接口主要错误状态}
+  \label{tab:backend-error-codes}
+  \begin{tabularx}{\linewidth}{p{0.16\linewidth}p{0.27\linewidth}X}
+    \toprule
+    状态码 & 错误类型 & 典型情况 \\
+    \midrule
+    400 & 请求内容无效
+        & 测评答案、计划日期或阶段卷提交内容不符合业务要求 \\
+    401/403 & 身份或权限异常
+        & 用户未登录、微信内部认证失败或跨用户读取计划草案 \\
+    404 & 对象或资源不存在
+        & 学习会话、计划任务、音频、课件或阶段卷不存在 \\
+    409/410 & 资源状态冲突
+        & PPTX 尚未生成、阶段卷当前不可用或计划草案已经过期 \\
+    422 & 请求字段校验失败
+        & 缺少必填字段、字段类型错误或参数范围不符合模型约束 \\
+    500/503 & 内部或外部服务异常
+        & 资源文件无法解析、内部执行失败或外部服务暂时不可用 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+通过上述接口，前端可以围绕同一用户和学习会话依次完成初始测评、主题课程启动、讲解与答疑、练习测评、画像更新、计划推荐和多模态资源获取。后端接口不仅承担页面数据传输，也将多智能体调度、学习状态更新和资源生成过程连接为统一的学习服务链路。
+
+\section{前端页面设计}
+
+OralSage 前端采用统一导航与任务工作台相结合的页面组织方式。首页集中呈现智能问答、知识库、知识图谱、学习画像、学习计划和专业工具等核心入口，使学习者能够从同一工作台进入不同学习任务。对于需要自然语言交互的高频功能，系统将主题学习、学习计划生成、文献检索和口腔医学答疑统一接入总控对话页面，并根据用户表达进入相应的任务流程，减少学习者在多个功能页面之间反复切换。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{ui-home.png}
+  \caption{OralSage 首页与核心功能入口}
+  \label{fig:ui-home}
+\end{figure}
+
+在主题学习场景中，学习者可以直接输入希望学习的口腔医学主题，由系统组织课程内容并进入连续讲解。以“系统学习牙周炎”为例，页面在同一会话中呈现当前学习单元和讲解内容，并提供继续下一节、针对本节提问、本节自测和同步演示等后续操作，使课程讲解、即时答疑与理解检验形成连续的学习过程。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{ui-teaching-result.png}
+  \caption{主题学习模式下的连续讲解结果}
+  \label{fig:ui-teaching-result}
+\end{figure}
+
+在课程学习过程中，学习者可以针对当前讲解内容提出补充问题。系统保留当前学习主题、章节和对话上下文，对问题进行关联回答，避免学习者重新描述背景。当学习者对练习题或自测结果存在疑问时，也可以继续追问题目考点、选项依据和相关知识点，从而形成“讲解—提问—解释—检验”的学习闭环。除课程内答疑外，系统还支持直接输入口腔医学问题进行独立问答，以满足临时知识查询和概念澄清需求。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{ui-qa-result.png}
+  \caption{课程上下文中的即时答疑结果}
+  \label{fig:ui-qa-result}
+\end{figure}
+
+当学习者提出计划需求时，系统能够结合学习画像中记录的薄弱点和用户可用的学习时间组织学习任务。示例中，系统围绕“牙周袋概念混淆”生成学习计划，将章节复习与基础练习拆分为具体任务，并提供进入学习计划页面的操作入口。该设计既保留了通过自然语言提出目标的便捷性，也将生成结果进一步转换为可查看、可执行的任务清单。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{ui-study-plan-chat.png}
+  \caption{通过对话生成学习计划}
+  \label{fig:ui-study-plan-chat}
+\end{figure}
+
+学习计划并非一次生成后固定不变。学习者可以在计划生成后继续提出时间安排、任务难度或重点内容方面的反馈，系统根据新的约束条件重新组织任务，并将调整结果同步至学习计划页面。由此，计划生成由单向推荐转变为学习者与系统共同调整的过程，使计划内容能够更贴合学习者当前的实际状态。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{ui-learning-plan.png}
+  \caption{学习计划页面及任务调整入口}
+  \label{fig:ui-plan-feedback}
+\end{figure}
+
+在文献检索场景中，学习者可以输入检索主题，并设置时间范围和返回数量。检索结果采用列表与详情相结合的双栏布局：左侧集中呈现文献题名、来源、作者和相关度等信息，右侧展示当前选中文献的基本信息及摘要，帮助学习者快速浏览检索结果并查阅与课程主题相关的前沿资料。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{ui-literature-result.png}
+  \caption{前沿文献检索结果}
+  \label{fig:ui-literature-result}
+\end{figure}
+
+除即时交互外，系统还通过学习画像和学习计划页面呈现持续积累的学习状态。学习画像页汇总近期学习趋势、能力维度、知识薄弱点、学习偏好、目标导向、学习节奏和学习事件，既帮助学习者了解当前学习情况，也为后续课程组织和计划生成提供个性化依据。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{ui-learning-profile.png}
+  \caption{学习画像与学习状态汇总}
+  \label{fig:ui-learning-profile}
+\end{figure}
+
+学习计划页采用月历与当日任务列表相结合的布局，将系统推荐的学习内容按日期组织，并展示任务所属章节、学习形式和完成状态。学习者可以从具体任务继续进入相应课程。学习画像与学习计划共同将一次性的问答和练习行为沉淀为可持续更新的学习状态与执行安排。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{ui-learning-plan.png}
+  \caption{月历式学习计划与任务列表}
+  \label{fig:ui-learning-plan}
+\end{figure}
+
+
+\section{数据存储与文件组织}
+
+OralSage 采用“SQLite 持久化学习状态、文件系统保存知识资源和生成资源”的混合存储方式。后端服务负责业务接口、多智能体编排和数据访问，前端目录保存静态页面、样式表和交互脚本，数据目录保存知识库、索引、学习状态和生成文件，模型目录保存本地推理所需的嵌入模型及相关权重，脚本目录用于数据处理、知识库构建和索引生成，测试目录保存接口和核心流程测试，文档目录保存项目说明与辅助材料。
+
+主要目录职责如下：
+
+\begin{itemize}
+  \item \texttt{backend/}：包含 FastAPI 接口、请求模型、学习编排器、知识检索、答疑、测评、学习画像和学习计划等后端模块；
+  \item \texttt{frontend/}：包含首页、智能问答、学习画像、学习计划、知识库和知识图谱等页面，以及对应的 JavaScript 交互逻辑和 CSS 样式；
+  \item \texttt{data/}：保存知识库文件、检索索引、学习数据库、学习会话资源和微信桥接数据；
+  \item \texttt{models/}：保存本地嵌入模型和其他推理模型资源；
+  \item \texttt{scripts/}：用于知识库构建、文本切分、索引生成、数据校验和实验性流程运行；
+  \item \texttt{tests/}：保存后端接口、学习流程、资源生成和数据处理相关测试；
+  \item \texttt{docs/}：保存项目说明、数据处理记录和辅助文档。
+\end{itemize}
+
+学习状态和学习画像统一保存在 \texttt{data/learning/learning.sqlite3} 中。数据库以用户和学习会话为主线组织数据，主要包括用户表、用户画像表、学习会话表、课程大纲表、生成资源表、学习事件表、掌握度记录表、答题记录表、学习记忆表、学习摘要表和学习计划任务表。用户画像通过 \texttt{user\_id} 与用户和学习事件关联，学习会话通过 \texttt{session\_id} 关联课程主题、当前大纲节点、讲解过程、答疑记录、练习结果和生成资源，知识掌握度则通过 \texttt{kg\_node\_id} 与知识图谱节点关联。
+
+对于课程生成过程中产生的文件，系统以学习会话编号作为资源目录的组织单位，基本路径为：
+
+\begin{lstlisting}
+data/learning/sessions/{session_id}/
+\end{lstlisting}
+
+该目录用于保存当前课程相关的讲义、课程大纲、思维导图、演示文稿数据、题目、阅读清单、讲稿缓存、音频文件以及 PPT 生成状态等资源。数据库中的生成资源记录保存资源类型、文件路径和来源信息，文件系统保存实际内容，二者通过 \texttt{session\_id} 和资源路径保持对应关系。这样既便于按照学习会话管理生成结果，也支持在前端页面中按需加载讲义、题目、音频和演示资源。
+
+知识库数据与学习状态相互独立。知识库和索引主要以 JSONL、JSON、向量文件和检索索引的形式保存在数据目录中，检索结果通过知识片段标识、知识图谱节点标识和来源信息回写到答疑、课程和学习记忆过程。由此，系统形成了“用户—学习会话—课程节点—知识节点—学习事件—生成资源”的关联链路。
+
+\section{部署与运行方式}
+
+\subsection{本地后端启动}
+
+项目默认在同一 FastAPI 服务中托管后端接口与前端页面。首次运行时进入项目根目录，安装依赖并创建环境配置文件：
+
+\begin{lstlisting}[language=bash,caption={后端本地启动命令},label={lst:backend-start}]
+python -m pip install -r backend/requirements.txt
+cp .env.example .env
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+\end{lstlisting}
+
+Windows PowerShell 环境中，可将第二行替换为：
+
+\begin{lstlisting}[language=bash]
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+\end{lstlisting}
+
+服务启动后，访问 \softid{http://127.0.0.1:8000/} 进入首页，访问 \softid{http://127.0.0.1:8000/docs} 查看接口文档，访问 \softid{http://127.0.0.1:8000/api/system/health} 进行健康检查。开发调试时可增加 \softid{--reload} 参数，使后端代码修改后自动重载。
+
+
+\subsection{视觉模型服务启动}
+
+若使用本地合并后的 OralPath-VL 模型，可先启动一个兼容 OpenAI 协议的视觉模型服务，再让后端通过 \softid{VISION\_LLM\_*} 访问。以本地 FastAPI 包装服务为例：
+
+\begin{lstlisting}[language=bash,caption={本地视觉模型服务启动示例},label={lst:vision-model-start}]
+python openai_vision_server.py
+\end{lstlisting}
+
+模型服务默认监听 \softid{8001} 端口，提供 \softid{/v1/models} 和 \softid{/v1/chat/completions}。启动后可使用以下命令检查模型服务：
+
+\begin{lstlisting}[language=bash]
+curl http://127.0.0.1:8001/v1/models \
+  -H "Authorization: Bearer 12345678"
+\end{lstlisting}
+
+对应的后端配置如下：
+
+\begin{lstlisting}[language=bash]
+VISION_LLM_API_KEY=12345678
+VISION_LLM_BASE_URL=http://127.0.0.1:8001/v1
+VISION_LLM_MODEL=oralpath-vl
+\end{lstlisting}
+
+完成配置后重启 OralSage 后端，即可在影像识别页面上传口腔影像，完成结构化识别与定位框展示。若部署环境支持 vLLM，也可以将合并模型通过 vLLM 或其他推理框架暴露为同样的 \softid{/v1/chat/completions} 接口，后端配置无需变化。
+
+\subsection{知识库检索依赖}
+
+知识库检索依赖 KAG 制品、BGE-M3 本地模型、FAISS 索引和若干 Python 包。演示环境需要确认 \softid{data/kb/kag\_bge\_m3/} 下存在 \softid{manifest.json}、\softid{chunks.jsonl}、\softid{retrieval\_corpus.jsonl}、\softid{kg\_nodes.jsonl} 以及 \softid{indexes/} 子目录，并确认 \softid{models/embeddings/bge-m3} 可用。推荐安装：
+
+\begin{lstlisting}[language=bash]
+python -m pip install jieba faiss-cpu onnxruntime transformers
+\end{lstlisting}
+
+部署后可通过以下命令检查知识检索接口：
+
+\begin{lstlisting}[language=bash]
+curl -X POST http://127.0.0.1:8000/api/knowledge/search \
+  -H "Content-Type: application/json" \
+  -d '{"query":"牙周炎","top_k":3}'
+\end{lstlisting}
+
+若返回 \softid{ok=true} 且 \softid{results} 中包含检索片段，说明知识库页面和智能体检索链路已正常工作。
+
+\subsection{微信 ClawBridge 启动}
+
+微信接入服务位于 \softid{clawbridge/}，采用 Node.js 实现，主要负责二维码绑定、微信会话状态维护、消息转发和计划推送。它不承担学习业务逻辑，而是将微信侧消息转交 Python 后端处理。启动方式如下：
+
+\begin{lstlisting}[language=bash,caption={ClawBridge 启动命令},label={lst:clawbridge-start}]
+cd clawbridge
+npm install
+npm run start
+\end{lstlisting}
+
+ClawBridge 默认监听 \softid{8787} 端口。Python 后端通过 \softid{CLAWBRIDGE\_BASE\_URL} 和共享内部密钥访问该服务，从而完成微信账户绑定状态查询、学习计划推送和消息回传。
+
+\section{第三方组件与工具说明}
+
+项目仅列出运行时直接使用的主要组件，传递依赖不单独展开。版本以项目依赖声明为准，具体许可证以组件随附的许可证文件和官方发布信息为准。
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{p{3.2cm}p{2.5cm}X p{2.5cm}}
+\toprule
+组件或工具 & 版本/来源 & 在项目中的使用位置 & 许可证或协议 \\
+\midrule
+FastAPI & 0.136.1 & 提供后端 HTTP 接口和静态页面服务 & MIT \\
+Uvicorn & 0.46.0 & 运行 FastAPI 应用的 ASGI 服务 & BSD-3-Clause \\
+Pydantic & 2.13.3 & 定义请求、响应和配置数据模型 & MIT \\
+LangGraph & 1.1.9 & 支持多智能体工作流和任务编排 & MIT \\
+PyYAML & 6.0.2 & 读取检索和系统配置文件 & MIT \\
+pypdf & 6.4.1 & 解析和处理 PDF 文档 & BSD-3-Clause \\
+openpyxl & 3.1.5 & 处理 Excel 格式的结构化数据 & MIT \\
+NumPy & 2.4.6 & 支持向量计算、数据处理和索引构建 & BSD-3-Clause \\
+SQLite & 系统组件 & 保存用户、学习会话、画像、答题和计划数据 & Public Domain \\
+BGE-M3 & 本地模型文件 & 生成知识片段的向量表示并支持语义检索 & 依模型发布许可 \\
+Lucide Icons & 前端 CDN 组件 & 提供前端页面中的图标资源 & ISC \\
+ClawBot Bridge & package.json 声明版本 & 连接微信学习场景并推送学习计划 & 依 npm 包及桥接组件许可 \\
+\bottomrule
+\end{tabularx}
+\caption{项目主要第三方组件与工具}
+\end{table}
+
+其中，BGE-M3 模型以本地文件形式加载，运行时不要求将知识库内容上传至外部检索服务。ClawBot Bridge 作为独立的 Node.js 辅助服务，用于连接微信学习场景和学习计划推送，不参与核心课程生成逻辑。项目开发过程中使用 AI Coding 工具辅助代码检索、调试和文档整理，该工具属于开发辅助工具，不是系统运行时依赖，也不参与用户请求处理。

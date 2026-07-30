@@ -1,0 +1,260 @@
+% !TeX root = ../main.tex
+
+\chapter{个性化学习资源生成}
+\label{sec:resource-generation}
+
+\definecolor{chfiveaccent}{HTML}{E9E9F5}
+
+\section{设计思想}
+
+第四章说明学习画像如何形成和更新，本章进一步说明这些个体信息如何转化为学习路径、学习计划、讲义、讲解和练习等可直接使用的学习资源。
+
+口腔医学的学习困难往往来自知识体系庞大、前后依赖紧密，以及基础理论与临床判断之间存在较长的理解距离。面对同一主题，备考学习者更关心高频考点和诊断辨析，临床应用导向的学习者需要理解病例线索与治疗原则，刚接触课程的学习者则需要更充分的概念铺垫。统一的资源顺序和解释密度难以同时满足这些需求。
+
+针对这一痛点，OralSage 采用学习画像驱动的资源生成流程，综合学习目标、基础水平、解释偏好、每日可用时间、学习节奏、知识掌握状态和薄弱内容，形成适合当前学习者的主题路径，再围绕路径生成讲义、互动讲解、语音、课件、知识结构图和练习。资源的个性化体现在学习什么、先学习什么、解释到何种深度、以何种节奏复习，以及何时进入练习和回顾。
+
+这一设计将生成式人工智能置于明确的医学教育活动之中。近期研究指出，生成式人工智能能够支持医学教育中的内容组织和个体化辅导，教学目标、学习活动和专业判断决定了其实际价值\cite{lie2024harnessing,rodman2024using}。OralSage 围绕口腔医学主题建立连续学习过程，使资源生成服务于理解、应用、巩固和反馈四类学习活动。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{profile-resource-generation.pdf}
+  \caption{学习画像驱动的个性化资源生成过程}
+  \label{fig:personalized-resource-generation}
+\end{figure}
+
+如图\ref{fig:personalized-resource-generation}所示，学习者画像和知识状态共同决定课程规划。分节讲义承担课程内容的组织作用，互动讲解、语音、课件、知识结构图和练习围绕已规划的学习单元展开。练习表现和学习过程中的困惑进一步更新知识状态，为后续课程资源调整提供依据。
+
+\begin{table}[H]
+  \centering
+  \caption{学习画像信息对资源生成的影响}
+  \label{tab:profile-resource-mapping}
+  \begin{tabularx}{\linewidth}{p{0.24\linewidth}p{0.30\linewidth}X}
+    \toprule
+    个性化信息 & 资源调节方向 & 学习效果 \\
+    \midrule
+    学习目标 & 调整课程范围、考点比重和案例比重 & 使学习内容贴近备考、课程学习或临床理解需求 \\
+    基础水平与掌握状态 & 安排基础铺垫、机制展开和回顾内容 & 避免学习难度脱离当前理解基础 \\
+    解释偏好 & 调整概念、病例、问题和考点的进入顺序 & 提升知识进入方式与个人习惯的匹配度 \\
+    每日可用时间与节奏 & 调整小节长度、学习顺序和复习密度 & 使学习任务更适合持续完成 \\
+    薄弱内容与错因 & 插入定向讲解、辨析和练习 & 将学习时间聚焦于真正需要巩固的内容 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{个性化学习路径与计划}
+
+\subsection{知识状态感知的课程路径生成}
+
+学习路径将学习画像中的目标、时间预算、知识状态和口腔医学知识图谱转化为可执行的学习单元序列。得到学习指令后，系统首先根据主题和知识图谱确定知识范围及其依赖关系，再结合学习目标、薄弱点、掌握度和学习节奏调整单元顺序与内容重点，最后为每个单元配置相应的讲义、讲解、练习与复习任务。由此，知识结构决定课程的基本边界，学习者的个人状态进一步决定实际学习路径。
+
+在不同的情境下，系统会灵活采取不同的措施，生成节奏匹配的个性化资源。学习者提出备考学习的需求时，系统会优先呈现高频考点、薄弱内容回顾和阶段练习；重点在临床应用时，系统则倾向于由病例情境进入，再逐步讲授诊断依据与治疗原则；学习者需要查缺补漏时，低掌握度内容会获得更高优先级，并在相关学习单元后安排定向练习。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{personalized-path-generation.pdf}
+  \caption{个性化学习路径生成示例（以牙周炎为例）}
+  \label{fig:personalized-path-generation}
+\end{figure}
+
+以牙周炎主题为例，系统可以将牙周组织基础、病因机制、分类与临床表现、诊断标准、治疗原则和维护阶段组织为连续学习单元。当画像显示学习者对基础病因概念掌握不足时，系统会在机制学习之前配置回顾任务。当目标为考试复习时，治疗原则学习之后可安排阶段性测评。图\ref{fig:personalized-path-generation}以这一过程说明知识结构、个人目标与行为状态如何共同影响学习路径。
+
+\subsection{学习计划的长期节奏反馈}
+
+学习计划推荐模块从近期画像和长期学习记忆中读取测评偏好、计划需求、薄弱点和掌握度等画像信息，生成面向下一阶段的任务列表并持续更新。任务完成、延期和计划修改等执行状态会作为学习事件写入节奏类学习记忆，为系统重新判断任务密度和优先级提供依据。OralSage 既利用已有画像形成初始安排，也持续吸收学习者的真实执行表现，使学习计划能够在长周期中保持可调整性。
+
+\begin{table}[H]
+  \centering
+  \caption{学习计划推荐的输入与输出}
+  \label{tab:study-plan-io}
+  \begin{tabularx}{\linewidth}{p{0.24\linewidth}X}
+    \toprule
+    类型 & 内容 \\
+    \midrule
+    输入画像 & 学习目标、每日时间、计划支持需求、有效学习风格与执行节奏 \\
+    输入学习状态 & 当前课程进度、KG 节点掌握度、薄弱点、错题和近期会话 \\
+    输入计划状态 & 待完成任务、延期任务、完成记录与计划日期 \\
+    输出任务 & 继续学习、薄弱点复习、低掌握节点回顾、定向练习、阶段测评和自定义计划 \\
+    反馈写入 & 任务完成、延期与课程推进进入 L1 事件，并更新节奏类长期记忆 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{计划执行}
+
+学习计划生成后，学习者可以在月历中查看计划分布，选择具体日期查看待办任务，也可以从总控对话中直接采纳系统生成的计划草案。面对个人时间变化，学习者可以根据实际安排补充、修改或删除任务，并始终保留计划执行与调整的主动权。
+
+计划推荐全面覆盖课程进度、薄弱点复习、低掌握度内容回顾、补学任务、错题练习和阶段总结等学习场景。推荐过程优先读取近期学习行为和任务状态，使当日任务与正在进行的课程、尚未解决的薄弱内容以及已经延期的事项形成关联。以根尖周炎课程为例，当学习者完成“定义与疾病本质”后，计划可以安排后续的病因与危险因素学习。若阶段练习暴露出诊断辨析困难，计划会将临床表现与检查要点的回顾放到更靠前的位置，并附带对应练习。
+
+任务的完成、延期和修改情况会被记录到学习记忆中，为系统判断当前任务量和学习节奏是否适配提供依据。持续完成能够为当前计划节奏提供正向信号，延期或反复修改则提示系统重新评估单日负荷和任务优先级。学习计划由此连接课程资源与真实执行行为，使后续安排能够参考学习者实际完成任务的情况。
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+    node distance=9mm and 8mm,
+    planstep/.style={draw=black!70, rounded corners=2pt, fill=black!4, minimum width=28mm, minimum height=10mm, align=center, font=\small},
+    focus/.style={draw=black!78, rounded corners=2pt, fill=chfiveaccent, minimum width=30mm, minimum height=11mm, align=center, font=\small\bfseries},
+    flow/.style={->, >=stealth, thick, draw=black!78}
+  ]
+    \node[planstep] (state) {学习目标、掌握状态\\与可用时间};
+    \node[focus, right=of state] (recommend) {当日计划推荐};
+    \node[planstep, right=of recommend] (adopt) {采纳、修改\\与补充任务};
+    \node[planstep, below=of adopt] (execute) {课程学习、复习\\与练习};
+    \node[planstep, left=of execute] (feedback) {完成记录与\\调整信号};
+    \draw[flow] (state) -- (recommend);
+    \draw[flow] (recommend) -- (adopt);
+    \draw[flow] (adopt) -- (execute);
+    \draw[flow] (execute) -- (feedback);
+    \draw[flow] (feedback) -- (state);
+  \end{tikzpicture}
+  \caption{学习计划连接资源推荐与每日学习执行}
+  \label{fig:study-plan-resource-loop}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \caption{学习计划中的任务类型及其资源组织}
+  \label{tab:study-plan-resource-tasks}
+  \begin{tabularx}{\linewidth}{p{0.22\linewidth}p{0.33\linewidth}X}
+    \toprule
+    任务类型 & 触发条件 & 面向学习者的资源安排 \\
+    \midrule
+    继续课程 & 当前主题尚有后续单元 & 进入下一节讲义、讲解和相关课件 \\
+    薄弱点复习 & 追问、错因或测验显示理解缺口 & 回顾对应小节、易混辨析和定向练习 \\
+    低掌握度回顾 & 某些知识内容的掌握状态偏低 & 优先复习基础概念和关键判断线索 \\
+    补学任务 & 已安排任务未在计划日期完成 & 重新安排学习时段并保持原有学习顺序 \\
+    阶段总结与练习 & 完成多个连续学习单元 & 组织阶段测试、解析和后续学习建议 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{个性化讲义与互动讲解}
+
+学习者进行课程知识点学习时，系统会根据知识点和学习画像生成个性化讲义。每节讲义围绕当前学习单元组织概述、核心要点、临床病例、易混概念和章节过渡，帮助学习者明确本节任务，理解疾病机制和病理原因。病例内容进一步将抽象概念放入就诊情境，引导学习者辨析相近疾病、相似表现和常见误判。
+
+对于基础尚需巩固的学习者，讲解从概念定义和病因机制进入，并通过病例连接临床表现。对于备考导向的学习者，讲解会更早呈现诊断线索、易混点和考查重点。对于希望理解临床应用的学习者，病例与治疗原则获得更充分的说明。学习者还可以围绕当前小节提出问题，在保持课程主线的前提下获得针对性解释。
+
+这种组织方式与医学教育中强调案例化学习和问题驱动理解的方向相契合\cite{wei2025aipbl,sharmin2025oralhealthllm}。它使同一主题既保留医学知识的完整脉络，也允许学习者沿自己需要的深度和节奏进入内容。
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+    item/.style={draw=black!70, rounded corners=2pt, fill=white, minimum width=0.70\linewidth, minimum height=8mm, align=left, font=\small},
+    emphasis/.style={draw=black!78, rounded corners=2pt, fill=chfiveaccent, minimum width=0.70\linewidth, minimum height=8mm, align=left, font=\small\bfseries},
+    flow/.style={->, >=stealth, thick, draw=black!78}
+  ]
+    \node[item] (overview) {本节概述：明确当前学习任务与主题范围};
+    \node[item, below=6mm of overview] (points) {核心要点：根据课程目标组织概念、机制和判断线索};
+    \node[item, below=6mm of points] (case) {临床病例：将知识放入诊断和治疗情境};
+    \node[emphasis, below=6mm of case] (confusion) {易混概念：突出学习者需要重点辨析的内容};
+    \node[item, below=6mm of confusion] (next) {章节过渡：引导进入下一项个性化学习任务};
+    \draw[flow] (overview) -- (points);
+    \draw[flow] (points) -- (case);
+    \draw[flow] (case) -- (confusion);
+    \draw[flow] (confusion) -- (next);
+  \end{tikzpicture}
+  \caption{个性化分节讲义的学习组织方式}
+  \label{fig:personalized-handout-structure}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \caption{不同学习需要下的讲解组织重点}
+  \label{tab:personalized-explanation}
+  \begin{tabularx}{\linewidth}{p{0.23\linewidth}p{0.34\linewidth}X}
+    \toprule
+    学习需要 & 讲解组织重点 & 对学习者的支持 \\
+    \midrule
+    基础理解 & 概念定义、病因机制与层级关系 & 建立稳定的知识框架 \\
+    考试复习 & 考点、易混判断和临床题干线索 & 提升辨析效率与应试准备度 \\
+    临床应用 & 病例、检查结果、诊断依据和治疗原则 & 连接理论知识与临床思维 \\
+    查缺补漏 & 薄弱内容、错因和定向回顾 & 聚焦个人理解缺口 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+多媒体学习理论指出，学习材料需要帮助学习者在有限注意资源下组织关键信息\cite{mayer2021multimedia}。基于这一思路，OralSage 将长篇医学叙述转化为适合不同复习节奏的资源组合。
+
+口腔医学知识包含疾病机制、诊断依据和治疗原则等细密内容，也强调概念之间的关联与临床判断的整体脉络。OralSage 围绕同一学习单元组织分节讲义、结构化课件、知识结构图和可播放语音，使学习者能够在文字阅读、视觉梳理与语音收听之间切换。多种资源围绕统一课程主线展开，有助于学习者在不同复习场景中保持理解的连续性。
+
+每套课程会生成完整的知识结构图，呈现主题、学习单元与核心概念之间的关系，帮助学习者从局部内容回到疾病知识的整体框架。配套的 PPT 课件将当前小节的标题、导语和核心要点整理为层次清晰的知识卡片，配套语音则将课程内容延展为连续的听觉复习材料，支持学习者在通勤、间歇和睡前等碎片化时间中继续复习。
+
+例如，图\ref{fig:personalized-ppt-preview}展示了“根尖周炎系统学习路径”的课件预览页。该页围绕“定义与疾病本质”展开，将规范定义、疾病本质与急慢性表现的连续性组织为三张要点卡片。学习者可以通过课件快速回顾核心内容，再结合知识结构图与语音讲解进一步梳理疾病机制和临床表现之间的联系。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{resource-ppt-preview.png}
+  \caption{根尖周炎个性化课程中的结构化课件示例}
+  \label{fig:personalized-ppt-preview}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \caption{多模态资源对个性化复习的支持}
+  \label{tab:multimodal-personalization}
+  \begin{tabularx}{\linewidth}{p{0.20\linewidth}p{0.30\linewidth}X}
+    \toprule
+    资源形式 & 适合的学习节奏 & 学习支持 \\
+    \midrule
+    结构化课件 & 集中浏览和阶段回顾 & 快速定位当前主题与核心判断线索 \\
+    知识结构图 & 学习前预览和考前梳理 & 建立主题全貌，识别前后知识关系 \\
+    连续语音 & 通勤、间歇和睡前复习 & 利用碎片时间维持学习连续性 \\
+    互动讲解 & 有疑问或需要深入理解时 & 根据当前困惑补充解释与例证 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{讯飞长文本语音合成}
+
+语音资源以已经生成的课程讲稿为输入，不另行生成与讲义无关的内容。系统将 Tutor 讲解文本按照课程节点和讲稿片段组织为语音任务，服务端调用讯飞长文本语音合成 API 完成异步生成，再将音频文件保存到对应学习会话的资源目录中。部署版本使用中文发音人 \texttt{x4\_mingge}，输出 MP3 文件，并通过音频资源记录返回播放路径。
+
+长文本语音合成采用“创建任务—查询状态—下载结果”的流程。这样既适合课程讲义和连续讲解等较长文本，也便于在前端先展示课程内容、再等待音频资源就绪。语音与讲义、Tutor 讲解共享同一课程节点，保证学习者在文字阅读、视觉回顾和听觉复习之间切换时仍处于同一学习主题。
+
+\section{个性化练习与反馈}
+
+个性化学习资源需要以练习检验理解，以反馈调整后续重点。小节练习紧跟当前学习内容，帮助学习者主动回忆和辨析关键知识。阶段测试覆盖多个连续单元，用于检查学习者对主题的整体掌握。根尖周炎真实课程会话已经形成五题阶段测试，题目通过临床情境、检查结果和治疗选择考查诊断线索与治疗原则的综合应用。
+
+学习者提交答案后，系统提供得分、解析、薄弱内容提示和下一步建议。答题正确能够确认当前学习重点，答题失误则引导学习者回到相关小节，重新理解概念、病例或易混判断。对于反复出现的薄弱内容，后续课程更强调相应的讲解和练习。资源生成能够随着学习表现持续调整，并在后续安排中体现新的学习重点。
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+    node distance=14mm,
+    box/.style={draw=black!70, rounded corners=2pt, fill=white, minimum width=29mm, minimum height=10mm, align=center, font=\small},
+    focus/.style={draw=black!78, rounded corners=2pt, fill=chfiveaccent, minimum width=29mm, minimum height=10mm, align=center, font=\small\bfseries},
+    flow/.style={->, >=stealth, thick, draw=black!78}
+  ]
+    \node[box] (learn) {当前学习重点};
+    \node[box, right=of learn] (quiz) {小节练习};
+    \node[box, right=of quiz] (exam) {阶段测试};
+    \node[focus, below=of exam] (feedback) {得分与薄弱内容};
+    \node[focus, left=of feedback] (adapt) {后续资源调整};
+    \draw[flow] (learn) -- (quiz);
+    \draw[flow] (quiz) -- (exam);
+    \draw[flow] (exam) -- (feedback);
+    \draw[flow] (feedback) -- (adapt);
+    \draw[flow] (adapt) -- (learn);
+  \end{tikzpicture}
+  \caption{练习反馈驱动的资源动态调节}
+  \label{fig:personalized-feedback-loop}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \caption{练习反馈对资源调整的作用}
+  \label{tab:personalized-feedback-effects}
+  \begin{tabularx}{\linewidth}{p{0.22\linewidth}p{0.32\linewidth}X}
+    \toprule
+    学习表现 & 后续资源变化 & 学习意义 \\
+    \midrule
+    当前内容掌握良好 & 继续推进后续单元与综合测试 & 保持学习效率和挑战度 \\
+    某一知识点理解薄弱 & 增加对应讲解、易混辨析和定向练习 & 集中解决真实理解缺口 \\
+    多个单元出现困难 & 调整复习顺序并回顾基础内容 & 重新建立必要的知识基础 \\
+    节奏执行不稳定 & 减少单次任务量并强化碎片化复习 & 提升学习计划的可持续性 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+OralSage 由此将学习画像转化为可执行的学习路径和计划，并围绕各学习单元组织讲义、讲解、多模态材料与练习。学习者的实际学习表现又会反向影响后续资源重点，使个性化不只体现在首次生成，而是持续贯穿课程推进、练习反馈和复习调整过程。
+
+
+% !TeX root = ../main.tex

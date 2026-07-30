@@ -1,0 +1,141 @@
+\contentsline {chapter}{摘要}{6}{section*.3}%
+\contentsline {chapter}{\numberline {1}项目概述}{8}{chapter.1}%
+\contentsline {section}{\numberline {1.1}项目背景}{8}{section.1.1}%
+\contentsline {section}{\numberline {1.2}项目实现}{9}{section.1.2}%
+\contentsline {section}{\numberline {1.3}核心功能概览}{10}{section.1.3}%
+\contentsline {chapter}{\numberline {2}系统总体设计}{12}{chapter.2}%
+\contentsline {section}{\numberline {2.1}系统总体架构}{12}{section.2.1}%
+\contentsline {section}{\numberline {2.2}专业学习闭环}{13}{section.2.2}%
+\contentsline {section}{\numberline {2.3}学习状态驱动的持续陪伴}{13}{section.2.3}%
+\contentsline {chapter}{\numberline {3}多智能体协同、Skill 封装与工具调用设计}{15}{chapter.3}%
+\contentsline {section}{\numberline {3.1}学习资源 Agent 设计与协作}{15}{section.3.1}%
+\contentsline {subsection}{\numberline {3.1.1}Planner Agent}{15}{subsection.3.1.1}%
+\contentsline {subsection}{\numberline {3.1.2}Resource Factory Agent}{16}{subsection.3.1.2}%
+\contentsline {subsection}{\numberline {3.1.3}Tutor Agent}{16}{subsection.3.1.3}%
+\contentsline {subsection}{\numberline {3.1.4}QA Agent}{17}{subsection.3.1.4}%
+\contentsline {subsection}{\numberline {3.1.5}Assessment Agent}{17}{subsection.3.1.5}%
+\contentsline {subsection}{\numberline {3.1.6}叶子 Agent 群设计}{18}{subsection.3.1.6}%
+\contentsline {paragraph}{（1）讲义 Agent}{18}{paragraph*.11}%
+\contentsline {paragraph}{（2）课件与演示文稿 Agent}{18}{paragraph*.12}%
+\contentsline {paragraph}{（3）教学讲稿与语音 Agent}{18}{paragraph*.13}%
+\contentsline {paragraph}{（4）练习 Agent}{18}{paragraph*.14}%
+\contentsline {paragraph}{（5）继续学习 Agent}{18}{paragraph*.15}%
+\contentsline {section}{\numberline {3.2}工具 Agent}{19}{section.3.2}%
+\contentsline {subsection}{\numberline {3.2.1}病理问答 Agent}{20}{subsection.3.2.1}%
+\contentsline {subsection}{\numberline {3.2.2}决策辅助 Agent}{20}{subsection.3.2.2}%
+\contentsline {subsection}{\numberline {3.2.3}文献阅读 Agent}{20}{subsection.3.2.3}%
+\contentsline {section}{\numberline {3.3}总控调度器设计}{20}{section.3.3}%
+\contentsline {section}{\numberline {3.4}工作流编排}{21}{section.3.4}%
+\contentsline {subsection}{\numberline {3.4.1}主题学习主工作流}{21}{subsection.3.4.1}%
+\contentsline {subsection}{\numberline {3.4.2}多阶段内容生成}{22}{subsection.3.4.2}%
+\contentsline {section}{\numberline {3.5}Skill 设计}{22}{section.3.5}%
+\contentsline {section}{\numberline {3.6}MCP 工具与专业知识增强}{23}{section.3.6}%
+\contentsline {chapter}{\numberline {4}影像分析 Agent 与 OralPath 视觉模型}{24}{chapter.4}%
+\contentsline {section}{\numberline {4.1}任务定位与系统边界}{24}{section.4.1}%
+\contentsline {section}{\numberline {4.2}微调数据集构建}{24}{section.4.2}%
+\contentsline {section}{\numberline {4.3}基座模型选择}{25}{section.4.3}%
+\contentsline {section}{\numberline {4.4}分阶段 LoRA 微调策略}{26}{section.4.4}%
+\contentsline {section}{\numberline {4.5}推理部署与 Agent 封装}{27}{section.4.5}%
+\contentsline {section}{\numberline {4.6}自测结果与能力分析}{27}{section.4.6}%
+\contentsline {section}{\numberline {4.7}应用效果与局限}{28}{section.4.7}%
+\contentsline {chapter}{\numberline {5}学习画像}{30}{chapter.5}%
+\contentsline {section}{\numberline {5.1}学习画像总体架构}{30}{section.5.1}%
+\contentsline {section}{\numberline {5.2}初始画像构建与教学调节}{31}{section.5.2}%
+\contentsline {subsection}{\numberline {5.2.1}初始测评}{31}{subsection.5.2.1}%
+\contentsline {subsection}{\numberline {5.2.2}面向口腔医学任务的支架化调节}{31}{subsection.5.2.2}%
+\contentsline {section}{\numberline {5.3}轨迹森林与多层学习记忆}{32}{section.5.3}%
+\contentsline {subsection}{\numberline {5.3.1}从学习事件到长期画像}{32}{subsection.5.3.1}%
+\contentsline {subsection}{\numberline {5.3.2}学习画像的动态更新}{33}{subsection.5.3.2}%
+\contentsline {section}{\numberline {5.4}角色画像切片与 Agent 调用}{33}{section.5.4}%
+\contentsline {section}{\numberline {5.5}知识图谱约束的知识状态追踪}{34}{section.5.5}%
+\contentsline {section}{\numberline {5.6}掌握学习反馈循环}{35}{section.5.6}%
+\contentsline {section}{\numberline {5.7}画像可视化}{36}{section.5.7}%
+\contentsline {chapter}{\numberline {6}个性化学习资源生成}{37}{chapter.6}%
+\contentsline {section}{\numberline {6.1}设计思想}{37}{section.6.1}%
+\contentsline {section}{\numberline {6.2}个性化学习路径与计划}{38}{section.6.2}%
+\contentsline {subsection}{\numberline {6.2.1}知识状态感知的课程路径生成}{38}{subsection.6.2.1}%
+\contentsline {subsection}{\numberline {6.2.2}学习计划的长期节奏反馈}{39}{subsection.6.2.2}%
+\contentsline {subsection}{\numberline {6.2.3}计划执行}{39}{subsection.6.2.3}%
+\contentsline {section}{\numberline {6.3}个性化讲义与互动讲解}{40}{section.6.3}%
+\contentsline {subsection}{\numberline {6.3.1}讯飞长文本语音合成}{42}{subsection.6.3.1}%
+\contentsline {section}{\numberline {6.4}个性化练习与反馈}{42}{section.6.4}%
+\contentsline {chapter}{\numberline {7}知识库}{44}{chapter.7}%
+\contentsline {section}{\numberline {7.1}数据输入与预处理}{44}{section.7.1}%
+\contentsline {subsection}{\numberline {7.1.1}口腔医学教材}{45}{subsection.7.1.1}%
+\contentsline {subsection}{\numberline {7.1.2}专家共识与临床规范}{46}{subsection.7.1.2}%
+\contentsline {subsection}{\numberline {7.1.3}默沙东诊疗手册}{47}{subsection.7.1.3}%
+\contentsline {subsection}{\numberline {7.1.4}口腔执业医师考试相关题库}{47}{subsection.7.1.4}%
+\contentsline {section}{\numberline {7.2}知识图谱构建}{48}{section.7.2}%
+\contentsline {subsection}{\numberline {7.2.1}自动化持续构建}{49}{subsection.7.2.1}%
+\contentsline {subsection}{\numberline {7.2.2}Schema 引导抽取与 EGIR 生成}{49}{subsection.7.2.2}%
+\contentsline {subsection}{\numberline {7.2.3}节点与关系编译}{49}{subsection.7.2.3}%
+\contentsline {subsection}{\numberline {7.2.4}医学审议与符号编译}{50}{subsection.7.2.4}%
+\contentsline {subsection}{\numberline {7.2.5}跨章节归并与交付}{50}{subsection.7.2.5}%
+\contentsline {section}{\numberline {7.3}知识库入库与索引组织}{50}{section.7.3}%
+\contentsline {subsection}{\numberline {7.3.1}检索对象的统一组织}{51}{subsection.7.3.1}%
+\contentsline {subsection}{\numberline {7.3.2}多路索引的构建机制}{51}{subsection.7.3.2}%
+\contentsline {subsection}{\numberline {7.3.3}知识关系与来源关联}{51}{subsection.7.3.3}%
+\contentsline {subsection}{\numberline {7.3.4}入库结果}{52}{subsection.7.3.4}%
+\contentsline {section}{\numberline {7.4}KAG 知识库架构}{52}{section.7.4}%
+\contentsline {subsection}{\numberline {7.4.1}KAG 基础架构与项目适配}{52}{subsection.7.4.1}%
+\contentsline {subsection}{\numberline {7.4.2}知识库总体架构}{53}{subsection.7.4.2}%
+\contentsline {subsection}{\numberline {7.4.3}六层知识服务组织}{54}{subsection.7.4.3}%
+\contentsline {section}{\numberline {7.5}自定义算子设计}{54}{section.7.5}%
+\contentsline {subsection}{\numberline {7.5.1}算子设计规范}{54}{subsection.7.5.1}%
+\contentsline {subsection}{\numberline {7.5.2}数据与索引构建算子}{55}{subsection.7.5.2}%
+\contentsline {subsection}{\numberline {7.5.3}检索与结果组织算子}{55}{subsection.7.5.3}%
+\contentsline {section}{\numberline {7.6}知识库检索}{56}{section.7.6}%
+\contentsline {subsection}{\numberline {7.6.1}多路候选召回}{57}{subsection.7.6.1}%
+\contentsline {subsection}{\numberline {7.6.2}图种子汇聚与 Graph-PPR}{57}{subsection.7.6.2}%
+\contentsline {subsection}{\numberline {7.6.3}候选融合与 RRF 排序}{58}{subsection.7.6.3}%
+\contentsline {subsection}{\numberline {7.6.4}检索结果组织}{58}{subsection.7.6.4}%
+\contentsline {subsection}{\numberline {7.6.5}KAGSolver 与智能体调用}{58}{subsection.7.6.5}%
+\contentsline {section}{\numberline {7.7}防幻觉与内容审查机制}{59}{section.7.7}%
+\contentsline {subsection}{\numberline {7.7.1}多阶段医学内容处理}{59}{subsection.7.7.1}%
+\contentsline {subsection}{\numberline {7.7.2}检索约束和引用绑定}{59}{subsection.7.7.2}%
+\contentsline {subsection}{\numberline {7.7.3}输出过滤与分级审查}{60}{subsection.7.7.3}%
+\contentsline {subsection}{\numberline {7.7.4}有害输入识别}{60}{subsection.7.7.4}%
+\contentsline {chapter}{\numberline {8}系统实现}{61}{chapter.8}%
+\contentsline {section}{\numberline {8.1}技术栈}{61}{section.8.1}%
+\contentsline {section}{\numberline {8.2}讯飞平台与 API 集成}{61}{section.8.2}%
+\contentsline {section}{\numberline {8.3}后端接口设计}{62}{section.8.3}%
+\contentsline {section}{\numberline {8.4}前端页面设计}{64}{section.8.4}%
+\contentsline {section}{\numberline {8.5}数据存储与文件组织}{70}{section.8.5}%
+\contentsline {section}{\numberline {8.6}部署与运行方式}{71}{section.8.6}%
+\contentsline {subsection}{\numberline {8.6.1}本地后端启动}{71}{subsection.8.6.1}%
+\contentsline {subsection}{\numberline {8.6.2}关键环境变量}{71}{subsection.8.6.2}%
+\contentsline {subsection}{\numberline {8.6.3}视觉模型服务启动}{72}{subsection.8.6.3}%
+\contentsline {subsection}{\numberline {8.6.4}知识库检索依赖}{72}{subsection.8.6.4}%
+\contentsline {subsection}{\numberline {8.6.5}微信 ClawBridge 启动}{72}{subsection.8.6.5}%
+\contentsline {section}{\numberline {8.7}第三方组件与工具说明}{73}{section.8.7}%
+\contentsline {chapter}{\numberline {9}测试与评估}{74}{chapter.9}%
+\contentsline {section}{\numberline {9.1}测试目标与测试范围}{74}{section.9.1}%
+\contentsline {section}{\numberline {9.2}自动化测试结果}{74}{section.9.2}%
+\contentsline {section}{\numberline {9.3}核心功能测试}{75}{section.9.3}%
+\contentsline {section}{\numberline {9.4}智能体协同链路测试}{75}{section.9.4}%
+\contentsline {section}{\numberline {9.5}资源生成测试}{76}{section.9.5}%
+\contentsline {section}{\numberline {9.6}学习测评与学习状态测试}{76}{section.9.6}%
+\contentsline {section}{\numberline {9.7}知识检索与证据一致性测试}{77}{section.9.7}%
+\contentsline {section}{\numberline {9.8}响应时间测试}{77}{section.9.8}%
+\contentsline {section}{\numberline {9.9}稳定性测试}{78}{section.9.9}%
+\contentsline {section}{\numberline {9.10}测试结果汇总}{79}{section.9.10}%
+\contentsline {chapter}{\numberline {10}作品创新点分析}{80}{chapter.10}%
+\contentsline {section}{\numberline {10.1}专业知识空间驱动的连续学习}{80}{section.10.1}%
+\contentsline {section}{\numberline {10.2}学习状态推动的个体化复习}{80}{section.10.2}%
+\contentsline {section}{\numberline {10.3}同主题多模态资源的协同呈现}{81}{section.10.3}%
+\contentsline {section}{\numberline {10.4}ClawBot 跨端学习任务执行}{82}{section.10.4}%
+\contentsline {section}{\numberline {10.5}现实应用价值}{82}{section.10.5}%
+\contentsline {subsection}{\numberline {10.5.1}对学生的价值}{82}{subsection.10.5.1}%
+\contentsline {subsection}{\numberline {10.5.2}对教师和课程组织的价值}{82}{subsection.10.5.2}%
+\contentsline {subsection}{\numberline {10.5.3}与分散学习工具的体验比较}{83}{subsection.10.5.3}%
+\contentsline {section}{\numberline {10.6}优势总结}{83}{section.10.6}%
+\contentsline {chapter}{\numberline {11}部署运行与演示说明}{84}{chapter.11}%
+\contentsline {section}{\numberline {11.1}运行环境要求}{84}{section.11.1}%
+\contentsline {section}{\numberline {11.2}配置项说明}{84}{section.11.2}%
+\contentsline {section}{\numberline {11.3}部署步骤}{85}{section.11.3}%
+\contentsline {chapter}{\numberline {12}总结与展望}{86}{chapter.12}%
+\contentsline {section}{\numberline {12.1}作品完成情况}{86}{section.12.1}%
+\contentsline {section}{\numberline {12.2}当前不足}{87}{section.12.2}%
+\contentsline {section}{\numberline {12.3}后续规划}{87}{section.12.3}%
+\contentsline {chapter}{附录}{89}{section*.84}%
+\contentsline {section}{附录 A：补充材料}{89}{section*.85}%

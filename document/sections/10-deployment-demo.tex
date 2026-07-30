@@ -1,0 +1,81 @@
+\chapter{部署运行与演示说明}
+\label{sec:deployment-demo}
+
+\section{运行环境要求}
+
+OralSage 采用前后端一体化的本地 Web 服务部署方式，FastAPI 同时提供业务接口和前端静态页面。项目已在 Windows 11、Python 3.11.9 环境完成开发和测试，也可部署在具备 Python 3.11 运行环境的 Linux 服务器。基础演示不强制要求独立 GPU；本地嵌入模型和知识索引可以使用 CPU 加载，文本生成和长文本语音合成通过讯飞云端接口完成。
+
+\begin{table}[H]
+  \centering
+  \caption{OralSage 运行环境要求}
+  \label{tab:runtime-requirements}
+  \begin{tabularx}{\linewidth}{p{0.24\linewidth}p{0.29\linewidth}X}
+    \toprule
+    环境项 & 推荐配置 & 说明 \\
+    \midrule
+    操作系统 & Windows 10/11 或 Linux x86\_64 & Windows 环境可直接使用 PowerShell 完成配置与启动。 \\
+    Python & 3.11，实测版本 3.11.9 & 用于运行 FastAPI 后端、多智能体流程、数据访问和资源生成模块。 \\
+    处理器与内存 & 四核 CPU、16 GB 内存 & 可满足本地知识索引、SQLite 学习状态和演示资源的加载需要。 \\
+    GPU & 非必需 & 本地演示可采用 CPU 检索；如扩展本地视觉或大模型推理，可按模型规模配置 GPU。 \\
+    磁盘空间 & 至少 10 GB 可用空间 & 当前数据与本地模型资源约占 6.5 GB，并需预留课程资源和日志空间。 \\
+    网络 & 可访问讯飞开放平台 & 用于调用讯飞星火 4.0 Ultra 和长文本语音合成服务。 \\
+    浏览器 & Chrome、Edge 等现代浏览器 & 访问由 FastAPI 托管的前端页面，无需单独启动前端开发服务器。 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+后端主要依赖 FastAPI 0.136.1、Uvicorn 0.46.0、Pydantic 2.13.3、LangGraph 1.1.9、NumPy 2.4.6、PyYAML 6.0.2、pypdf 6.4.1 和 openpyxl 3.1.5，具体版本统一记录在 \texttt{backend/requirements.txt} 中。部署服务器保存 KAG 知识库、向量索引、学习会话和生成资源，浏览器只访问 OralSage 自身的前端与后端接口，讯飞 API 密钥不会下发到浏览器。
+
+\section{配置项说明}
+
+系统配置包括后端端口、模型服务密钥、KAG 知识库路径、题库路径、向量模型路径、TTS 服务配置和日志级别等。正式提交文档中不得暴露真实 API Key。
+
+\begin{table}[H]
+  \centering
+  \caption{讯飞运行时 API 配置项}
+  \label{tab:xfyun-deployment-config}
+  \begin{tabularx}{\linewidth}{p{0.32\linewidth}p{0.29\linewidth}X}
+    \toprule
+    配置项 & 示例值或格式 & 用途 \\
+    \midrule
+    \texttt{LEARNING\_LLM\_BASE\_URL} & \texttt{https://spark-api-open.xf-yun.com/v1} & 讯飞星火 HTTP API 的兼容接口地址 \\
+    \texttt{LEARNING\_LLM\_MODEL} & \texttt{4.0Ultra} & Planner、Tutor、QA、Assessment 等文本 Agent 使用的模型 \\
+    \texttt{LEARNING\_LLM\_API\_KEY} & 服务端密钥 & 讯飞星火 API 的 APIPassword \\
+    \texttt{XF\_TTS\_CREATE\_URL} & \texttt{https://api-dx.xf-yun.com/v1/private/dts\_create} & 创建长文本语音合成任务 \\
+    \texttt{XF\_TTS\_QUERY\_URL} & \texttt{https://api-dx.xf-yun.com/v1/private/dts\_query} & 查询语音合成任务状态 \\
+    \texttt{XF\_TTS\_APP\_ID} & 服务端应用标识 & 语音服务应用身份 \\
+    \texttt{XF\_TTS\_API\_KEY} / \texttt{XF\_TTS\_API\_SECRET} & 服务端密钥 & 长文本 TTS HMAC-SHA256 鉴权 \\
+    \texttt{XF\_TTS\_VCN} & \texttt{x4\_mingge} & 中文课程讲解发音人 \\
+    \texttt{XF\_TTS\_ENCODING} & \texttt{lame} & 输出 MP3 音频 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+所有密钥只写入部署服务器的环境变量或密钥管理服务。项目文档、前端代码、日志和截图中只保留变量名，不展示真实密钥值。
+
+\section{部署步骤}
+
+\begin{enumerate}
+  \item 获取项目源码、知识库、题库和模型资源。
+  \item 创建 Python 虚拟环境并安装依赖。
+  \item 根据示例配置文件填写运行参数。
+  \item 校验知识库、题库和索引文件是否完整。
+  \item 启动后端服务并访问前端页面。
+  \item 调用健康检查接口并运行核心演示流程。
+\end{enumerate}
+
+在项目根目录执行以下命令即可启动本地演示服务：
+
+\begin{lstlisting}[language=bash]
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r backend\requirements.txt
+Copy-Item .env.example .env
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+\end{lstlisting}
+
+服务默认监听 \texttt{127.0.0.1:8000}，前端首页地址为
+\texttt{http://127.0.0.1:8000/}，接口文档地址为
+\texttt{http://127.0.0.1:8000/docs}。启动后使用
+\texttt{GET http://127.0.0.1:8000/api/system/health} 进行健康检查；返回
+\texttt{ok=true} 时表示后端路由、配置加载和基础运行状态正常。
