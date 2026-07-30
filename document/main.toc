@@ -71,7 +71,6 @@
 \contentsline {subsection}{\numberline {6.4.2}从系统日志学习 FSRS 参数}{48}{subsection.6.4.2}%
 \contentsline {section}{\numberline {6.5}与多智能体学习闭环的协同}{48}{section.6.5}%
 \contentsline {section}{\numberline {6.6}评估指标与展示方式}{49}{section.6.6}%
-\contentsline {section}{\numberline {6.7}小结}{49}{section.6.7}%
 \contentsline {chapter}{\numberline {7}个性化学习资源生成}{50}{chapter.7}%
 \contentsline {section}{\numberline {7.1}设计思想}{50}{section.7.1}%
 \contentsline {section}{\numberline {7.2}个性化学习路径与计划}{51}{section.7.2}%

@@ -32,9 +32,9 @@
 \usetikzlibrary{shapes.geometric, arrows, positioning, fit}
 
 \usepackage[colorlinks=true, linkcolor=blue, citecolor=red, urlcolor=blue, hidelinks]{hyperref}
+\usepackage{xurl}
 \usepackage{cite}
 \usepackage{mathrsfs}
-\usepackage{mathptmx}
 \usepackage{pifont}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
@@ -42,11 +42,18 @@
 \geometry{left=2.86cm, right=2.86cm, top=2.54cm, bottom=2.54cm}
 \graphicspath{{figures/}}
 \setstretch{1.5}
-\setmainfont{Times New Roman}
+\setmainfont{Times New Roman}[
+  BoldFont={Times New Roman Bold},
+  ItalicFont={Times New Roman Italic},
+  BoldItalicFont={Times New Roman Bold Italic}
+]
 \setCJKmainfont{SimSun}[AutoFakeBold=true]
-\setmonofont{Consolas}
+% Inline technical identifiers use the body font; code blocks retain Consolas.
+\setmonofont{Times New Roman}
+\newfontfamily\codefont{Consolas}
 \setCJKmonofont{SimSun}[AutoFakeBold=true]
 \setlength{\tabcolsep}{4pt}
+\setlength{\emergencystretch}{1em}
 \everymath{\displaystyle}
 
 \titleformat{\chapter}[block]{\centering\huge\bfseries}{第\zhnumber{\thechapter}章}{1em}{}
@@ -72,7 +79,17 @@
 \definecolor{coverpanel}{RGB}{248,246,251}
 
 
-\newcommand{\softid}[1]{\texttt{#1}}
+% Technical identifiers occur inside Chinese prose.  Keep them in Times New
+% Roman and allow a line break after underscores and path separators.
+\newcommand{\softid}[1]{%
+  \begingroup
+  \rmfamily
+  \def\_{\char95\relax\allowbreak}%
+  #1%
+  \endgroup
+}
+\renewcommand{\texttt}[1]{\softid{#1}}
+\renewcommand{\UrlFont}{\rmfamily}
 \newcommand{\coverfield}[2]{%
   \noindent
   \begin{tabularx}{\linewidth}{@{}>{\color{covermuted}\bfseries}p{5.4em}@{\hspace{1.2em}}>{\raggedright\arraybackslash}X@{}}
@@ -90,7 +107,7 @@
 }
 
 \lstdefinestyle{softcupcode}{
-  basicstyle=\ttfamily\small,
+  basicstyle=\codefont\small,
   numbers=left,
   numberstyle=\tiny\color{gray},
   stepnumber=1,
@@ -170,15 +187,15 @@ OralSage 是面向口腔医学专业学习场景的个性化资源生成与多�
 \input{sections/02-system-design.tex}
 \input{sections/03-agent-collaboration.tex}
 \input{sections/04-image-analysis-agent.tex}
-\input{sections/04-user-model-planning.tex}
-\input{sections/04-spaced-repetition-scheduling.tex}
-\input{sections/05-resource-generation.tex}
-\input{sections/06-knowledge-base.tex}
-\input{sections/07-system-implementation.tex}
-\input{sections/08-testing-evaluation.tex}
-\input{sections/09-innovation-value.tex}
-\input{sections/10-deployment-demo.tex}
-\input{sections/11-conclusion.tex}
+\input{sections/05-user-model-planning.tex}
+\input{sections/06-spaced-repetition-scheduling.tex}
+\input{sections/07-resource-generation.tex}
+\input{sections/08-knowledge-base.tex}
+\input{sections/09-system-implementation.tex}
+\input{sections/10-testing-evaluation.tex}
+\input{sections/11-innovation-value.tex}
+\input{sections/12-deployment-demo.tex}
+\input{sections/13-conclusion.tex}
 
 \input{sections/appendix-a.tex}
 
