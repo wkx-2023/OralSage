@@ -1,4 +1,17 @@
-INFO:     Started server process [2472]
+INFO:     Started server process [31640]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+Comprehensive exam Spark transport failed via SSE (unknown); retrying via non-stream
+Comprehensive exam Spark transport failed via SSE (unknown); retrying via non-stream
+Comprehensive exam Spark contract failed for questions attempt 1/5: 讯飞返回内容不包含有效 JSON; response_shape=unparseable
+Comprehensive exam Spark contract failed for questions attempt 1/5: 讯飞 JSON 数组中包含无效项目，项目形状：string(len=24); response_shape=array(len=1)
+Comprehensive exam Spark contract failed for questions attempt 2/5: 讯飞 JSON 数组中包含无效项目，项目形状：string(len=22); response_shape=array(len=1)
+Comprehensive exam Spark transport failed via SSE (unknown); retrying via non-stream
+Comprehensive exam Spark transport failed via SSE (unknown); retrying via non-stream
+Comprehensive exam Spark transport failed via SSE (unknown); retrying via non-stream
+Comprehensive exam Spark transport failed via SSE (unknown); retrying via non-stream
+Comprehensive exam Spark contract failed for questions attempt 1/5: 讯飞返回内容不包含有效 JSON; response_shape=unparseable
+Comprehensive exam Spark transport failed via SSE (unknown); retrying via non-stream
+Comprehensive exam Spark contract failed for grades attempt 1/5: 讯飞 JSON 数组中包含无效项目，项目形状：string(len=16), string(len=24); response_shape=array(len=2)
+Comprehensive exam Spark transport failed via SSE (unknown); retrying via non-stream

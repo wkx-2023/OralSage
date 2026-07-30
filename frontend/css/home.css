@@ -348,7 +348,7 @@ html,
 .toolbox-dialog {
   position: relative;
   z-index: 1;
-  width: min(700px, 100%);
+  width: min(560px, 100%);
   display: grid;
   justify-items: center;
   gap: 22px;
@@ -373,11 +373,12 @@ html,
 }
 
 .toolbox-list {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  justify-items: center;
-  width: min(650px, 100%);
-  gap: clamp(12px, 2vw, 18px);
+  width: min(422px, 100%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  column-gap: 26px;
+  row-gap: 24px;
   pointer-events: none;
 }
 
@@ -507,9 +508,6 @@ html,
     width: 52px;
   }
 
-  .toolbox-dialog .toolbox-list {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 1180px) {
@@ -547,9 +545,6 @@ html,
     min-height: 0;
   }
 
-  .toolbox-dialog .toolbox-list {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 760px) {
@@ -582,8 +577,9 @@ html,
     width: min(360px, 100%);
   }
 
-  .toolbox-dialog .toolbox-list {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .toolbox-list {
+    width: min(270px, 100%);
+    column-gap: 18px;
     row-gap: 18px;
   }
 

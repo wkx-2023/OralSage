@@ -1,9 +1,16 @@
 (() => {
-  const state = { stream: null, exam: null, answers: {}, current: 0, userId: 'demo', cameraLost: false, startedAt: 0, timerId: 0 };
+  const state = { stream: null, exam: null, answers: {}, current: 0, userId: 'demo', cameraLost: false, isStarted: false, startedAt: 0, timerId: 0 };
   const $ = (id) => document.getElementById(id);
   const escapeHtml = (value) => window.oralUi?.escapeHtml?.(String(value || '')) || String(value || '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
   const setStatus = (id, text, error = false) => { const el = $(id); if (el) { el.textContent = text; el.classList.toggle('is-error', error); } };
   const api = (url, body) => window.oralUi.apiJson(url, { method: 'POST', body: JSON.stringify(body) });
+  function updateStartAction() {
+    const button = $('start-exam'); const label = $('start-exam-label'); if (!button || !label) return;
+    if (!state.exam) { label.textContent = '生成试卷'; button.disabled = false; }
+    else if (!state.stream) { label.textContent = '开启摄像头后开始考试'; button.disabled = true; }
+    else if (!state.isStarted) { label.textContent = '开始考试'; button.disabled = false; }
+    else { label.textContent = '考试进行中'; button.disabled = true; }
+  }
 
   async function resolveUser() { try { const me = await window.oralUi.apiJson('/api/auth/me'); state.userId = me?.user?.user_id || me?.user?.username || 'demo'; } catch (_) {} }
   async function enableCamera() {
@@ -13,7 +20,7 @@
       state.cameraLost = false;
       state.stream.getVideoTracks().forEach((track) => {
         track.addEventListener('ended', () => {
-          if (!state.exam) return;
+          if (!state.isStarted) return;
           state.cameraLost = true;
           $('submit-exam').disabled = true;
           setStatus('exam-status', '摄像头已中断，请重新开启后再交卷。', true);
@@ -23,16 +30,17 @@
       if (preview) preview.srcObject = state.stream;
       $('monitor-placeholder')?.classList.add('is-hidden');
       document.querySelector('.monitor-tile')?.classList.add('is-ready');
-      $('start-exam').disabled = false;
       setStatus('camera-status', '摄像头已开启，考试期间请保持开启。');
-      if (state.exam) { setStatus('exam-status', '摄像头已恢复。'); updateProgress(); }
+      if (state.exam && !state.isStarted) setStatus('intro-status', '摄像头已就绪，可开始考试。');
+      if (state.isStarted) { setStatus('exam-status', '摄像头已恢复。'); updateProgress(); }
+      updateStartAction();
     } catch (error) { setStatus('camera-status', `无法开启摄像头：${error.message || '请在浏览器设置中允许权限。'}`, true); }
   }
   function stopCamera() { state.stream?.getTracks().forEach((track) => track.stop()); state.stream = null; }
   function refreshIcons() { window.lucide?.createIcons?.(); }
   function answered(question) { return Boolean(String(state.answers[question.id] || '').trim()); }
   function renderClock() {
-    const remain = Math.max(0, 90 * 60 - Math.floor((Date.now() - state.startedAt) / 1000));
+    const remain = Math.max(0, 30 * 60 - Math.floor((Date.now() - state.startedAt) / 1000));
     const hours = String(Math.floor(remain / 3600)).padStart(2, '0');
     const minutes = String(Math.floor((remain % 3600) / 60)).padStart(2, '0');
     const seconds = String(remain % 60).padStart(2, '0');
@@ -63,10 +71,41 @@
     renderGroup(state.exam.questions.filter((question) => question.type === 'single_choice'), 0, $('choice-nav'));
     renderGroup(state.exam.questions.filter((question) => question.type !== 'single_choice'), 15, $('short-nav'));
   }
-  function updateProgress() { const count = state.exam.questions.filter(answered).length; $('progress-count').textContent = `${count} / ${state.exam.questions.length}`; $('answer-card-count').textContent = `${count} / ${state.exam.questions.length}`; $('submit-exam').disabled = count !== state.exam.questions.length || state.cameraLost; }
-  async function startExam() { if (!state.stream) return; $('start-exam').disabled = true; setStatus('intro-status', '正在依据题库和学习画像生成试卷…'); try { const body = await api('/api/learning/comprehensive-exams', { user_id: state.userId }); state.exam = body.result; startClock(); renderNav(); updateProgress(); renderQuestion(); } catch (error) { setStatus('intro-status', error.message || '试卷生成失败。', true); $('start-exam').disabled = false; } }
+  function updateProgress() { if (!state.exam) return; const count = state.exam.questions.filter(answered).length; $('progress-count').textContent = `${count} / ${state.exam.questions.length}`; $('answer-card-count').textContent = `${count} / ${state.exam.questions.length}`; $('submit-exam').disabled = !state.isStarted || count !== state.exam.questions.length || state.cameraLost; }
+  async function startExam() {
+    if (!state.exam) {
+      $('start-exam').disabled = true;
+      setStatus('intro-status', '正在依据题库和学习画像生成试卷…');
+      try {
+        const body = await api('/api/learning/comprehensive-exams', { user_id: state.userId });
+        state.exam = body.result;
+        $('enable-camera').disabled = false;
+        $('resume-camera').disabled = false;
+        $('question-type').textContent = '试卷已生成';
+        $('question-content').innerHTML = '<div class="preflight-state"><i data-lucide="video"></i><strong>请开启摄像头后开始考试</strong></div>';
+        setStatus('intro-status', '试卷已生成，请开启摄像头。');
+        updateProgress(); updateStartAction(); refreshIcons();
+      } catch (error) { setStatus('intro-status', error.message || '试卷生成失败。', true); updateStartAction(); }
+      return;
+    }
+    if (!state.stream || state.isStarted) return;
+    state.isStarted = true; state.cameraLost = false;
+    startClock(); renderNav(); updateProgress(); renderQuestion(); updateStartAction();
+    setStatus('intro-status', ''); setStatus('exam-status', '考试已开始，请完成全部题目后交卷。');
+  }
   async function submitExam() { const questions = state.exam.questions; if (state.cameraLost || questions.some((question) => !answered(question))) return; $('submit-exam').disabled = true; setStatus('exam-status', '正在评阅简答题，请勿关闭页面…'); try { const body = await api(`/api/learning/comprehensive-exams/${encodeURIComponent(state.exam.exam_id)}/submit`, { user_id: state.userId, answers: questions.map((question) => ({ question_id: question.id, answer: state.answers[question.id] || '' })) }); showResult(body.result); } catch (error) { setStatus('exam-status', error.message || '交卷失败。', true); updateProgress(); } }
-  function showResult(exam) { stopClock(); stopCamera(); $('exam-workspace').hidden = true; document.body.classList.add('is-result-view'); $('exam-result').hidden = false; const submission = exam.submission; $('score-value').textContent = submission.score; $('score-detail').textContent = `单选题 ${submission.choice_score} 分 · 简答题 ${submission.short_score} 分`; const byId = Object.fromEntries(exam.questions.map((q) => [q.id, q])); $('result-list').innerHTML = submission.results.map((item, index) => { const question = byId[item.question_id] || {}; const feedback = item.feedback || (item.missing_points || []).join('；'); return `<article class="result-item"><span class="result-score">${item.score}</span><div><strong>${index + 1}. ${escapeHtml(question.stem || question.prompt)}</strong><p>${escapeHtml(feedback)}</p>${item.correct_answer ? `<p>正确答案：${escapeHtml(item.correct_answer)}</p>` : ''}</div><span class="result-max">/ ${item.max_score}</span></article>`; }).join(''); window.scrollTo(0, 0); refreshIcons(); }
+  function renderResultAnalysis(question, item) {
+    const tone = Number(item.score) === Number(item.max_score) ? 'is-full-score' : 'is-partial-score';
+    if (question.type === 'single_choice') {
+      const selected = item.selected_answer || '未作答';
+      return `<section class="result-analysis ${tone}"><h4>解析</h4><p class="result-answer-line">你的答案：${escapeHtml(selected)}　正确答案：${escapeHtml(item.correct_answer || question.answer || '')}</p><p>${escapeHtml(question.explanation || item.analysis || '题库暂未提供本题解析。')}</p></section>`;
+    }
+    const rubric = Array.isArray(question.rubric) ? question.rubric.filter(Boolean) : Array.isArray(item.rubric) ? item.rubric.filter(Boolean) : [];
+    const missing = Array.isArray(item.missing_points) ? item.missing_points.filter(Boolean) : [];
+    const evidence = question.evidence?.excerpt || item.analysis || '';
+    return `<section class="result-analysis ${tone}"><h4>解析</h4><p class="result-answer-line">评分评语：${escapeHtml(item.feedback || '暂无评语')}</p><h5>参考答案</h5><p>${escapeHtml(question.reference_answer || item.reference_answer || '暂无参考答案')}</p><h5>评分要点</h5>${rubric.length ? `<ul>${rubric.map((point) => `<li>${escapeHtml(point)}</li>`).join('')}</ul>` : '<p>暂无评分要点</p>'}${missing.length ? `<h5>待补充要点</h5><ul>${missing.map((point) => `<li>${escapeHtml(point)}</li>`).join('')}</ul>` : ''}${evidence ? `<h5>依据说明</h5><p>${escapeHtml(evidence)}</p>` : ''}</section>`;
+  }
+  function showResult(exam) { stopClock(); stopCamera(); $('exam-workspace').hidden = true; document.body.classList.add('is-result-view'); $('exam-result').hidden = false; const submission = exam.submission; $('score-value').textContent = submission.score; $('score-detail').textContent = `单选题 ${submission.choice_score} 分 · 简答题 ${submission.short_score} 分`; const byId = Object.fromEntries(exam.questions.map((q) => [q.id, q])); $('result-list').innerHTML = submission.results.map((item, index) => { const question = byId[item.question_id] || {}; const feedback = item.feedback || (item.missing_points || []).join('；'); return `<article class="result-item"><span class="result-score">${item.score}</span><div><strong>${index + 1}. ${escapeHtml(question.stem || question.prompt)}</strong><p class="result-feedback">${escapeHtml(feedback)}</p>${renderResultAnalysis(question, item)}</div><span class="result-max">/ ${item.max_score}</span></article>`; }).join(''); window.scrollTo(0, 0); refreshIcons(); }
   function reset() { window.location.reload(); }
   document.addEventListener('DOMContentLoaded', async () => { window.oralUi.boot({ key:'comprehensive-exam', title:'综合考试', subtitle:'' }); await resolveUser(); $('enable-camera').addEventListener('click', enableCamera); $('resume-camera').addEventListener('click', enableCamera); $('start-exam').addEventListener('click', startExam); $('submit-exam').addEventListener('click', submitExam); $('previous-question').addEventListener('click', () => { state.current -= 1; renderQuestion(); renderNav(); }); $('next-question').addEventListener('click', () => { state.current += 1; renderQuestion(); renderNav(); }); $('restart-exam').addEventListener('click', reset); window.addEventListener('beforeunload', stopCamera); refreshIcons(); });
 })();

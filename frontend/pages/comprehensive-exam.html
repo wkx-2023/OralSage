@@ -23,20 +23,20 @@
           <div><dt><i data-lucide="layers-3"></i>考试类型</dt><dd>模拟考试</dd></div>
           <div><dt><i data-lucide="list-checks"></i>题目总数</dt><dd>20 题</dd></div>
           <div><dt><i data-lucide="award"></i>总分</dt><dd>100 分</dd></div>
-          <div><dt><i data-lucide="clock-3"></i>考试时长</dt><dd>90 分钟</dd></div>
+          <div><dt><i data-lucide="clock-3"></i>考试时长</dt><dd>30 分钟</dd></div>
         </dl>
         <section class="proctor-panel" aria-label="考试监考">
-          <div class="proctor-head"><span>考试监考</span><button id="resume-camera" class="monitor-retry" type="button" title="重新开启摄像头" aria-label="重新开启摄像头"><i data-lucide="video"></i></button></div>
+          <div class="proctor-head"><span>考试监考</span><button id="resume-camera" class="monitor-retry" type="button" title="重新开启摄像头" aria-label="重新开启摄像头" disabled><i data-lucide="video"></i></button></div>
           <div class="monitor-tile"><video id="monitor-preview" autoplay muted playsinline></video><div id="monitor-placeholder" class="monitor-placeholder"><i data-lucide="camera"></i><span>等待开启摄像头</span></div><span class="monitor-dot"></span><span>监考中</span></div>
           <p id="camera-status" class="camera-status">摄像头为开始考试的必要条件。</p>
-          <button id="enable-camera" class="camera-action" type="button"><i data-lucide="video"></i>开启摄像头</button>
-          <button id="start-exam" class="start-exam-side" type="button" disabled>开始考试<i data-lucide="arrow-right"></i></button>
+          <button id="enable-camera" class="camera-action" type="button" disabled><i data-lucide="video"></i>开启摄像头</button>
+          <button id="start-exam" class="start-exam-side" type="button"><span id="start-exam-label">生成试卷</span><i data-lucide="file-plus-2"></i></button>
           <p id="intro-status" class="status-line start-status" role="status"></p>
           <div class="exam-progress"><strong id="progress-count">0 / 20</strong><span>已作答</span></div>
         </section>
       </aside>
       <section class="question-pane">
-        <header class="exam-toolbar"><div class="timer"><i data-lucide="timer-reset"></i><span>剩余时间</span><strong id="exam-clock">01:30:00</strong></div><button id="submit-exam" class="submit-action" type="button" disabled>交卷</button></header>
+        <header class="exam-toolbar"><div class="timer"><i data-lucide="timer-reset"></i><span>剩余时间</span><strong id="exam-clock">00:30:00</strong></div><button id="submit-exam" class="submit-action" type="button" disabled>交卷</button></header>
         <div class="question-toolbar"><span id="question-type" class="question-type">等待开始</span><span id="exam-status" class="status-line"></span></div>
         <div id="question-content" class="question-content"><div class="preflight-state"><i data-lucide="file-check-2"></i><strong>试卷待生成</strong></div></div>
         <div class="question-footer"><button id="previous-question" class="text-nav-button" type="button"><i data-lucide="arrow-left"></i>上一题</button><span id="question-index"></span><button id="next-question" class="text-nav-button" type="button">下一题<i data-lucide="arrow-right"></i></button></div>
