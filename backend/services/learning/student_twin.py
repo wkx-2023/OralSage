@@ -8,6 +8,8 @@ with the best expected benefit under the learner's available time.
 
 from __future__ import annotations
 
+import re
+from functools import lru_cache
 from datetime import date, datetime
 from typing import Any
 
@@ -16,6 +18,51 @@ from .spaced_repetition import build_spaced_review_schedule
 
 
 _DEFAULT_AVAILABLE_MINUTES = 20
+_INTERNAL_KG_REFERENCE_RE = re.compile(
+    r"(?:kg://|core:)[^\s，。；;、：:！？!?（）()\[\]【】《》<>\"']+",
+    re.I,
+)
+_GENERIC_LABELS = {
+    "薄弱知识点",
+    "低掌握知识点",
+    "核心薄弱点",
+    "相关知识点",
+    "当前课程进度",
+    "学习任务",
+}
+_COLD_START_TOPIC_HINTS = (
+    "牙周炎",
+    "慢性牙周炎",
+    "侵袭性牙周炎",
+    "牙槽骨吸收",
+    "龋病",
+    "牙髓炎",
+    "根尖周炎",
+    "牙龈炎",
+    "口腔黏膜",
+    "错畸形",
+)
+_NEXT_LESSON_PRIORS = (
+    ("coldstart:periodontitis-staging", "牙周炎诊断与分期"),
+    ("coldstart:caries-diagnosis", "龋病诊断"),
+    ("coldstart:pulpitis-treatment", "牙髓炎治疗原则"),
+    ("coldstart:periapical-periodontitis-diagnosis", "根尖周炎诊断"),
+    ("coldstart:periodontal-maintenance", "牙周维护治疗"),
+)
+_ENGLISH_TERM_RULES = (
+    ("aggressive periodontitis", "侵袭性牙周炎"),
+    ("chronic periodontitis", "慢性牙周炎"),
+    ("periodontitis", "牙周炎"),
+    ("periodontal disease", "牙周病"),
+    ("alveolar bone resorption", "牙槽骨吸收"),
+    ("bone resorption", "骨吸收"),
+    ("differential diagnosis", "鉴别诊断"),
+    ("diagnosis", "诊断"),
+    ("treatment", "治疗"),
+    ("mechanism", "机制"),
+    ("etiology", "病因"),
+    ("risk factor", "危险因素"),
+)
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -78,6 +125,383 @@ def _normalize_kg_ids(value: Any) -> list[str]:
             seen.add(text)
             result.append(text)
     return result
+
+
+def _clean_label(value: Any) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _is_generic_or_internal_label(value: Any) -> bool:
+    text = _clean_label(value)
+    if not text:
+        return True
+    if text in _GENERIC_LABELS:
+        return True
+    if _INTERNAL_KG_REFERENCE_RE.search(text):
+        return True
+    return False
+
+
+def _translate_english_concept(value: Any) -> str:
+    text = _clean_label(value).replace("_", " ").replace("-", " ")
+    if not text or re.search(r"[\u4e00-\u9fff]", text):
+        return text
+    lowered = text.lower()
+    pieces: list[str] = []
+    matched_phrases: list[str] = []
+    used: set[str] = set()
+    for phrase, translated in _ENGLISH_TERM_RULES:
+        if any(phrase in matched for matched in matched_phrases):
+            continue
+        if phrase in lowered and translated not in used:
+            pieces.append(translated)
+            matched_phrases.append(phrase)
+            used.add(translated)
+    if pieces:
+        return "".join(pieces)
+    return text
+
+
+@lru_cache(maxsize=1)
+def _kg_display_name_index() -> dict[str, str]:
+    index: dict[str, str] = {}
+    try:
+        from backend.services.learning.planner import load_kg_nodes
+        from backend.services.knowledge_graph.agent import (
+            canonical_book_title,
+            stable_core_identity,
+        )
+    except Exception:
+        return index
+
+    try:
+        nodes = load_kg_nodes()
+    except Exception:
+        return index
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_id = _clean_label(node.get("node_id"))
+        name = _clean_label(node.get("canonical_name") or node.get("name"))
+        if not node_id or not name:
+            continue
+        index.setdefault(node_id, name)
+        book_title = _clean_label(node.get("book_title"))
+        node_type = _clean_label(node.get("node_type"))
+        metadata = node.get("metadata")
+        document_id = (
+            _clean_label(metadata.get("document_id"))
+            if isinstance(metadata, dict)
+            else ""
+        )
+        if book_title and node_type:
+            stable_id = stable_core_identity(
+                canonical_book_title(document_id, book_title),
+                node_type,
+                name,
+            )
+            index.setdefault(stable_id, name)
+    return index
+
+
+def _kg_display_name(kg_node_id: Any) -> str:
+    kg_id = _clean_label(kg_node_id)
+    if not kg_id:
+        return ""
+    indexed = _kg_display_name_index().get(kg_id)
+    if indexed:
+        return indexed
+    try:
+        from backend.services.knowledge_graph import get_graph_node
+
+        result = get_graph_node(kg_id)
+    except Exception:
+        result = {}
+    if isinstance(result, dict) and result.get("ok"):
+        for source in (result.get("card"), result.get("node")):
+            if isinstance(source, dict):
+                name = _clean_label(source.get("canonical_name") or source.get("name") or source.get("label"))
+                if name:
+                    return name
+    if kg_id.startswith("core:"):
+        return _translate_english_concept(kg_id.removeprefix("core:"))
+    if kg_id.startswith("kg://"):
+        return _translate_english_concept(kg_id.rsplit("/", 1)[-1])
+    return ""
+
+
+def _concrete_kg_label(kg_node_id: Any, fallback: Any) -> str:
+    kg_name = _kg_display_name(kg_node_id)
+    fallback_text = _translate_english_concept(fallback)
+    if kg_name:
+        if fallback_text and not _is_generic_or_internal_label(fallback_text):
+            if re.search(r"[\u4e00-\u9fff]", fallback_text) and kg_name in fallback_text:
+                return fallback_text
+            lowered = _clean_label(fallback).lower()
+            if "differential diagnosis" in lowered and "鉴别诊断" not in kg_name:
+                return f"{kg_name}鉴别诊断"
+            if "mechanism" in lowered and "机制" not in kg_name:
+                return f"{kg_name}机制"
+        return kg_name
+    if fallback_text and not _is_generic_or_internal_label(fallback_text):
+        return fallback_text
+    return "核心薄弱知识点"
+
+
+def _resolve_bottleneck_labels(bottlenecks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for item in bottlenecks:
+        kg_id = item.get("kg_node_id")
+        label = _concrete_kg_label(kg_id, item.get("label"))
+        item["label"] = label
+        if kg_id:
+            item["kg_node_names"] = {str(kg_id): label}
+    return bottlenecks
+
+
+def _iter_outline_nodes(value: Any) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        if any(key in value for key in ("kg_node_ids", "title", "name", "learning_objectives")):
+            nodes.append(value)
+        for child_key in ("nodes", "children", "outline", "items", "sections"):
+            child = value.get(child_key)
+            if isinstance(child, (dict, list)):
+                nodes.extend(_iter_outline_nodes(child))
+    elif isinstance(value, list):
+        for item in value:
+            nodes.extend(_iter_outline_nodes(item))
+    return nodes
+
+
+def _cold_start_candidate(
+    *,
+    kg_node_id: str,
+    label: str,
+    mastery: float,
+    risk: float,
+    reason: str,
+    evidence_source: str,
+) -> dict[str, Any] | None:
+    kg_id = _clean_label(kg_node_id)
+    display = _concrete_kg_label(kg_id, label)
+    if not kg_id or _is_generic_or_internal_label(display):
+        return None
+    return {
+        "kg_node_id": kg_id,
+        "label": display,
+        "mastery_score": round(_clamp(mastery, 0.0, 1.0), 3),
+        "risk_score": round(_clamp(risk, 0.0, 0.98), 3),
+        "retention_estimate": round(_clamp(0.46 + mastery * 0.42, 0.0, 1.0), 3),
+        "overdue_days": 0,
+        "difficulty": round(_clamp(1.0 - mastery, 0.0, 1.0), 3),
+        "reason": reason,
+        "evidence_sources": [evidence_source],
+        "simulation_hint": "cold_start_concrete_kg_node",
+        "kg_node_names": {kg_id: display},
+    }
+
+
+def _build_cold_start_bottlenecks(
+    memory: LearningMemory,
+    *,
+    sessions: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    candidates: dict[str, dict[str, Any]] = {}
+    seen_labels: set[str] = set()
+
+    def add(item: dict[str, Any] | None) -> None:
+        if not item:
+            return
+        kg_id = str(item.get("kg_node_id") or "").strip()
+        label_key = str(item.get("label") or "").strip().lower()
+        if kg_id and kg_id not in candidates and label_key not in seen_labels:
+            candidates[kg_id] = item
+            if label_key:
+                seen_labels.add(label_key)
+
+    for session in sessions[:4]:
+        session_id = _clean_label(session.get("id"))
+        if not session_id:
+            continue
+        try:
+            outline_record = memory.latest_outline(session_id)
+        except Exception:
+            outline_record = None
+        outline = outline_record.get("outline") if isinstance(outline_record, dict) else None
+        for node in _iter_outline_nodes(outline)[:12]:
+            kg_ids = _normalize_kg_ids(node.get("kg_node_ids"))
+            if not kg_ids:
+                continue
+            title = _clean_label(node.get("title") or node.get("name"))
+            objectives = node.get("learning_objectives")
+            if isinstance(objectives, list) and objectives:
+                title = title or _clean_label(objectives[0])
+            for kg_id in kg_ids[:2]:
+                add(_cold_start_candidate(
+                    kg_node_id=kg_id,
+                    label=title or kg_id,
+                    mastery=0.56,
+                    risk=0.52,
+                    reason="当前用户暂无显式薄弱点，系统选取最近课程中的关键 KG 节点进行冷启动仿真。",
+                    evidence_source="recent_course_outline",
+                ))
+                if len(candidates) >= limit:
+                    return list(candidates.values())[:limit]
+
+    try:
+        from backend.services.learning.planner import load_kg_nodes
+
+        kg_nodes = load_kg_nodes()
+    except Exception:
+        kg_nodes = []
+
+    scored: list[tuple[int, int, str, str]] = []
+    for node in kg_nodes:
+        if not isinstance(node, dict):
+            continue
+        kg_id = _clean_label(node.get("node_id"))
+        name = _clean_label(node.get("canonical_name") or node.get("name"))
+        if not kg_id or not name or _is_generic_or_internal_label(name):
+            continue
+        haystack = f"{name} {_clean_label(node.get('book_title'))}"
+        score = 0
+        for rank, hint in enumerate(_COLD_START_TOPIC_HINTS):
+            if name == hint:
+                score = max(score, 300 - rank)
+            elif name.startswith(hint):
+                score = max(score, 180 - rank)
+            elif hint in haystack:
+                score = max(score, 100 - rank)
+        if score:
+            scored.append((score, -len(name), name, kg_id))
+
+    for index, (_, _, name, kg_id) in enumerate(sorted(scored, key=lambda item: (-item[0], -item[1], item[2], item[3]))):
+        add(_cold_start_candidate(
+            kg_node_id=kg_id,
+            label=name,
+            mastery=max(0.48, 0.6 - index * 0.025),
+            risk=min(0.72, 0.54 + index * 0.025),
+            reason="当前用户暂无显式薄弱点，系统基于口腔医学知识图谱选取高频核心概念进行冷启动仿真。",
+            evidence_source="kg_cold_start_prior",
+        ))
+        if len(candidates) >= limit:
+            break
+
+    hardcoded_priors = [
+        ("coldstart:periodontitis", "牙周炎"),
+        ("coldstart:alveolar-bone-resorption", "牙槽骨吸收"),
+        ("coldstart:caries-differential-diagnosis", "龋病鉴别诊断"),
+        ("coldstart:pulpitis", "牙髓炎"),
+        ("coldstart:periapical-periodontitis", "根尖周炎"),
+    ]
+    for index, (kg_id, name) in enumerate(hardcoded_priors):
+        add(_cold_start_candidate(
+            kg_node_id=kg_id,
+            label=name,
+            mastery=max(0.48, 0.58 - index * 0.025),
+            risk=min(0.7, 0.55 + index * 0.025),
+            reason="当前用户暂无显式薄弱点，系统基于口腔医学高频核心概念进行冷启动仿真。",
+            evidence_source="medical_cold_start_prior",
+        ))
+        if len(candidates) >= limit:
+            break
+
+    return list(candidates.values())[:limit]
+
+
+def _build_next_lesson_target(
+    memory: LearningMemory,
+    *,
+    sessions: list[dict[str, Any]],
+    bottlenecks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    weak_ids = {str(item.get("kg_node_id") or "").strip() for item in bottlenecks}
+    weak_labels = {str(item.get("label") or "").strip() for item in bottlenecks}
+
+    def candidate(kg_node_id: Any, label: Any, source: str) -> dict[str, Any] | None:
+        kg_id = _clean_label(kg_node_id)
+        display = _concrete_kg_label(kg_id, label)
+        if not kg_id or not display:
+            return None
+        if kg_id in weak_ids or display in weak_labels or _is_generic_or_internal_label(display):
+            return None
+        return {
+            "kg_node_id": kg_id,
+            "label": display,
+            "source": source,
+            "kg_node_names": {kg_id: display},
+        }
+
+    for session in sessions[:4]:
+        session_id = _clean_label(session.get("id"))
+        if not session_id:
+            continue
+        try:
+            outline_record = memory.latest_outline(session_id)
+        except Exception:
+            outline_record = None
+        outline = outline_record.get("outline") if isinstance(outline_record, dict) else None
+        outline_nodes = _iter_outline_nodes(outline)
+        current_id = _clean_label(session.get("current_outline_node_id"))
+        start_index = 0
+        if current_id:
+            for index, node in enumerate(outline_nodes):
+                if _clean_label(node.get("id") or node.get("node_id")) == current_id:
+                    start_index = min(index + 1, len(outline_nodes))
+                    break
+        ordered_nodes = outline_nodes[start_index:] + outline_nodes[:start_index]
+        for node in ordered_nodes[:16]:
+            label = _clean_label(node.get("title") or node.get("name"))
+            objectives = node.get("learning_objectives")
+            if isinstance(objectives, list) and objectives:
+                label = label or _clean_label(objectives[0])
+            for kg_id in _normalize_kg_ids(node.get("kg_node_ids")):
+                item = candidate(kg_id, label or kg_id, "next_course_outline_node")
+                if item:
+                    return item
+
+    try:
+        from backend.services.learning.planner import load_kg_nodes
+
+        kg_nodes = load_kg_nodes()
+    except Exception:
+        kg_nodes = []
+    scored: list[tuple[int, int, str, str]] = []
+    for node in kg_nodes:
+        if not isinstance(node, dict):
+            continue
+        kg_id = _clean_label(node.get("node_id"))
+        name = _clean_label(node.get("canonical_name") or node.get("name"))
+        if not kg_id or kg_id in weak_ids or not name or name in weak_labels:
+            continue
+        haystack = f"{name} {_clean_label(node.get('book_title'))}"
+        score = 0
+        for rank, hint in enumerate(_COLD_START_TOPIC_HINTS):
+            if name == hint:
+                score = max(score, 260 - rank)
+            elif name.startswith(hint):
+                score = max(score, 170 - rank)
+            elif hint in haystack:
+                score = max(score, 90 - rank)
+        if score:
+            scored.append((score, -len(name), name, kg_id))
+    for _, _, name, kg_id in sorted(scored, key=lambda item: (-item[0], -item[1], item[2], item[3])):
+        item = candidate(kg_id, name, "kg_next_lesson_prior")
+        if item:
+            return item
+
+    for kg_id, label in _NEXT_LESSON_PRIORS:
+        item = candidate(kg_id, label, "medical_next_lesson_prior")
+        if item:
+            return item
+    return {
+        "kg_node_id": "coldstart:periodontitis-staging",
+        "label": "牙周炎诊断与分期",
+        "source": "medical_next_lesson_prior",
+        "kg_node_names": {"coldstart:periodontitis-staging": "牙周炎诊断与分期"},
+    }
 
 
 def _build_fallback_bottlenecks(
@@ -221,6 +645,7 @@ def _simulate_paths(
     bottlenecks: list[dict[str, Any]],
     *,
     available_minutes: int,
+    next_lesson_target: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     top_risk = _overall_risk(bottlenecks)
     weak_count = len(bottlenecks)
@@ -243,12 +668,22 @@ def _simulate_paths(
 
     top_label = str(top.get("label") or "核心薄弱点")
     second_label = str(second.get("label") or top_label)
+    top_kg_id = str(top.get("kg_node_id") or "").strip()
+    second_kg_id = str(second.get("kg_node_id") or "").strip()
+    next_target = next_lesson_target or {}
+    next_label = str(next_target.get("label") or "牙周炎诊断与分期")
+    next_kg_id = str(next_target.get("kg_node_id") or "coldstart:periodontitis-staging").strip()
+    next_kg_names = (
+        dict(next_target.get("kg_node_names") or {})
+        if isinstance(next_target.get("kg_node_names"), dict)
+        else ({next_kg_id: next_label} if next_kg_id else {})
+    )
     paths = [
         {
             "path_id": "continue_new_lesson",
             "name": "继续学习新章节",
             "strategy": "new_lesson_first",
-            "summary": "直接推进新内容，适合卡点风险较低或复习债务较少时使用。",
+            "summary": f"进入“{next_label}”，同时监控“{top_label}”对新章节理解的影响。",
             "estimated_minutes": available_minutes,
             "mastery_gain": round(continue_gain, 3),
             "risk_reduction": round(continue_risk_drop, 3),
@@ -256,10 +691,17 @@ def _simulate_paths(
             "score": score(continue_gain, continue_risk_drop, 0.08),
             "steps": [
                 {
-                    "title": "继续推进当前课程",
+                    "title": f"新学：{next_label}",
                     "minutes": available_minutes,
                     "task_type": "continue_lesson",
-                    "learning_target": "当前课程进度",
+                    "learning_target": next_label,
+                    "kg_node_ids": [next_kg_id] if next_kg_id else [],
+                    "kg_node_names": next_kg_names,
+                    "monitoring_kg_node": {
+                        "kg_node_id": top_kg_id,
+                        "label": top_label,
+                        "risk_score": top.get("risk_score"),
+                    } if top_kg_id else {},
                 }
             ],
         },
@@ -279,7 +721,8 @@ def _simulate_paths(
                     "minutes": min(available_minutes, 15),
                     "task_type": "review_section",
                     "learning_target": top_label,
-                    "kg_node_ids": [top.get("kg_node_id")] if top.get("kg_node_id") else [],
+                    "kg_node_ids": [top_kg_id] if top_kg_id else [],
+                    "kg_node_names": {top_kg_id: top_label} if top_kg_id else {},
                 }
             ],
         },
@@ -299,14 +742,16 @@ def _simulate_paths(
                     "minutes": max(8, min(12, round(available_minutes * 0.6))),
                     "task_type": "review_section",
                     "learning_target": top_label,
-                    "kg_node_ids": [top.get("kg_node_id")] if top.get("kg_node_id") else [],
+                    "kg_node_ids": [top_kg_id] if top_kg_id else [],
+                    "kg_node_names": {top_kg_id: top_label} if top_kg_id else {},
                 },
                 {
                     "title": f"小测：{second_label}",
                     "minutes": max(6, available_minutes - max(8, min(12, round(available_minutes * 0.6)))),
                     "task_type": "basic_practice",
                     "learning_target": second_label,
-                    "kg_node_ids": [second.get("kg_node_id")] if second.get("kg_node_id") else [],
+                    "kg_node_ids": [second_kg_id] if second_kg_id else [],
+                    "kg_node_names": {second_kg_id: second_label} if second_kg_id else {},
                     "practice_level": "basic",
                 },
             ],
@@ -332,6 +777,11 @@ def _plan_items_from_path(
     items: list[dict[str, Any]] = []
     for index, step in enumerate(path.get("steps", []), start=1):
         kg_ids = [str(value) for value in step.get("kg_node_ids", []) if value]
+        kg_node_names = {
+            str(key): str(value)
+            for key, value in (step.get("kg_node_names") or {}).items()
+            if str(key).strip() and str(value).strip()
+        }
         first_risk = risk_by_kg.get(kg_ids[0]) if kg_ids else None
         task_type = str(step.get("task_type") or "topic_learning")
         scope = {
@@ -339,6 +789,7 @@ def _plan_items_from_path(
             "path_id": path.get("path_id"),
             "strategy": path.get("strategy"),
             "kg_node_ids": kg_ids,
+            "kg_node_names": kg_node_names,
             "student_twin": {
                 "agent": "student_twin_v1",
                 "mastery_gain": path.get("mastery_gain"),
@@ -361,6 +812,7 @@ def _plan_items_from_path(
             ),
             "estimated_minutes": max(5, min(_as_int(step.get("minutes"), 10), 90)),
             "kg_node_ids": kg_ids,
+            "kg_node_names": kg_node_names,
             "learning_scope": scope,
             "practice_level": step.get("practice_level"),
             "plan_date": plan_date,
@@ -434,12 +886,12 @@ def _risk_status(*, risk: float, mastery: float) -> str:
 
 def _build_cognitive_map(bottlenecks: list[dict[str, Any]]) -> dict[str, Any]:
     default_nodes = [
-        {"label": "核心概念", "mastery_score": 0.72, "risk_score": 0.28},
-        {"label": "前置知识", "mastery_score": 0.66, "risk_score": 0.36},
-        {"label": "病例迁移", "mastery_score": 0.54, "risk_score": 0.52},
-        {"label": "高风险节点", "mastery_score": 0.39, "risk_score": 0.74},
-        {"label": "复习巩固", "mastery_score": 0.71, "risk_score": 0.3},
-        {"label": "易混淆点", "mastery_score": 0.42, "risk_score": 0.69},
+        {"label": "牙周炎", "mastery_score": 0.72, "risk_score": 0.28},
+        {"label": "牙槽骨吸收", "mastery_score": 0.66, "risk_score": 0.36},
+        {"label": "龋病鉴别诊断", "mastery_score": 0.54, "risk_score": 0.52},
+        {"label": "慢性牙周炎", "mastery_score": 0.39, "risk_score": 0.74},
+        {"label": "根尖周炎", "mastery_score": 0.71, "risk_score": 0.3},
+        {"label": "牙髓炎", "mastery_score": 0.42, "risk_score": 0.69},
     ]
     source_nodes = list(bottlenecks[:6])
     while len(source_nodes) < 6:
@@ -590,9 +1042,22 @@ def build_student_twin_simulation(
                 seen.add(str(item.get("kg_node_id")))
             if len(bottlenecks) >= limit:
                 break
+    if len(bottlenecks) < min(3, limit):
+        seen = {str(item.get("kg_node_id")) for item in bottlenecks}
+        for item in _build_cold_start_bottlenecks(
+            memory,
+            sessions=sessions,
+            limit=limit,
+        ):
+            if str(item.get("kg_node_id")) not in seen:
+                bottlenecks.append(item)
+                seen.add(str(item.get("kg_node_id")))
+            if len(bottlenecks) >= limit:
+                break
 
     bottlenecks.sort(key=lambda item: (-float(item.get("risk_score", 0.0)), str(item.get("label") or "")))
     bottlenecks = bottlenecks[:limit]
+    bottlenecks = _resolve_bottleneck_labels(bottlenecks)
 
     overall_mastery = _overall_mastery(bottlenecks)
     overall_risk = _overall_risk(bottlenecks)
@@ -602,7 +1067,16 @@ def build_student_twin_simulation(
     if review_debt == 0:
         review_debt = sum(1 for item in bottlenecks if _as_float(item.get("risk_score"), 0.0) >= 0.68)
 
-    paths = _simulate_paths(bottlenecks, available_minutes=minutes)
+    next_lesson_target = _build_next_lesson_target(
+        memory,
+        sessions=sessions,
+        bottlenecks=bottlenecks,
+    )
+    paths = _simulate_paths(
+        bottlenecks,
+        available_minutes=minutes,
+        next_lesson_target=next_lesson_target,
+    )
     recommended_path = paths[0] if paths else {}
     recommended_items = _plan_items_from_path(
         recommended_path,
@@ -661,6 +1135,7 @@ def build_student_twin_simulation(
             "uses_spaced_repetition": True,
             "path_score_formula": "mastery_gain * 2.2 + risk_reduction * 1.8 - cognitive_load - time_penalty",
             "spaced_review_candidates": len(spaced_reviews),
+            "next_lesson_target": next_lesson_target,
             "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
         },
     }

@@ -65,50 +65,70 @@
             </section>
 
             <section id="student-twin-detail-panel" class="student-twin-detail-panel" aria-label="数字孪生仿真详情" hidden>
-              <header class="twin-detail-head">
-                <div>
-                  <h2>数字孪生仿真驾驶舱</h2>
-                  <p>模拟不同学习路径下的掌握度演化、卡点传播与干预收益</p>
-                </div>
-                <div class="twin-detail-actions">
-                  <button id="twin-plan-create" class="twin-plan-create" type="button" data-twin-plan-create>生成仿真计划</button>
-                  <button class="twin-detail-close" type="button" data-twin-detail-close>返回日历</button>
-                </div>
-              </header>
-
               <section class="twin-detail-grid twin-detail-grid-minimal">
                 <article class="twin-panel twin-simulation-card">
                   <div class="twin-panel-head">
                     <div>
                       <h3>学习路径仿真对比</h3>
-                      <p>虚拟学生 Agent 先模拟不同路径，再选择单位时间收益最高方案</p>
                     </div>
-                    <span class="twin-pill">Student Twin</span>
                   </div>
 
                   <div id="twin-path-cards" class="twin-path-cards twin-path-cards-large">
                     <div class="twin-path-card">
                       <h4>路径 A：继续学习新章节</h4>
                       <p>直接进入“牙周治疗原则”，保留当前复习债务。</p>
-                      <div><span>掌握 +6%</span><span>风险 -5%</span><span>收益 0.42</span></div>
+                      <ol class="twin-path-steps">
+                        <li>
+                          <b>1</b>
+                          <span class="twin-path-step-main">
+                            <strong>继续推进当前课程</strong>
+                            <em><span>继续学习</span><span>20 分钟</span></em>
+                          </span>
+                        </li>
+                      </ol>
+                      <div class="twin-path-metrics"><span>掌握 +6%</span><span>风险 -5%</span><span>收益 0.42</span></div>
                     </div>
                     <div class="twin-path-card recommended">
                       <i class="twin-check">✓</i>
                       <h4>路径 B：薄弱点复习 + 小测</h4>
-                      <p>先修复鉴别诊断，再用病例题验证迁移。</p>
-                      <div><span>掌握 +13%</span><span>风险 -28%</span><span>收益 0.87</span></div>
+                      <p>修复鉴别诊断并验证病例迁移。</p>
+                      <ol class="twin-path-steps">
+                        <li>
+                          <b>1</b>
+                          <span class="twin-path-step-main">
+                            <strong>复习：鉴别诊断</strong>
+                            <em><span>薄弱点复习</span><span>12 分钟</span><span>1 个知识点</span></em>
+                          </span>
+                        </li>
+                        <li>
+                          <b>2</b>
+                          <span class="twin-path-step-main">
+                            <strong>小测：病例迁移</strong>
+                            <em><span>基础练习</span><span>8 分钟</span></em>
+                          </span>
+                        </li>
+                      </ol>
+                      <div class="twin-path-metrics"><span>掌握 +13%</span><span>风险 -28%</span><span>收益 0.87</span></div>
                     </div>
                     <div class="twin-path-card">
                       <h4>路径 C：病例题集中训练</h4>
                       <p>以题目暴露错因，但知识框架补足较弱。</p>
-                      <div><span>掌握 +10%</span><span>风险 -18%</span><span>收益 0.68</span></div>
+                      <ol class="twin-path-steps">
+                        <li>
+                          <b>1</b>
+                          <span class="twin-path-step-main">
+                            <strong>小测：治疗原则应用</strong>
+                            <em><span>基础练习</span><span>20 分钟</span><span>1 个知识点</span></em>
+                          </span>
+                        </li>
+                      </ol>
+                      <div class="twin-path-metrics"><span>掌握 +10%</span><span>风险 -18%</span><span>收益 0.68</span></div>
                     </div>
                   </div>
 
                   <div id="twin-three-day-chart" class="twin-three-day-chart" aria-hidden="true">
                     <div id="twin-chart-title" class="twin-chart-title">
                       <span>未来 3 天预计综合掌握度</span>
-                      <span>目标保持率阈值 90%</span>
                     </div>
                     <svg id="twin-forecast-svg" viewBox="0 0 620 222">
                       <defs>
@@ -145,9 +165,7 @@
                     <div class="twin-panel-head">
                       <div>
                         <h3>认知图谱仿真态势</h3>
-                        <p>系统在 KG node 层面模拟薄弱点扩散、遗忘衰减与路径干预收益</p>
                       </div>
-                      <span class="twin-pill danger">需干预</span>
                     </div>
                     <div id="twin-cognitive-map" class="twin-kg-map twin-kg-map-compact" aria-hidden="true">
                       <svg viewBox="0 0 520 254">
@@ -190,21 +208,18 @@
                         <h3 id="twin-optimal-title">今日最优 20 分钟策略</h3>
                         <p id="twin-optimal-subtitle">推荐路径 B：先修复前置薄弱点，再做迁移训练</p>
                       </div>
-                      <span class="twin-pill success">可生成计划</span>
                     </div>
                     <div id="twin-optimal-steps" class="twin-plan-block">
                       <div class="twin-step">
                         <div class="twin-minutes">12m</div>
                         <div>
                           <h4>复习：牙龈炎与牙周炎鉴别</h4>
-                          <p>回看诊断边界、探诊出血、附着丧失和影像学依据。</p>
                         </div>
                       </div>
                       <div class="twin-step">
                         <div class="twin-minutes">8m</div>
                         <div>
                           <h4>病例题：牙周袋深度判断</h4>
-                          <p>完成 5 道病例题，记录错因并更新 KG 掌握度。</p>
                         </div>
                       </div>
                     </div>

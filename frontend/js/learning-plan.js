@@ -412,18 +412,80 @@
     return String(path?.name || path?.label || fallback).trim() || fallback;
   }
 
-  function twinStatusLabel(status) {
-    const key = String(status || '').trim();
-    if (key === 'high_risk') return '需干预';
-    if (key === 'watch') return '重点观察';
-    return '状态稳定';
+  function isGenericPathStepText(value) {
+    const text = safeDisplayText(value);
+    return !text || ['继续推进当前课程', '当前课程进度', '核心薄弱点', '薄弱知识点', '相关知识点'].includes(text);
   }
 
-  function twinStatusClass(status) {
-    const key = String(status || '').trim();
-    if (key === 'high_risk') return 'high-risk';
-    if (key === 'watch') return 'watch';
-    return 'stable';
+  function firstKgNodeName(step) {
+    const names = step?.kg_node_names;
+    if (!names || typeof names !== 'object') return '';
+    const first = Object.values(names).find((value) => safeDisplayText(value));
+    return first ? safeDisplayText(first) : '';
+  }
+
+  function pathStepTitle(step, fallback = '学习任务') {
+    const title = safeDisplayText(step?.title);
+    const target = safeDisplayText(step?.learning_target || step?.target || step?.label);
+    const kgName = firstKgNodeName(step);
+    if (title && !isGenericPathStepText(title)) return title;
+    if (target && !isGenericPathStepText(target)) return target;
+    if (kgName) return kgName;
+    if (title) return title;
+    if (target) return target;
+    return fallback;
+  }
+
+  function renderPathSteps(path) {
+    const steps = Array.isArray(path?.steps) ? path.steps.slice(0, 2) : [];
+    if (!steps.length) {
+      const target = safeDisplayText(path?.learning_target || path?.target || path?.focus);
+      if (!target) return '';
+      steps.push({
+        title: target,
+        task_type: path?.strategy || 'topic_learning',
+        minutes: path?.estimated_minutes,
+      });
+    }
+    return `
+      <ol class="twin-path-steps">
+        ${steps.map((step, stepIndex) => {
+          const minutes = Number(step?.minutes);
+          const kgCount = Array.isArray(step?.kg_node_ids) ? step.kg_node_ids.filter(Boolean).length : 0;
+          const kgBadge = kgCount ? `<span>${escapeHtml(String(kgCount))} 个知识点</span>` : '';
+          return `
+            <li>
+              <b>${escapeHtml(String(stepIndex + 1))}</b>
+              <span class="twin-path-step-main">
+                <strong>${escapeHtml(pathStepTitle(step, `学习步骤 ${stepIndex + 1}`))}</strong>
+                <em>
+                  <span>${escapeHtml(taskTypeLabel(step?.task_type || step?.category))}</span>
+                  ${Number.isFinite(minutes) ? `<span>${escapeHtml(String(minutes))} 分钟</span>` : ''}
+                  ${kgBadge}
+                </em>
+              </span>
+            </li>
+          `;
+        }).join('')}
+      </ol>
+    `;
+  }
+
+  function fitStudentTwinAvatar() {
+    const card = byId('student-twin-summary-card');
+    const avatar = card?.querySelector('.student-twin-summary-avatar');
+    if (!card || !avatar || !avatar.naturalWidth || !avatar.naturalHeight) return;
+    const styles = window.getComputedStyle(avatar);
+    const top = Number.parseFloat(styles.top) || 0;
+    const bottom = Number.parseFloat(styles.bottom) || 0;
+    const availableHeight = Math.max(72, card.clientHeight - top - bottom);
+    const ratio = avatar.naturalWidth / avatar.naturalHeight;
+    const minWidth = window.matchMedia('(max-width: 760px)').matches ? 58 : 76;
+    const maxWidth = window.matchMedia('(max-width: 760px)').matches ? 96 : 138;
+    const width = Math.max(minWidth, Math.min(maxWidth, Math.round(availableHeight * ratio)));
+    const sideGap = window.matchMedia('(max-width: 760px)').matches ? 24 : 32;
+    card.style.setProperty('--twin-avatar-width', `${width}px`);
+    card.style.setProperty('--twin-avatar-left-pad', `${width + sideGap}px`);
   }
 
   function renderStudentTwinSummary() {
@@ -443,28 +505,20 @@
       return;
     }
     const stateInfo = twin.state || {};
-    const status = String(twin.status || 'stable');
     card.innerHTML = `
+      <img class="student-twin-summary-avatar" src="/assets/images/twin.png" alt="数字孪生学生形象" data-twin-avatar>
       <div class="student-twin-summary-head">
         <div>
-          <h2 class="student-twin-summary-title">虚拟学生状态</h2>
-          <p class="student-twin-summary-subtitle">由答题序列、BKT 后验概率和学习行为日志实时映射</p>
+          <h2 class="student-twin-summary-title">数字孪生仿真</h2>
+          <p class="student-twin-summary-subtitle">模拟不同学习路径下的掌握度演化、卡点传播与干预收益</p>
         </div>
         <div class="student-twin-summary-badges">
-          <span class="student-twin-summary-tag">Twin-01</span>
-          <span class="student-twin-summary-status ${escapeHtml(twinStatusClass(status))}">
-            ${escapeHtml(twinStatusLabel(status))}
-          </span>
           <button class="student-twin-summary-open" type="button" data-twin-detail-open>
-            展开仿真面板
+            ${state.studentTwinDetailOpen ? '返回日历' : '展开仿真面板'}
           </button>
         </div>
       </div>
       <div class="student-twin-summary-body">
-        <div>
-          <p class="student-twin-summary-name">${escapeHtml(state.userId)} 学生分身</p>
-          <p class="student-twin-summary-meta">当前计划日期：${escapeHtml(state.selectedDate)}<br>仿真窗口：未来 20 分钟</p>
-        </div>
         <div class="student-twin-summary-metrics">
           <div class="student-twin-summary-metric"><span>认知能力</span><strong>${escapeHtml(pct(stateInfo.overall_mastery, 68))}</strong></div>
           <div class="student-twin-summary-metric"><span>遗忘风险</span><strong>${escapeHtml(pct(stateInfo.overall_risk, 0))}</strong></div>
@@ -473,6 +527,9 @@
         </div>
       </div>
     `;
+    const avatar = card.querySelector('[data-twin-avatar]');
+    avatar?.addEventListener('load', fitStudentTwinAvatar, { once: true });
+    fitStudentTwinAvatar();
     renderStudentTwinDashboard();
   }
 
@@ -500,12 +557,14 @@
       const name = pathLabel(path, `路径 ${String.fromCharCode(65 + index)}`);
       const summary = String(path?.summary || path?.description || '根据当前学习画像生成的候选路径。');
       const score = Number(path?.score);
+      const steps = renderPathSteps(path);
       return `
         <div class="twin-path-card${recommended}">
           ${check}
           <h4>路径 ${String.fromCharCode(65 + index)}：${escapeHtml(name)}</h4>
           <p>${escapeHtml(summary)}</p>
-          <div>
+          ${steps}
+          <div class="twin-path-metrics">
             <span>掌握 ${escapeHtml(signedPct(path?.mastery_gain))}</span>
             <span>风险 -${escapeHtml(pct(path?.risk_reduction, 0))}</span>
             <span>收益 ${escapeHtml(Number.isFinite(score) ? score.toFixed(2) : '0.00')}</span>
@@ -549,7 +608,6 @@
     if (title) {
       title.innerHTML = `
         <span>未来 ${escapeHtml(String(horizon))} 天预计综合掌握度</span>
-        <span>目标保持率阈值 ${escapeHtml(pct(target, 90))}</span>
       `;
     }
     if (!series.length) return;
@@ -691,7 +749,6 @@
         <div class="twin-minutes">${escapeHtml(String(step.minutes || 10))}m</div>
         <div>
           <h4>${escapeHtml(step.title || '数字孪生学习任务')}</h4>
-          <p>${escapeHtml(step.description || '根据数字孪生仿真结果生成。')}</p>
         </div>
       </div>
     `).join('') || '<p class="twin-dashboard-empty">暂无最优策略步骤</p>';
@@ -704,6 +761,10 @@
     column?.classList.toggle('twin-detail-mode', state.studentTwinDetailOpen);
     if (panel) panel.hidden = !state.studentTwinDetailOpen;
     renderStudentTwinPlanButton();
+    const summaryButton = byId('student-twin-summary-card')?.querySelector('[data-twin-detail-open]');
+    if (summaryButton) {
+      summaryButton.textContent = state.studentTwinDetailOpen ? '返回日历' : '展开仿真面板';
+    }
   }
 
   function renderStudentTwinPlanButton() {
@@ -1611,9 +1672,10 @@
 
     byId('student-twin-summary-card')?.addEventListener('click', (event) => {
       if (event.target.closest('[data-twin-detail-open]')) {
-        setStudentTwinDetailMode(true);
+        setStudentTwinDetailMode(!state.studentTwinDetailOpen);
       }
     });
+    window.addEventListener('resize', fitStudentTwinAvatar);
 
     byId('student-twin-detail-panel')?.addEventListener('click', (event) => {
       if (event.target.closest('[data-twin-detail-close]')) {
