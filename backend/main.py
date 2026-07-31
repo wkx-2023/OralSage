@@ -23,6 +23,10 @@ from fastapi.staticfiles import StaticFiles
 
 from .schemas import (
     AsrRequest,
+    ClinicalSpeakingDiagnosisConfirmRequest,
+    ClinicalSpeakingExamAnswerRequest,
+    ClinicalSpeakingStartRequest,
+    ClinicalSpeakingTurnRequest,
     DecisionRequest,
     EvidenceSearchRequest,
     ExtractRequest,
@@ -49,6 +53,8 @@ from .schemas import (
     LearningSubmitAnswerRequest,
     StageExamGenerateRequest,
     StageExamSubmitRequest,
+    ComprehensiveExamGenerateRequest,
+    ComprehensiveExamSubmitRequest,
     LiteratureRequest,
     LiteratureTranslateRequest,
     PathologyRequest,
@@ -88,6 +94,8 @@ from .services.learning.avatar_video import (
     refresh_avatar_video,
 )
 from .services.avatar_service import get_public_avatar_config
+from .services.clinical_speaking import ClinicalSpeakingError, ClinicalSpeakingService
+from .services.xfyun_iat import get_public_iat_config
 from .services.learning.ppt_pipeline import ensure_pin_and_paper_previews
 from .services.learning.llm_policy import decide_next_action_with_llm
 from .services.learning.learner_assessment import (
@@ -117,6 +125,11 @@ from .services.learning.stage_exam import (
     public_stage_exam,
     submit_stage_exam,
 )
+from .services.learning.comprehensive_exam import (
+    generate_comprehensive_exam,
+    public_comprehensive_exam,
+    submit_comprehensive_exam,
+)
 from .services.clawbridge_client import ClawBridgeClient, ClawBridgeError
 from .services.weixin_auth import WeixinAuthError, WeixinAuthStore, session_cookie_name
 from .services.weixin_plan_bot import build_daily_plan_text, build_daily_summary_text, handle_weixin_plan_message
@@ -126,6 +139,7 @@ learning_orchestrator = LearningOrchestrator()
 master_router = MasterRouter(learning_orchestrator)
 router_job_manager = RouterJobManager(master_router, learning_orchestrator)
 weixin_auth_store = WeixinAuthStore()
+clinical_speaking_service = ClinicalSpeakingService(memory=learning_orchestrator.memory)
 
 app = FastAPI(title="OralPath API Interfaces", version="0.1.0")
 app.add_middleware(
@@ -258,6 +272,12 @@ def avatar_config() -> JSONResponse:
     return JSONResponse({"ok": True, "module": "avatar", "result": get_public_avatar_config()})
 
 
+@app.get("/api/clinical-speaking/iat-config")
+def clinical_speaking_iat_config() -> JSONResponse:
+    """Return a short-lived iFLYTEK IAT URL without exposing credentials."""
+    return JSONResponse({"ok": True, "module": "clinical_speaking", "result": get_public_iat_config()})
+
+
 @app.get("/api/system/capabilities")
 def capabilities() -> dict[str, Any]:
     return {
@@ -282,6 +302,7 @@ def capabilities() -> dict[str, Any]:
             "learning_student_twin",
             "learning_learner_assessment",
             "learning_stage_exam",
+            "clinical_speaking",
         ],
         "modules": [
             "pathology_qa",
@@ -356,6 +377,13 @@ def capabilities() -> dict[str, Any]:
             "/api/router/jobs",
             "/api/router/jobs/{job_id}",
             "/api/router/jobs/{job_id}/stream",
+            "/api/clinical-speaking/readiness",
+            "/api/clinical-speaking/iat-config",
+            "/api/clinical-speaking/sessions",
+            "/api/clinical-speaking/sessions/{session_id}",
+            "/api/clinical-speaking/sessions/{session_id}/turns",
+            "/api/clinical-speaking/sessions/{session_id}/diagnosis",
+            "/api/clinical-speaking/sessions/{session_id}/exam-answers",
             "/api/agents/{agent_name}/invoke",
             "/api/agents/{agent_name}/stream",
             "/api/legacy/chat",
@@ -675,6 +703,141 @@ def _ensure_learning_session_access(request: Request, session_id: str) -> dict[s
     if user and str(session.get("user_id") or "") != str(user["user_id"]):
         raise HTTPException(status_code=403, detail={"message": "This learning session belongs to another account."})
     return session
+
+
+def _clinical_speaking_response(action: str, result: Any) -> JSONResponse:
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "clinical_speaking",
+            "action": action,
+            "result": result,
+            "fallback_used": False,
+        }
+    )
+
+
+def _raise_clinical_speaking_error(exc: ClinicalSpeakingError) -> None:
+    raise HTTPException(
+        status_code=exc.status_code,
+        detail={
+            "message": str(exc),
+            "code": exc.code,
+            "fallback_used": False,
+        },
+    ) from exc
+
+
+@app.get("/api/clinical-speaking/readiness")
+async def clinical_speaking_readiness() -> JSONResponse:
+    result = await asyncio.to_thread(clinical_speaking_service.readiness)
+    return _clinical_speaking_response("readiness", result)
+
+
+@app.get("/api/clinical-speaking/sessions")
+async def clinical_speaking_sessions(request: Request, user_id: str = "demo") -> JSONResponse:
+    effective_user_id = _effective_learning_user_id(request, user_id)
+    return _clinical_speaking_response(
+        "list_sessions",
+        clinical_speaking_service.list_sessions(effective_user_id),
+    )
+
+
+@app.post("/api/clinical-speaking/sessions")
+async def clinical_speaking_start(
+    req: ClinicalSpeakingStartRequest,
+    request: Request,
+) -> JSONResponse:
+    try:
+        user_id = _effective_learning_user_id(request, req.user_id)
+        return _clinical_speaking_response(
+            "start_session",
+            await asyncio.to_thread(
+                clinical_speaking_service.start_session,
+                user_id,
+                req.request_id,
+            ),
+        )
+    except ClinicalSpeakingError as exc:
+        _raise_clinical_speaking_error(exc)
+
+
+@app.get("/api/clinical-speaking/sessions/{session_id}")
+async def clinical_speaking_session(
+    session_id: str,
+    request: Request,
+    user_id: str = "demo",
+) -> JSONResponse:
+    try:
+        effective_user_id = _effective_learning_user_id(request, user_id)
+        return _clinical_speaking_response(
+            "get_session",
+            clinical_speaking_service.get_session(session_id, effective_user_id),
+        )
+    except ClinicalSpeakingError as exc:
+        _raise_clinical_speaking_error(exc)
+
+
+@app.post("/api/clinical-speaking/sessions/{session_id}/turns")
+async def clinical_speaking_turn(
+    session_id: str,
+    req: ClinicalSpeakingTurnRequest,
+    request: Request,
+) -> JSONResponse:
+    try:
+        user_id = _effective_learning_user_id(request, req.user_id)
+        result = await asyncio.to_thread(
+            clinical_speaking_service.submit_consultation_turn,
+            session_id,
+            user_id,
+            req.transcript,
+            req.request_id,
+            req.input_mode,
+        )
+        return _clinical_speaking_response("consultation_turn", result)
+    except ClinicalSpeakingError as exc:
+        _raise_clinical_speaking_error(exc)
+
+
+@app.post("/api/clinical-speaking/sessions/{session_id}/diagnosis")
+async def clinical_speaking_diagnosis(
+    session_id: str,
+    req: ClinicalSpeakingDiagnosisConfirmRequest,
+    request: Request,
+) -> JSONResponse:
+    try:
+        user_id = _effective_learning_user_id(request, req.user_id)
+        result = await asyncio.to_thread(
+            clinical_speaking_service.confirm_diagnosis,
+            session_id,
+            user_id,
+            req.confirmed,
+            req.request_id,
+        )
+        return _clinical_speaking_response("confirm_diagnosis", result)
+    except ClinicalSpeakingError as exc:
+        _raise_clinical_speaking_error(exc)
+
+
+@app.post("/api/clinical-speaking/sessions/{session_id}/exam-answers")
+async def clinical_speaking_exam_answer(
+    session_id: str,
+    req: ClinicalSpeakingExamAnswerRequest,
+    request: Request,
+) -> JSONResponse:
+    try:
+        user_id = _effective_learning_user_id(request, req.user_id)
+        result = await asyncio.to_thread(
+            clinical_speaking_service.submit_exam_answer,
+            session_id,
+            user_id,
+            req.transcript,
+            req.request_id,
+            req.input_mode,
+        )
+        return _clinical_speaking_response("exam_answer", result)
+    except ClinicalSpeakingError as exc:
+        _raise_clinical_speaking_error(exc)
 
 
 @app.post("/api/learning/session/start")
@@ -1227,6 +1390,28 @@ async def learning_session_stage_exam_submit(
         "action": "stage_exam_submit",
         "result": public_stage_exam(exam, include_answers=True),
     })
+
+
+@app.post("/api/learning/comprehensive-exams")
+async def comprehensive_exam_generate(req: ComprehensiveExamGenerateRequest, request: Request) -> JSONResponse:
+    user_id = _effective_learning_user_id(request, req.user_id)
+    try:
+        exam = await asyncio.to_thread(generate_comprehensive_exam, learning_orchestrator.memory, user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return JSONResponse({"ok": True, "module": "learning", "action": "comprehensive_exam_generate", "result": public_comprehensive_exam(exam)})
+
+
+@app.post("/api/learning/comprehensive-exams/{exam_id}/submit")
+async def comprehensive_exam_submit(exam_id: str, req: ComprehensiveExamSubmitRequest, request: Request) -> JSONResponse:
+    user_id = _effective_learning_user_id(request, req.user_id)
+    try:
+        exam = await asyncio.to_thread(submit_comprehensive_exam, exam_id, user_id, [item.model_dump() for item in req.answers])
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse({"ok": True, "module": "learning", "action": "comprehensive_exam_submit", "result": public_comprehensive_exam(exam, include_answers=True)})
 
 
 @app.get("/api/learning/session/{session_id}/audio/{outline_node_id}/{filename}")

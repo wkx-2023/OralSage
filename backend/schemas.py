@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -97,6 +97,31 @@ class DecisionRequest(BaseModel):
     allow_web: bool = True
 
 
+class ClinicalSpeakingStartRequest(BaseModel):
+    user_id: str = "demo"
+    request_id: str = Field(min_length=8, max_length=128)
+
+
+class ClinicalSpeakingTurnRequest(BaseModel):
+    user_id: str = "demo"
+    transcript: str = Field(min_length=1, max_length=4000)
+    request_id: str = Field(min_length=8, max_length=128)
+    input_mode: Literal["typed", "speech"] = "typed"
+
+
+class ClinicalSpeakingDiagnosisConfirmRequest(BaseModel):
+    user_id: str = "demo"
+    confirmed: bool
+    request_id: str = Field(min_length=8, max_length=128)
+
+
+class ClinicalSpeakingExamAnswerRequest(BaseModel):
+    user_id: str = "demo"
+    transcript: str = Field(min_length=1, max_length=6000)
+    request_id: str = Field(min_length=8, max_length=128)
+    input_mode: Literal["typed", "speech"] = "typed"
+
+
 class EvidenceSearchRequest(BaseModel):
     query: str
     top_k: int = 10
@@ -186,6 +211,20 @@ class StageExamAnswer(BaseModel):
 
 class StageExamSubmitRequest(BaseModel):
     answers: list[StageExamAnswer] = Field(default_factory=list)
+
+
+class ComprehensiveExamGenerateRequest(BaseModel):
+    user_id: str = "demo"
+
+
+class ComprehensiveExamAnswer(BaseModel):
+    question_id: str
+    answer: str = ""
+
+
+class ComprehensiveExamSubmitRequest(BaseModel):
+    user_id: str = "demo"
+    answers: list[ComprehensiveExamAnswer] = Field(default_factory=list)
 
 
 class LearningProfileSliceRequest(BaseModel):

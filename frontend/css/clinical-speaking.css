@@ -1,0 +1,952 @@
+:root {
+  --clinical-ink: #30265d;
+  --clinical-text: #504777;
+  --clinical-muted: #8b83a7;
+  --clinical-line: #e6e1f2;
+  --clinical-bg: #f8f7fc;
+  --clinical-soft: #f2effb;
+  --clinical-purple: #715bc4;
+  --clinical-purple-dark: #57449f;
+  --clinical-judge: #8b62ad;
+  --clinical-judge-soft: #f6f0fa;
+  --clinical-progress: #987bc3;
+  --clinical-danger: #a54b68;
+}
+
+html,
+.clinical-speaking-page {
+  overflow: hidden;
+  background: var(--clinical-bg);
+  color: var(--clinical-ink);
+}
+
+.clinical-speaking-page .topbar {
+  background: rgba(250, 249, 253, 0.96);
+  border-bottom-color: var(--clinical-line);
+}
+
+.clinical-shell {
+  grid-template-columns: 236px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.clinical-main {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.history-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #fdfcff;
+}
+
+.history-head {
+  padding: 14px 10px 10px;
+  border-bottom: 1px solid var(--clinical-line);
+}
+
+.history-new-command {
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  border-radius: 7px;
+  padding: 10px 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffff;
+  background: var(--clinical-purple);
+  cursor: pointer;
+  font-weight: 600;
+  text-align: left;
+}
+
+.history-new-command:hover {
+  background: var(--clinical-purple-dark);
+}
+
+.session-history {
+  min-height: 0;
+  padding: 8px 9px 16px;
+  overflow-y: auto;
+}
+
+.history-empty {
+  padding: 18px 10px;
+  color: var(--clinical-muted);
+  font-size: 12px;
+}
+
+.history-item {
+  position: relative;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--clinical-line);
+  border-radius: 0;
+  padding: 11px 10px 11px 13px;
+  display: grid;
+  gap: 5px;
+  color: var(--clinical-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.history-item::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 2px;
+  background: transparent;
+}
+
+.history-item:hover {
+  background: #f7f5fc;
+}
+
+.history-item.is-active {
+  color: var(--clinical-purple-dark);
+  background: #f0edf9;
+}
+
+.history-item.is-active::before {
+  background: var(--clinical-purple);
+}
+
+.history-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.history-item-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--clinical-muted);
+  font-size: 10px;
+}
+
+.simulation-layout {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(270px, 32%) minmax(0, 1fr);
+  background: #ffffff;
+}
+
+.patient-pane,
+.encounter-pane {
+  min-width: 0;
+  min-height: 0;
+}
+
+.patient-pane {
+  border-right: 1px solid var(--clinical-line);
+  display: grid;
+  grid-template-rows: 58px minmax(0, 1fr) 54px;
+  background: transparent;
+}
+
+.pane-heading,
+.encounter-heading {
+  min-width: 0;
+  border-bottom: 1px solid var(--clinical-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pane-heading {
+  padding: 10px 14px 10px 17px;
+}
+
+.pane-heading > strong {
+  color: var(--clinical-ink);
+  font-size: 14px;
+}
+
+.avatar-commands,
+.encounter-tools,
+.transcript-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.service-indicator {
+  color: var(--clinical-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.service-indicator.is-ready {
+  color: var(--clinical-progress);
+}
+
+.service-indicator:empty {
+  display: none;
+}
+
+.service-indicator.is-error {
+  color: var(--clinical-danger);
+}
+
+.icon-command {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--clinical-line);
+  border-radius: 7px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--clinical-muted);
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+}
+
+.icon-command:hover {
+  border-color: #c8bce5;
+  color: var(--clinical-purple);
+  background: #ffffff;
+}
+
+.patient-avatar-stage {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+#xfyun-clinical-avatar-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+#xfyun-clinical-avatar-stage canvas,
+#xfyun-clinical-avatar-stage video {
+  background: transparent !important;
+}
+
+.avatar-loading-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  color: #887aaf;
+  background: transparent;
+  font-size: 12px;
+}
+
+.avatar-loading-state svg {
+  width: 38px;
+  height: 38px;
+  stroke-width: 1.25;
+}
+
+.stage-track {
+  border-top: 1px solid var(--clinical-line);
+  padding: 7px 12px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: #9991ae;
+  font-size: 11px;
+}
+
+.stage-track span {
+  min-width: 0;
+  flex: 1 1 0;
+  padding: 5px 2px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.stage-track span.is-active {
+  color: var(--clinical-purple-dark);
+  font-weight: 700;
+}
+
+.stage-track span.is-complete {
+  color: var(--clinical-progress);
+  font-weight: 600;
+}
+
+.stage-track svg {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 11px;
+  color: #c4bdd4;
+}
+
+.encounter-pane {
+  display: grid;
+  grid-template-rows: 58px minmax(0, 1fr) auto;
+  background: #ffffff;
+}
+
+.encounter-heading {
+  position: relative;
+  z-index: 5;
+  padding: 9px 16px 9px 20px;
+}
+
+.case-context {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.case-context strong,
+.case-context span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.case-context strong {
+  color: var(--clinical-ink);
+  font-size: 13px;
+}
+
+.case-context span {
+  color: var(--clinical-muted);
+  font-size: 11px;
+}
+
+.system-status {
+  max-width: 280px;
+  overflow: hidden;
+  color: var(--clinical-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-status:empty {
+  display: none;
+}
+
+.system-status.is-error {
+  color: var(--clinical-danger);
+}
+
+.findings-disclosure {
+  position: relative;
+}
+
+.findings-disclosure summary {
+  min-height: 34px;
+  border: 0;
+  border-radius: 7px;
+  padding: 6px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--clinical-text);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  list-style: none;
+}
+
+.findings-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.findings-disclosure summary:hover,
+.findings-disclosure[open] summary {
+  color: var(--clinical-purple-dark);
+  background: var(--clinical-soft);
+}
+
+.findings-disclosure summary svg {
+  width: 16px;
+  height: 16px;
+}
+
+.findings-disclosure dl {
+  position: absolute;
+  top: 41px;
+  right: 0;
+  width: min(360px, calc(100vw - 32px));
+  margin: 0;
+  border: 1px solid var(--clinical-line);
+  border-radius: 7px;
+  padding: 14px 16px;
+  color: var(--clinical-text);
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(58, 45, 104, 0.13);
+}
+
+.findings-disclosure dl div + div {
+  margin-top: 12px;
+}
+
+.findings-disclosure dt {
+  color: var(--clinical-muted);
+  font-size: 11px;
+}
+
+.findings-disclosure dd {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.dialogue-log {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px clamp(20px, 4vw, 54px) 30px;
+  background: #fdfcfe;
+  scroll-behavior: smooth;
+}
+
+.empty-session {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  color: #9992ad;
+  font-size: 12px;
+}
+
+.empty-session svg {
+  width: 34px;
+  height: 34px;
+  color: #cec7dd;
+  stroke-width: 1.25;
+}
+
+.dialogue-turn {
+  max-width: min(820px, 88%);
+  margin: 0 0 19px;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.dialogue-turn.doctor {
+  margin-left: auto;
+  grid-template-columns: minmax(0, 1fr) 32px;
+}
+
+.turn-avatar {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #d8d1e8;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--clinical-purple-dark);
+  background: #f0ecf8;
+}
+
+.turn-avatar svg {
+  width: 16px;
+  height: 16px;
+}
+
+.doctor .turn-avatar {
+  grid-column: 2;
+  color: #ffffff;
+  background: #7563b5;
+  border-color: #7563b5;
+}
+
+.judge .turn-avatar {
+  color: #ffffff;
+  background: var(--clinical-judge);
+  border-color: var(--clinical-judge);
+}
+
+.turn-body {
+  min-width: 0;
+}
+
+.doctor .turn-body {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.turn-role {
+  margin: 0 0 5px;
+  color: var(--clinical-muted);
+  font-size: 10px;
+}
+
+.doctor .turn-role {
+  text-align: right;
+}
+
+.turn-content {
+  border: 1px solid #e6e1ef;
+  border-radius: 3px 7px 7px 7px;
+  padding: 10px 13px;
+  color: #413967;
+  background: #ffffff;
+  font-size: 13px;
+  line-height: 1.72;
+  overflow-wrap: anywhere;
+}
+
+.doctor .turn-content {
+  border-color: #dfd8ef;
+  border-radius: 7px 3px 7px 7px;
+  color: #413570;
+  background: #f0ecf8;
+}
+
+.judge .turn-content {
+  border-color: #dfd2ea;
+  background: var(--clinical-judge-soft);
+}
+
+.feedback-turn {
+  max-width: min(860px, 94%);
+  margin-top: -6px;
+}
+
+.assessment-feedback {
+  border-left: 3px solid var(--clinical-judge);
+  padding-left: 14px;
+}
+
+.assessment-head {
+  margin-bottom: 7px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.assessment-head span {
+  color: var(--clinical-judge);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assessment-head strong {
+  color: var(--clinical-ink);
+  font-size: 18px;
+}
+
+.assessment-head small {
+  margin-left: 2px;
+  color: var(--clinical-muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.assessment-feedback p {
+  margin: 0;
+}
+
+.assessment-points {
+  margin-top: 9px;
+  border-top: 1px solid #e6dceb;
+  padding-top: 8px;
+}
+
+.assessment-points summary {
+  width: fit-content;
+  color: var(--clinical-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.assessment-points ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--clinical-text);
+  font-size: 12px;
+}
+
+.assessment-points li + li {
+  margin-top: 4px;
+}
+
+.final-score {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.final-score strong {
+  color: var(--clinical-judge);
+  font-size: 28px;
+}
+
+.final-score span {
+  color: var(--clinical-muted);
+  font-size: 12px;
+}
+
+.transcript-editor {
+  margin: 12px 15px 14px;
+  border: 1px solid #ddd6eb;
+  border-radius: 8px;
+  padding: 10px 12px 11px;
+  background: #ffffff;
+  box-shadow: 0 8px 22px rgba(94, 79, 188, 0.07);
+}
+
+.transcript-editor textarea {
+  width: 100%;
+  min-height: 30px;
+  max-height: 160px;
+  resize: none;
+  overflow-y: hidden;
+  border: 0;
+  border-radius: 0;
+  padding: 2px 4px 0;
+  color: var(--clinical-ink);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.7;
+  outline: none;
+  box-shadow: none;
+  box-sizing: border-box;
+}
+
+.transcript-editor textarea:focus {
+  border: 0;
+  box-shadow: none;
+}
+
+.transcript-footer {
+  min-height: 38px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dialogue-turn.is-pending .turn-content {
+  border-color: #d7cdec;
+  color: #63568d;
+  opacity: 0.82;
+}
+
+.dialogue-turn.is-pending .turn-role {
+  color: var(--clinical-purple);
+}
+
+.transcript-corrections {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--clinical-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-command,
+.submit-command,
+.primary-command,
+.secondary-command {
+  min-height: 36px;
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.record-command {
+  color: var(--clinical-purple-dark);
+  background: var(--clinical-soft);
+}
+
+.record-command.is-recording {
+  color: #ffffff;
+  background: var(--clinical-danger);
+}
+
+.submit-command {
+  width: 36px;
+  padding: 0;
+  color: #ffffff;
+  background: var(--clinical-purple);
+}
+
+.submit-command:hover,
+.primary-command:hover {
+  background: var(--clinical-purple-dark);
+}
+
+.primary-command {
+  color: #ffffff;
+  background: var(--clinical-purple);
+}
+
+.secondary-command {
+  color: var(--clinical-ink);
+  background: var(--clinical-soft);
+}
+
+.recording-meter {
+  height: 9px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  opacity: 0;
+}
+
+.recording-meter.is-active {
+  opacity: 1;
+}
+
+.recording-meter span {
+  width: 3px;
+  height: 3px;
+  background: var(--clinical-purple);
+}
+
+.recording-meter.is-active span {
+  animation: meter 680ms ease-in-out infinite alternate;
+}
+
+.recording-meter span:nth-child(2n) { animation-delay: 120ms; }
+.recording-meter span:nth-child(3n) { animation-delay: 240ms; }
+
+@keyframes meter {
+  to { height: 9px; }
+}
+
+.diagnosis-dialog,
+.readiness-dialog {
+  width: min(430px, calc(100vw - 28px));
+  border: 1px solid var(--clinical-line);
+  border-radius: 8px;
+  padding: 0;
+  color: var(--clinical-ink);
+  background: #ffffff;
+  box-shadow: 0 20px 54px rgba(50, 38, 93, 0.18);
+}
+
+.diagnosis-dialog::backdrop,
+.readiness-dialog::backdrop {
+  background: rgba(41, 32, 71, 0.24);
+  backdrop-filter: blur(2px);
+}
+
+.diagnosis-dialog form,
+.readiness-dialog form {
+  margin: 0;
+  padding: 22px;
+}
+
+.diagnosis-dialog h2,
+.readiness-dialog h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.diagnosis-dialog p {
+  margin: 12px 0 20px;
+  color: var(--clinical-text);
+  line-height: 1.7;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.diagnosis-dialog button:focus {
+  outline: none;
+}
+
+.diagnosis-dialog button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(113, 91, 196, 0.18);
+}
+
+.readiness-list {
+  margin: 14px 0 18px;
+  border-top: 1px solid var(--clinical-line);
+}
+
+.readiness-row {
+  border-bottom: 1px solid var(--clinical-line);
+  padding: 10px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--clinical-text);
+  font-size: 12px;
+}
+
+.readiness-row .ok {
+  color: var(--clinical-progress);
+}
+
+.readiness-row .fail {
+  color: var(--clinical-danger);
+}
+
+@media (max-width: 1120px) {
+  .clinical-shell {
+    grid-template-columns: 208px minmax(0, 1fr);
+  }
+
+  .simulation-layout {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .system-status {
+    max-width: 180px;
+  }
+}
+
+@media (max-width: 960px) {
+  html,
+  .clinical-speaking-page {
+    overflow: auto;
+  }
+
+  .clinical-shell {
+    height: 100vh;
+    min-height: 720px;
+    grid-template-columns: 1fr;
+    grid-template-rows: 142px minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .history-pane {
+    height: 142px;
+    border-right: 0;
+    border-bottom: 1px solid var(--clinical-line);
+    grid-template-columns: 190px minmax(0, 1fr);
+    grid-template-rows: 1fr;
+  }
+
+  .history-head {
+    border-right: 1px solid var(--clinical-line);
+    border-bottom: 0;
+  }
+
+  .session-history {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .history-item {
+    flex: 0 0 180px;
+    border-right: 1px solid var(--clinical-line);
+    border-bottom: 0;
+  }
+
+  .clinical-main {
+    height: auto;
+    min-height: 0;
+  }
+
+  .simulation-layout {
+    grid-template-columns: 250px minmax(0, 1fr);
+  }
+
+  .dialogue-log {
+    padding-inline: 18px;
+  }
+}
+
+@media (max-width: 680px) {
+  .clinical-shell {
+    height: auto;
+    min-height: 100vh;
+    grid-template-rows: 126px auto;
+    overflow: visible;
+  }
+
+  .history-pane {
+    height: 126px;
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+
+  .history-head {
+    padding: 10px;
+  }
+
+  .simulation-layout {
+    height: auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: 390px minmax(640px, calc(100vh - var(--nav-height)));
+  }
+
+  .patient-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--clinical-line);
+  }
+
+  .encounter-heading {
+    padding-inline: 12px;
+  }
+
+  .case-context span,
+  .system-status:not(.is-error),
+  .findings-disclosure summary span {
+    display: none;
+  }
+
+  .dialogue-log {
+    padding: 18px 12px 24px;
+  }
+
+  .dialogue-turn,
+  .feedback-turn {
+    max-width: 96%;
+  }
+
+  .transcript-editor {
+    padding-inline: 10px;
+  }
+
+  .transcript-footer {
+    align-items: flex-end;
+  }
+}

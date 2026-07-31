@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>问诊模拟 - OralSage</title>
+  <link rel="icon" href="/assets/images/oralsage-logo.jpg">
+  <link rel="preload" href="/assets/fonts/rajdhani-latin-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/base.css?v=20260716-brand-font-stable">
+  <link rel="stylesheet" href="/css/clinical-speaking.css?v=20260730-v9">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="clinical-speaking-page">
+  <header class="topbar">
+    <div>
+      <h1 id="page-title" class="page-title"></h1>
+      <p id="page-subtitle" class="page-subtitle"></p>
+    </div>
+  </header>
+
+  <div class="app-shell clinical-shell">
+    <aside class="rail history-pane" aria-label="问诊历史">
+      <div class="history-head">
+        <button id="new-training" class="history-new-command" type="button" disabled>
+          <i data-lucide="plus"></i><span>新建问诊</span>
+        </button>
+      </div>
+      <div id="session-history" class="session-history" aria-live="polite">
+        <div class="history-empty">暂无问诊记录</div>
+      </div>
+    </aside>
+
+    <main class="main-pane clinical-main">
+      <section class="simulation-layout">
+        <section class="patient-pane" aria-label="数字人患者">
+          <div class="pane-heading">
+            <strong>数字人患者</strong>
+            <div class="avatar-commands">
+              <span id="avatar-status" class="service-indicator">未连接</span>
+              <button id="stop-avatar" class="icon-command" type="button" title="停止患者发言" aria-label="停止患者发言" disabled>
+                <i data-lucide="volume-x"></i>
+              </button>
+            </div>
+          </div>
+          <div id="patient-avatar-stage" class="patient-avatar-stage" aria-live="polite">
+            <div class="avatar-loading-state">
+              <i data-lucide="scan-face"></i>
+              <span>正在连接</span>
+            </div>
+          </div>
+          <div class="stage-track" aria-label="训练阶段">
+            <span data-stage="consultation">问诊</span>
+            <i data-lucide="chevron-right"></i>
+            <span data-stage="diagnosis_confirmation">确诊</span>
+            <i data-lucide="chevron-right"></i>
+            <span data-stage="oral_exam">考核</span>
+            <i data-lucide="chevron-right"></i>
+            <span data-stage="completed">完成</span>
+          </div>
+        </section>
+
+        <section class="encounter-pane" aria-label="问诊对话">
+          <div class="encounter-heading">
+            <div class="case-context">
+              <strong id="case-target">尚未开始</strong>
+            </div>
+            <div class="encounter-tools">
+              <span id="system-status" class="system-status" role="status"></span>
+              <details class="findings-disclosure">
+                <summary title="查看检查结果" aria-label="查看检查结果"><i data-lucide="clipboard-pulse"></i><span>检查结果</span></summary>
+                <dl>
+                  <div><dt>口内检查</dt><dd id="case-exam">尚未提供</dd></div>
+                  <div><dt>辅助检查</dt><dd id="case-aux">尚未提供</dd></div>
+                </dl>
+              </details>
+            </div>
+          </div>
+
+          <div id="dialogue-log" class="dialogue-log" aria-live="polite">
+            <div class="empty-session">
+              <i data-lucide="message-circle-more"></i>
+              <span>新建问诊开始</span>
+            </div>
+          </div>
+
+          <div class="transcript-editor">
+            <div id="recording-meter" class="recording-meter" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <textarea id="doctor-transcript" rows="1" placeholder="语音转写将在这里显示" disabled></textarea>
+            <div class="transcript-footer">
+              <div id="transcript-corrections" class="transcript-corrections" aria-live="polite"></div>
+              <div class="transcript-actions">
+                <button id="record-toggle" class="record-command" type="button" disabled>
+                  <i data-lucide="mic"></i><span>开始说话</span>
+                </button>
+                <button id="submit-transcript" class="submit-command" type="button" disabled title="发送" aria-label="发送">
+                  <i data-lucide="arrow-up"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="diagnosis-dialog" class="diagnosis-dialog">
+    <form method="dialog">
+      <h2>提交诊断</h2>
+      <p>确认诊断为“<strong id="diagnosis-name"></strong>”？</p>
+      <div class="dialog-actions">
+        <button value="cancel" class="secondary-command">继续问诊</button>
+        <button value="confirm" class="primary-command">确认诊断</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="readiness-dialog" class="readiness-dialog">
+    <form method="dialog">
+      <h2>训练服务未就绪</h2>
+      <div id="readiness-list" class="readiness-list"></div>
+      <button value="close" class="secondary-command">关闭</button>
+    </form>
+  </dialog>
+
+  <script src="/js/common.js?v=20260730-nav-v3"></script>
+  <script src="/js/clinical-speaking.js?v=20260730-v6"></script>
+</body>
+</html>

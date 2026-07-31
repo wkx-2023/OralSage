@@ -1150,15 +1150,59 @@
 }
 
 @media (max-width: 760px) {
+  .learning-profile-page,
+  .profile-shell,
+  .profile-pane,
+  .profile-main {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .learning-profile-page {
+    min-height: 100svh;
+    overflow-y: auto;
+  }
+
+  .profile-shell {
+    min-height: 100svh;
+    padding-top: var(--nav-height);
+  }
+
   .profile-main {
     padding: 8px;
   }
 
   .profile-board {
+    height: auto;
+    min-height: calc(100svh - var(--nav-height) - 16px);
     border-radius: 14px;
     padding: 8px;
-    grid-template-rows: minmax(100px, 0.26fr) minmax(0, 1fr);
+    grid-template-rows: auto auto;
     gap: 8px;
+  }
+
+  .profile-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .trend-panel {
+    grid-column: 1 / -1;
+    min-height: 220px;
+  }
+
+  .profile-dashboard {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .middle-stack {
+    overflow: visible;
+  }
+
+  .radar-panel {
+    min-height: 300px;
   }
 
   .metric-card {

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>综合考试 - OralSage</title>
+  <link rel="icon" href="/assets/images/oralsage-logo.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/comprehensive-exam.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="exam-page">
+  <header class="topbar"><div><h1 id="page-title" class="page-title"></h1><p id="page-subtitle" class="page-subtitle"></p></div></header>
+  <main class="exam-shell">
+    <section id="exam-workspace" class="exam-workspace">
+      <aside class="exam-info-panel" aria-label="考试信息">
+        <h2>考试信息</h2>
+        <dl class="exam-details">
+          <div><dt><i data-lucide="file-text"></i>考试名称</dt><dd>口腔医学综合模拟考试</dd></div>
+          <div><dt><i data-lucide="layers-3"></i>考试类型</dt><dd>模拟考试</dd></div>
+          <div><dt><i data-lucide="list-checks"></i>题目总数</dt><dd>20 题</dd></div>
+          <div><dt><i data-lucide="award"></i>总分</dt><dd>100 分</dd></div>
+          <div><dt><i data-lucide="clock-3"></i>考试时长</dt><dd>30 分钟</dd></div>
+        </dl>
+        <section class="proctor-panel" aria-label="考试监考">
+          <div class="proctor-head"><span>考试监考</span><button id="resume-camera" class="monitor-retry" type="button" title="重新开启摄像头" aria-label="重新开启摄像头" disabled><i data-lucide="video"></i></button></div>
+          <div class="monitor-tile"><video id="monitor-preview" autoplay muted playsinline></video><div id="monitor-placeholder" class="monitor-placeholder"><i data-lucide="camera"></i><span>等待开启摄像头</span></div><span class="monitor-dot"></span><span>监考中</span></div>
+          <p id="camera-status" class="camera-status">摄像头为开始考试的必要条件。</p>
+          <button id="enable-camera" class="camera-action" type="button" disabled><i data-lucide="video"></i>开启摄像头</button>
+          <button id="start-exam" class="start-exam-side" type="button"><span id="start-exam-label">生成试卷</span><i data-lucide="file-plus-2"></i></button>
+          <p id="intro-status" class="status-line start-status" role="status"></p>
+          <div class="exam-progress"><strong id="progress-count">0 / 20</strong><span>已作答</span></div>
+        </section>
+      </aside>
+      <section class="question-pane">
+        <header class="exam-toolbar"><div class="timer"><i data-lucide="timer-reset"></i><span>剩余时间</span><strong id="exam-clock">00:30:00</strong></div><button id="submit-exam" class="submit-action" type="button" disabled>交卷</button></header>
+        <div class="question-toolbar"><span id="question-type" class="question-type">等待开始</span><span id="exam-status" class="status-line"></span></div>
+        <div id="question-content" class="question-content"><div class="preflight-state"><i data-lucide="file-check-2"></i><strong>试卷待生成</strong></div></div>
+        <div class="question-footer"><button id="previous-question" class="text-nav-button" type="button"><i data-lucide="arrow-left"></i>上一题</button><span id="question-index"></span><button id="next-question" class="text-nav-button" type="button">下一题<i data-lucide="arrow-right"></i></button></div>
+      </section>
+      <aside class="answer-card" aria-label="答题卡">
+        <div class="answer-card-head"><h2>答题卡</h2><span id="answer-card-count">0 / 20</span></div>
+        <div class="answer-legend"><span><i class="legend-dot answered"></i>已答</span><span><i class="legend-dot current"></i>当前</span></div>
+        <section class="answer-group"><h3>单选题 <small>1 - 15</small></h3><nav id="choice-nav" class="question-nav" aria-label="单选题答题卡"><button class="nav-question" disabled>1</button><button class="nav-question" disabled>2</button><button class="nav-question" disabled>3</button><button class="nav-question" disabled>4</button><button class="nav-question" disabled>5</button><button class="nav-question" disabled>6</button><button class="nav-question" disabled>7</button><button class="nav-question" disabled>8</button><button class="nav-question" disabled>9</button><button class="nav-question" disabled>10</button><button class="nav-question" disabled>11</button><button class="nav-question" disabled>12</button><button class="nav-question" disabled>13</button><button class="nav-question" disabled>14</button><button class="nav-question" disabled>15</button></nav></section>
+        <section class="answer-group"><h3>简答题 <small>16 - 20</small></h3><nav id="short-nav" class="question-nav" aria-label="简答题答题卡"><button class="nav-question" disabled>16</button><button class="nav-question" disabled>17</button><button class="nav-question" disabled>18</button><button class="nav-question" disabled>19</button><button class="nav-question" disabled>20</button></nav></section>
+      </aside>
+    </section>
+
+    <section id="exam-result" class="exam-result" hidden>
+      <div class="result-summary"><span>考试成绩</span><strong id="score-value">0</strong><small>/ 100</small><p id="score-detail"></p></div><div id="result-list" class="result-list"></div><button id="restart-exam" class="primary-action" type="button"><i data-lucide="rotate-ccw"></i>再考一次</button></section>
+  </main>
+  <script src="/js/common.js"></script>
+  <script src="/js/comprehensive-exam.js"></script>
+</body>
+</html>

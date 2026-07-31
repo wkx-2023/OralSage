@@ -1081,11 +1081,6 @@
   color: var(--chat-muted);
 }
 
-.chat-main-area .topbar {
-  background: rgba(255, 255, 255, 0.96);
-  border-bottom-color: var(--chat-line);
-}
-
 .chat-stage {
   padding: 12px 18px 16px;
   gap: 10px;

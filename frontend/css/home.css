@@ -41,7 +41,7 @@ html,
 
 .hero-title {
   margin: 0;
-  font-family: 'Rajdhani', 'Noto Sans SC', sans-serif;
+  font-family: 'OralSage Brand', 'Noto Sans SC', sans-serif;
   font-size: clamp(58px, 5.2vw, 92px);
   line-height: 0.92;
   color: #5d4fc2;
@@ -97,13 +97,14 @@ html,
 
 .feature-title {
   margin: 0 0 18px;
+  transform: translateY(10px);
   font-size: clamp(30px, 2.2vw, 42px);
   line-height: 1.1;
   color: #5d4fc2;
 }
 
 .feature-list {
-  transform: translateY(32px);
+  transform: translateY(clamp(22px, calc(20dvh - 119px), 84px));
   min-height: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -347,7 +348,7 @@ html,
 .toolbox-dialog {
   position: relative;
   z-index: 1;
-  width: min(620px, 100%);
+  width: min(560px, 100%);
   display: grid;
   justify-items: center;
   gap: 22px;
@@ -372,11 +373,12 @@ html,
 }
 
 .toolbox-list {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  justify-items: center;
-  width: min(560px, 100%);
-  gap: clamp(12px, 2vw, 18px);
+  width: min(422px, 100%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  column-gap: 26px;
+  row-gap: 24px;
   pointer-events: none;
 }
 
@@ -465,6 +467,10 @@ html,
   color: #6a58cf;
 }
 
+.toolbox-app-icon.ti-evidence {
+  color: #5d62c8;
+}
+
 .toolbox-app-icon.ti-decision {
   color: #526bd1;
 }
@@ -502,9 +508,6 @@ html,
     width: 52px;
   }
 
-  .toolbox-dialog .toolbox-list {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 1180px) {
@@ -525,6 +528,7 @@ html,
   }
 
   .feature-list {
+    transform: none;
     grid-template-rows: none;
   }
 
@@ -541,9 +545,6 @@ html,
     min-height: 0;
   }
 
-  .toolbox-dialog .toolbox-list {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 760px) {
@@ -576,8 +577,9 @@ html,
     width: min(360px, 100%);
   }
 
-  .toolbox-dialog .toolbox-list {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .toolbox-list {
+    width: min(270px, 100%);
+    column-gap: 18px;
     row-gap: 18px;
   }
 

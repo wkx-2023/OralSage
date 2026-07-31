@@ -54,6 +54,7 @@ def classify_llm_error(exc: Exception) -> str:
 
     * ``"timeout"`` — the request exceeded its time limit
     * ``"auth"`` — HTTP 401 or 403 (do **not** blindly retry)
+    * ``"rate_limit"`` — HTTP 429 (retry with backoff)
     * ``"unsupported"`` — HTTP 4xx whose response body mentions
       ``response_format`` / ``json_object`` (JSON mode is explicitly
       not supported by this provider)
@@ -75,12 +76,16 @@ def classify_llm_error(exc: Exception) -> str:
     # -- HTTP-level errors -------------------------------------------------
     if isinstance(cause, HTTPError):
         code = getattr(cause, "code", 0)
+        body = _http_error_detail(cause).lower()
+        if "appidnoautherror" in body or '"code":11200' in body or '"code": 11200' in body:
+            return "auth"
         if code in (401, 403):
             return "auth"
+        if code == 429:
+            return "rate_limit"
 
         # Inspect response body for explicit unsupported-format signals
         if 400 <= code < 500:
-            body = _http_error_detail(cause).lower()
             if any(
                 kw in body
                 for kw in (
@@ -156,6 +161,13 @@ def is_llm_configured(*api_key_names: str) -> bool:
     return bool(_env(*names))
 
 
+def _chat_completions_url(base_url: str) -> str:
+    endpoint = str(base_url or "").strip().rstrip("/")
+    if endpoint.endswith("/chat/completions"):
+        return endpoint
+    return f"{endpoint}/chat/completions"
+
+
 def chat_completion(
     messages: list[dict[str, str]],
     *,
@@ -165,6 +177,7 @@ def chat_completion(
     base_url_names: tuple[str, ...] = ("DECISION_LLM_BASE_URL", "QWEN_BASE_URL", "DASHSCOPE_BASE_URL"),
     model_names: tuple[str, ...] = ("DECISION_LLM_MODEL", "QWEN_MODEL", "DASHSCOPE_MODEL"),
     response_format: dict[str, Any] | None = None,
+    extra_body: dict[str, Any] | None = None,
     stream_callback: Callable[[str], None] | None = None,
     timeout: int | None = None,
 ) -> str:
@@ -182,6 +195,15 @@ def chat_completion(
     }
     if response_format is not None:
         payload["response_format"] = response_format
+    if extra_body:
+        reserved = {"model", "messages", "temperature", "max_tokens", "response_format", "stream"}
+        conflicts = reserved.intersection(extra_body)
+        if conflicts:
+            raise ValueError(
+                "extra_body cannot override core request fields: "
+                + ", ".join(sorted(conflicts))
+            )
+        payload.update(extra_body)
     if stream_callback is not None:
         payload["stream"] = True
 
@@ -189,7 +211,7 @@ def chat_completion(
 
     def _request_once(request_payload: dict[str, Any]) -> dict[str, Any] | str:
         request = Request(
-            f"{base_url.rstrip('/')}/chat/completions",
+            _chat_completions_url(base_url),
             data=json.dumps(request_payload, ensure_ascii=False).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {api_key}",
@@ -247,12 +269,15 @@ def chat_completion(
             content = str(content)
         content = content.strip()
         if not content:
+            reasoning_content = msg.get("reasoning_content")
             logger.warning(
                 "LLM response content is empty string. finish_reason=%s, "
-                "model=%s, choice_keys=%s",
+                "model=%s, choice_keys=%s, msg_keys=%s, reasoning_length=%s",
                 finish_reason,
                 model,
                 sorted(choice0.keys()) if isinstance(choice0, dict) else type(choice0).__name__,
+                sorted(msg.keys()) if isinstance(msg, dict) else type(msg).__name__,
+                len(reasoning_content) if isinstance(reasoning_content, str) else None,
             )
         if stream_callback is not None and content:
             stream_callback(content)
