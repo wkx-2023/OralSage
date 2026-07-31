@@ -171,34 +171,31 @@
 \phantomsection
 \addcontentsline{toc}{chapter}{摘要}
 
-OralSage 是面向口腔医学专业学习场景的个性化资源生成与多智能体学习系统。系统以口腔医学教材、题库、知识图谱和检索索引构建 KAG 知识底座，通过学习者画像、学习路径规划、讲义与课件生成、智能讲解答疑、阶段测评、数字问诊和学习计划反馈，形成“画像构建--资源生成--学习辅导--临床训练--效果评估--动态调整”的闭环学习流程。
+面向口腔医学知识结构复杂、临床推理链条长、学习资源分散及个体差异显著的专业学习需求，本文构建 OralSage 个性化资源生成与多智能体学习系统。平台以口腔医学教材、临床资料、题库、知识图谱和检索索引为基础，形成知识增强生成（KAG）底座；课程内容、练习题目、问答证据与学习行为均映射至知识图谱节点，为学习决策提供专业、可追溯、可解释的知识依据。
 
-针对口腔医学知识体系复杂、学习资料分散、复习节奏难以持续以及个体学习差异明显等问题，本文设计并实现了 OralSage 个性化资源生成与多智能体学习系统。系统以口腔医学教材、临床资料、知识图谱、题库和检索索引为基础，构建面向专业学习的 KAG 知识底座，并通过学习画像、知识状态和学习行为记录描述学习者的目标、基础水平、讲解偏好、薄弱知识点和计划执行情况。
+OralSage 以 Orchestrator 为协作中枢，统筹 Planner、Resource Factory、Tutor、QA、Assessment 与 Memory/User Model 等智能体，贯通学习画像、路径规划、资源生成、智能讲解、即时答疑、阶段测评、反馈诊断与计划调整。平台能够围绕课程节点组织讲义、课件、思维导图、练习题、阶段测评与语音等多模态学习资源；结合学习主题、知识依赖关系、掌握状态和学习偏好生成个性化学习路径；通过连续讲解、证据支撑问答、错因分析和长期记忆回写，持续提升学习支持的针对性。数字问诊模块以数字人患者、患者 Agent 和判官 Agent 为核心，支持口腔临床问诊练习、多轮追问与临床表达能力评价，拓展了专业学习与临床能力训练的融合场景。
 
-系统采用 Orchestrator 统一调度 Planner、Resource Factory、Tutor、QA、Assessment 和 Memory/User Model 等智能体。Planner 根据学习主题、知识关系和学习者状态生成个性化学习路径。Resource Factory 围绕课程节点生成讲义、课件、思维导图、练习题、阶段卷和语音等学习资源，Tutor 基于当前讲义开展连续讲解，QA 支持当前章节答疑、课程延伸答疑和讲解过程中的即时追问。Assessment 根据练习结果返回评分、解析、错因和补救建议，Memory/User Model 将学习事件、掌握度和薄弱点回写到长期学习状态，进一步影响后续课程和计划安排。独立的数字问诊服务使用数字人患者、患者 Agent 和判官 Agent 组织实时语音或文字问诊，在诊断确认后完成五个临床表达领域的追问与评分，并将分项结果写入学习画像。网页端与 ClawBot 微信学习入口共同支持课程学习、计划查看、任务打卡和学习反馈。
+平台围绕知识图谱节点构建 BKT/DKT 驱动的动态认知状态估计，将答题表现、课程讲授、主动追问和复习反馈汇聚为学习证据，刻画掌握概率、置信度与不确定性。SM-2/FSRS 间隔重复调度模型综合掌握度、遗忘风险、知识难度和复习逾期情况，为关键知识点计算个性化复习窗口与优先级。学习数字孪生 Student Twin Agent 则融合认知状态、记忆保持率、复习债务、可用时间与学习偏好，在虚拟学习状态中推演继续新课、薄弱点复习和复习后小测等路径，评估掌握度增益、风险变化与认知负荷，进而生成高收益、可执行的学习计划。
 
-系统当前覆盖 14 门口腔学科，包含 1,390 个核心条目、9,907 个知识概念、5,758 条知识关系和 3,161 道关联题目，统一检索语料包含 34,805 条文本片段。以“牙周炎”为主题的真实学习流程能够生成 5 个课程节点，首节课程节点绑定 1 个知识节点和 2 条资料片段，生成包含 177 字概述和 4 个主要知识点的讲义。当前章节答疑使用 2 条证据直接回答，课程延伸答疑生成 2 条定向检索计划并使用 4 条证据完成回答。既有回归记录包含 961 项 Python 后端测试，数字问诊、画像事件和数字人配置新增 49 项专项测试并全部通过。核心学习流程实测中课程大纲于 145.088 秒就绪，Tutor 首次内容于 195.103 秒返回。部署方案采用讯飞星火 4.0 Ultra API 处理课程文本智能体任务，数字问诊采用星火 \texttt{xsparkx2flash} 推理服务、讯飞流式语音听写和实时数字人，并使用讯飞长文本语音合成 API 生成课程音频。
+OralSage 构建了覆盖专业知识检索、个性化资源生成、智能辅导、临床训练、认知状态估计、记忆维护和学习路径仿真的主动学习闭环。平台将口腔医学教育中的知识组织、学习诊断、复习决策与临床表达训练深度协同，为口腔医学生的专题学习、阶段复习、考试准备和临床能力成长提供高质量、个性化、可解释的智能学习支持。
 
-测试结果表明，OralSage 已形成从专业知识检索、个性化路径规划、学习资源生成、智能讲解答疑到练习反馈和计划调整的连续学习闭环，能够为口腔医学生提供面向专题学习、考试复习和日常巩固的个性化学习支持。
-
-\noindent\textbf{关键词：} 口腔医学教育；个性化学习；多智能体系统；知识增强生成；数字问诊；临床表达训练；学习画像；资源生成
+\noindent\textbf{关键词：} 口腔医学教育；个性化学习；多智能体系统；知识增强生成；知识追踪；间隔重复；学习数字孪生；数字问诊
 
 \input{sections/01-overview.tex}
 \input{sections/02-system-design.tex}
 \input{sections/03-agent-collaboration.tex}
-\input{sections/04-digital-consultation.tex}
-\input{sections/05-image-analysis-agent.tex}
-\input{sections/06-user-model-planning.tex}
-\input{sections/07-knowledge-tracing.tex}
-\input{sections/08-spaced-repetition-scheduling.tex}
-\input{sections/09-student-twin-simulation.tex}
-\input{sections/10-resource-generation.tex}
-\input{sections/11-knowledge-base.tex}
-\input{sections/12-system-implementation.tex}
-\input{sections/13-testing-evaluation.tex}
-\input{sections/14-innovation-value.tex}
-\input{sections/15-deployment-demo.tex}
-\input{sections/16-conclusion.tex}
+\input{sections/04-image-analysis-agent.tex}
+\input{sections/05-user-model-planning.tex}
+\input{sections/06-knowledge-tracing.tex}
+\input{sections/07-spaced-repetition-scheduling.tex}
+\input{sections/08-student-twin-simulation.tex}
+\input{sections/09-resource-generation.tex}
+\input{sections/10-knowledge-base.tex}
+\input{sections/11-system-implementation.tex}
+\input{sections/12-testing-evaluation.tex}
+\input{sections/13-innovation-value.tex}
+\input{sections/14-deployment-demo.tex}
+\input{sections/15-conclusion.tex}
 
 \input{sections/appendix-a.tex}
 

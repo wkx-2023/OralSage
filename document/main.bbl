@@ -28,13 +28,6 @@ A.~F. Doubleday, C.~M. Cheverko, O.~Bolgova, et~al.
 \newblock {\em Journal of Dentistry}, 2026.
 \newblock PMID: 42066887. \url{https://pubmed.ncbi.nlm.nih.gov/42066887/}.
 
-\bibitem{collaco2026ft_rag}
-B.~G. Collaco, P.~Srinivasagam, C.~A. Gomez-Cabello, S.~A. Haider, A.~Genovese,
-  N.~G. Wood, S.~Bagaria, M.~A. Lifson, and A.~J. Forte.
-\newblock Integrating fine-tuning and retrieval-augmented generation for
-  healthcare ai systems: A scoping review.
-\newblock {\em Bioengineering}, 13(2):225, 2026.
-
 \bibitem{corbett1994knowledge}
 Albert~T. Corbett and John~R. Anderson.
 \newblock Knowledge tracing: Modeling the acquisition of procedural knowledge.
@@ -159,5 +152,12 @@ Jirui Qi, Gabriele Sarti, Raquel Fern{\'a}ndez, and Arianna Bisazza.
   Natural Language Processing}. Association for Computational Linguistics,
   2024.
 \newblock \url{https://aclanthology.org/2024.emnlp-main.347/}.
+
+\bibitem{collaco2026ft_rag}
+B.~G. Collaco, P.~Srinivasagam, C.~A. Gomez-Cabello, S.~A. Haider, A.~Genovese,
+  N.~G. Wood, S.~Bagaria, M.~A. Lifson, and A.~J. Forte.
+\newblock Integrating fine-tuning and retrieval-augmented generation for
+  healthcare ai systems: A scoping review.
+\newblock {\em Bioengineering}, 13(2):225, 2026.
 
 \end{thebibliography}

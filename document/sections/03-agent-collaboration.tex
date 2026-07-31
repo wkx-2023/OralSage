@@ -238,11 +238,120 @@ Assessment Agent 能够将学习者的答题表现、相关知识点和知识点
   \end{tabularx}
 \end{table}
 
+\section{数字问诊与临床训练}
+\label{sec:digital-consultation}
+
+普通学习平台擅长呈现教材、题目和讲解内容，却很少为学习者提供接近真实接诊节奏的连续问诊机会。学生即使已经记住疾病定义与治疗原则，也可能在面对一位只描述不适感受的患者时难以组织问题，难以从零散回答中结合所学知识进行准确临床推理，不知道自己的判断是否符合逻辑，更缺少用完整语言说明鉴别诊断和治疗思路的反复练习。这类能力很难通过单次选择题或静态病例阅读得到充分检验。
+
+如图~\ref{fig:digital-consultation-system-flow}所示，OralSage 设置数字问诊功能，引入讯飞实时数字人扮演患者，学生可以使用语音或文字完成自由问诊，语音输入接入了讯飞的医学垂直领域语音转写服务，能够对专业术语进行纠正。每次问诊模拟，系统根据学习画像中的薄弱点、当前学习课程等信息抽取匹配的脱敏病例，患者会围绕脱敏病例中的主诉、现病史和检查表现，用接近日常交流的语言回答追问，同时根据自然语言理解判断学生是否已经提出明确且正确的诊断，若学生已判断出正确答案，则将任务交接给判官 Agent。
+
+判官 Agent 接入讯飞星火推理服务，当诊断得到确认后，会在原有对话中接续提问，引导学生说明病理机制、临床表现与诊断依据、鉴别诊断、治疗原则、风险与随访，问诊信息采集和临床表达考核能够形成连贯体验。每次诊断确认和分项作答都会形成专用学习事件，分数、遗漏要点与相关知识节点一起写入学习画像，后续选题可以重新读取这些变化，让一次临床表达训练能够实时反馈到用户的画像记忆中，自然影响下一轮病例安排。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{DigitalHuman-Consultation.pdf}
+  \caption{数字问诊与临床训练系统流程}
+  \label{fig:digital-consultation-system-flow}
+\end{figure}
+
+\subsection{病例与个性化选题}
+
+问诊病例来自 \texttt{data/processed/clinic\_stats/clinical\_cases.parsed.jsonl} 中的脱敏临床资料。病例进入训练池前需要同时具备明确诊断、主诉、现病史和检查记录，复诊随访材料与关键字段缺失的记录不会进入出题范围。当前训练池覆盖急性冠周炎、阻生牙、牙髓炎、急性根尖周炎、慢性根尖周炎、慢性牙周炎和根尖囊肿等常见口腔疾病，为主诉追问、病史采集和初步诊断提供了完整的文本依据。
+
+会话启动时，选题服务读取学习画像中的 \texttt{known\_weak\_points}，并结合近期非问诊学习会话的主题形成学习目标。选题 Agent 将这些自然语言目标映射到训练池允许使用的疾病名称，随后由病例仓库从对应类别中选择一条符合训练条件的记录。学习画像暂时没有可用信息时，系统先随机选择疾病类别，再从该类别内抽取病例，使连续训练能够覆盖不同疾病，也避免记录数量较多的类别长期占据出题结果。
+
+个性化选题与画像回写共同构成循环。一次训练暴露出的知识遗漏会进入薄弱点和知识节点掌握记录，后续会话再次读取这些信号，选题内容随学习表现逐步调整。病例对学生公开的内容只包含当前对话需要呈现的信息，目标诊断和内部证据保留在服务端上下文中，保证学习者需要通过问诊逐步完成判断。
+
+\subsection{双路上下文构建}
+
+患者扮演和临床评分需要不同类型的信息。系统在会话创建阶段并行准备两路上下文，一路从病例记录中整理患者能够陈述的事实，另一路围绕目标疾病从知识库检索教材和临床规范证据。两路信息分别交付给患者 Agent 与判官 Agent，病例叙述不会直接进入评分证据，教材知识也不会被拼接成患者自述，从数据边界上保护患者角色的真实感与评分依据的专业性。
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+    node distance=0.75cm and 1.1cm,
+    every node/.style={font=\small,align=center},
+    box/.style={draw=oralsagepurple,rounded corners=2pt,fill=coverpanel,minimum height=0.9cm,text width=3.0cm},
+    agent/.style={draw=softcupblue,rounded corners=2pt,fill=softcupgray,minimum height=0.9cm,text width=2.8cm},
+    line/.style={->,>=stealth,thick,color=covermuted}
+  ]
+    \node[box] (case) {脱敏病例\\主诉、病史与检查事实};
+    \node[box,below=of case] (profile) {学习画像\\薄弱点与近期主题};
+    \node[agent,right=of case] (patientctx) {患者上下文\\事实编号与对话历史};
+    \node[agent,right=of profile] (judgectx) {判官上下文\\五个领域的检索证据};
+    \node[box,right=of patientctx] (patient) {患者 Agent\\问诊与诊断理解};
+    \node[box,right=of judgectx] (judge) {判官 Agent\\追问、评分与反馈};
+    \draw[line] (case) -- (patientctx);
+    \draw[line] (profile) -- (judgectx);
+    \draw[line] (case) -- (judgectx);
+    \draw[line] (patientctx) -- (patient);
+    \draw[line] (judgectx) -- (judge);
+    \draw[line] (patient) -- node[right,font=\scriptsize]{诊断确认} (judge);
+  \end{tikzpicture}
+  \caption{数字问诊的双路上下文构建}
+  \label{fig:clinical-dual-context}
+\end{figure}
+
+患者上下文将病例字段转化为带编号的事实单元，并保留经过长度控制的会话历史。患者每次回答都要返回所依据的事实编号，事实核验 Agent 会检查回复能否由病例材料支持，经过核验的内容才会显示在对话中。遇到病例未提供的信息时，患者会以符合真实就诊交流的方式说明自己不清楚，避免补写病例中没有出现的检查结果或病程细节。
+
+判官上下文围绕目标疾病分别检索病理机制、临床表现与诊断依据、鉴别诊断、治疗原则、风险与随访。检索结果经过疾病别名、相关度和来源类型筛选，临床病例类片段会被排除，至少三条有效教材或临床规范证据通过检查后才会建立考核题目。每条证据拥有编号和所属领域，后续题目、评分与批评意见均引用这些编号，使专业判断可以回溯到知识库资料。
+
+\subsection{患者 Agent}
+
+患者 Agent 使用讯飞星火 \texttt{xsparkx2flash} 推理服务理解学生的自然语言输入。Agent 会区分症状询问、诊断陈述、试探性诊断、鉴别讨论和其它交流意图，并以结构化字段返回动作、意图、诊断候选、诊断判断、患者回复。诊断是否正确由 Agent 对完整语义作出判断，学生可以使用“我考虑是……”“目前更倾向于……”等自然表达，系统也能稳定识别出学生是否已经给出了正确答案。
+
+为了更加贴合实际的临床问诊情况，OralSage 设置的角色提示词要求患者始终使用第一人称，以生活化说法描述疼痛、肿胀、持续时间和诱发感受，并根据学生已经问到的内容控制回答范围。患者不会主动说出疾病名称，也不会对学生提出的诊断作确认式回应。即使学生直接询问某个疾病名称，回复仍会停留在患者可感知的症状和经历中，诊断判断只通过内部字段交给状态机处理。
+
+每轮对话同时检查事实依据与诊断判断。事实核验 Agent 关注患者回复中出现的陈述能否映射到病例事实，诊断复核 Agent 关注学生是否已经给出明确诊断以及候选疾病是否与病例目标一致。两项结果经过结构检查后合并到当前轮次，既保留自然交流的流畅感，也让诊断交接建立在完整语义和病例内容之上。
+
+\subsection{判官 Agent}
+
+学生完成诊断后，判官 Agent 沿用当前对话页面接管后续交流。系统根据检索证据预先构建五道考核问题，依次覆盖病理机制、临床表现与诊断依据、鉴别诊断、治疗原则、风险与随访，每个领域满分 20 分。题目包含领域名称、提问文本、评分要点，五个领域共同形成 100 分的临床表达评价。
+
+判官对每次回答返回数值分数、针对性评语、已经表达清楚的内容、尚未覆盖的要点、需要修正的表述。评分引用来自当前题目允许使用的知识库检索结果集合，服务端会检查分数范围、问题顺序和引用合法性。学生能够在对话中立即看到与自己表述相对应的反馈，完成全部五项后生成总分和分项结果。
+
+每个分项结果都会更新相关知识节点的掌握度、接触次数和置信度，遗漏要点进入已知薄弱点。诊断结果、领域分数、总分和批评意见也会作为专用临床训练事件出现在学习画像时间线中。判官输出兼顾当次表达指导和长期学习记录，使学生在下一次课程复习或病例训练中能够继续处理已经识别出的知识缺口。
+
+\subsection{状态机设计}
+
+数字问诊服务采用四阶段状态机管理患者交互与考核交接，合法状态依次为 \texttt{consultation}、\texttt{diagnosis\_confirmation}、\texttt{oral\_exam} 和 \texttt{completed}。患者 Agent 在问诊阶段持续回应学生追问，识别到明确且正确的诊断后进入诊断确认，学生确认诊断便触发判官 Agent 建立五域考核，五道题完成评分后进入完成状态。
+
+\begin{center}
+  \textbf{问诊交互 $\rightarrow$ 诊断识别 $\rightarrow$ 用户确认 $\rightarrow$ 五域表达考核 $\rightarrow$ 画像更新}
+\end{center}
+
+会话状态保存轮次记录、当前问题序号、历次评分、诊断候选和已处理请求编号。服务端只接受与当前阶段相符的操作，问题按既定顺序推进，已经完成的请求再次到达时会返回同一结果。SQLite 持久化使刷新页面或重新打开历史记录后仍可恢复患者对话、考核进度和评分信息，数字人播报只消费已经进入会话记录的 Agent 回复。
+
+状态变化还对应四类学习事件：\texttt{clinical\_speaking\_started} 记录训练启动，\texttt{clinical\_diagnosis\_confirmed} 记录诊断确认，\texttt{clinical\_speaking\_answer\_assessed} 保存分项评分，\texttt{clinical\_speaking\_completed} 汇总训练结果。独立事件类型让学习画像可以按“问诊、诊断、考核”呈现活动，也为后续个性化选题提供清晰的数据来源。
+
+\subsection{讯飞能力集成}
+
+数字问诊选用讯飞星火深度推理服务、讯飞流式语音听写与讯飞实时互动数字人，三项能力贯穿学生表达理解、患者回应生成和拟真交互呈现。推理、听写与数字人之间连续传递当前会话内容，学生可以使用日常问诊语言完成从病史采集到临床表达考核的全过程，训练过程保留了真实问诊所需的连续性与临场感。
+
+患者 Agent、诊断复核、个性化选题、判官提问与评分均使用讯飞星火 \texttt{xsparkx2flash}。星火对中文自然表达和多轮语境的理解能够识别症状追问、试探性诊断、鉴别讨论等不同意图，并结合病例上下文生成符合患者认知范围的生活化回答。进入临床表达考核后，模型继续结合知识库证据理解学生的完整表述，对病理机制、诊断依据、鉴别诊断、治疗原则、风险与随访进行分项评价。
+
+讯飞流式语音听写将学生的连续口述实时转化为文字，并接入医学垂直领域引擎，能够实时纠正医学专业术语，牙位编号、疾病名称和口腔专有词会得到重点保留，降低同音词对诊断语义和评分内容的干扰，使语音交互能够承载专业的口腔医学表达。
+
+讯飞实时互动数字人承担患者形象呈现与回答播报。星火生成的患者回复会驱动数字人完成语音和画面表达，透明画面自然融入问诊界面，学生可以同时观察患者形象、听取症状描述并继续追问。三项讯飞能力共同形成接近面对面交流的问诊节奏，更加贴合实际临床问诊情况。
+
+\begin{table}[H]
+  \centering
+  \caption{讯飞能力在数字问诊中的作用}
+  \label{tab:clinical-xfyun-capabilities}
+  \begin{tabularx}{\linewidth}{p{0.25\linewidth}p{0.31\linewidth}X}
+    \toprule
+    讯飞服务 & 承担任务 & 应用效果 \\
+    \midrule
+    星火深度推理服务 \texttt{xsparkx2flash} & 理解问诊意图、扮演患者、识别诊断并完成五域考核 & 支持自然语言多轮交流，让病例问诊与临床表达评价保持语境连贯 \\
+    讯飞流式语音听写 & 接收学生口述并连续生成转写文本 & 保留较长医学表达的完整语义，配合术语整理提升专业词汇的可用性 \\
+    讯飞实时互动数字人 & 呈现患者形象并播报患者 Agent 回复 & 将文本问答转化为可听、可观察、可持续追问的拟真问诊体验 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
 \section{工具 Agent}
 
 除课程学习能力外，OralSage 在影像、病理、病例、文献、知识图谱、统计和病历文书等专业能力上也设计了工具 Agent，服务于更深层的口腔医学学习，并为课程中的案例讨论、资料查阅和知识延展带来丰富的专业信息。影像分析、病理问答、决策辅助和文献阅读体现了工具 Agent 最具代表性的专业价值。
-
-系统还设置了独立的数字问诊临床训练服务，由患者 Agent 和判官 Agent 在专用状态机中完成病例交互、诊断确认与表达考核。该服务共享学习画像和专业知识库，不经过本章总控调度器的课程路由，其病例双路上下文、讯飞实时交互和状态交接设计见第~\ref{sec:digital-consultation}章。
 
 影像分析 Agent 涉及口腔影像数据治理、OralPath 视觉模型微调、本地推理部署和结构化多模态输出，已经从本章工具 Agent 总览中拆分为独立章节，详见第~\ref{sec:image-analysis-agent}章。本节后续重点说明其他专业工具 Agent 的协作职责。
 
@@ -260,11 +369,46 @@ Assessment Agent 能够将学习者的答题表现、相关知识点和知识点
 
 \subsection{文献阅读 Agent}
 
-文献阅读 Agent 围绕口腔医学主题开展术语理解、检索词组织、PubMed 与 Elsevier 文献检索、研究资料整理和中文阅读支持。学习者提出前沿问题后，系统能够把专业主题转化为更贴近学术检索的关键词，并整合不同来源的研究资料，帮助学习者快速进入某一方向的研究脉络。
+文献阅读 Agent 通过 MCP Client 调用术语解析、PubMed 检索和 Scopus 检索工具，围绕口腔医学主题完成检索词组织、研究资料整理和中文阅读支持。学习者提出前沿问题后，系统将专业主题转换为贴近学术检索的关键词，并将多来源研究资料组织为可阅读的文献结果，帮助学习者进入相应方向的研究脉络。
 
-检索结果以题名、来源、摘要、链接和综合解读等形式组织，英文研究内容可以进一步进入中文阅读流程。课程知识与前沿研究由此获得自然连接，学习者能够在专题学习过程中同步理解教材中的稳定知识和最新研究中的发展方向。
+检索结果以题名、来源、摘要、链接和综合解读等形式组织，英文研究内容可以进一步进入中文阅读流程。课程知识与前沿研究由此获得自然连接，学习者能够在专题学习过程中同步理解教材中的基础知识和最新研究中的发展方向。
 
 知识浏览、知识图谱、临床统计和病历文书工具进一步扩展了专业工具箱的能力广度。教材知识点、概念关联和局部知识网络支持专题探索，结构化门诊数据支持统计学习与图表分析，语音转写修订、信息提取和文书生成则带来面向口腔医学文书场景的综合学习体验。
+
+\subsection{综合考试工具 Agent}
+\label{sec:exam-tool-agent}
+
+综合考试工具 Agent 面向专题复习和阶段性能力检验组织独立考试。考试时，首先读取与测评任务相关的画像切片，关注薄弱知识点、掌握记录和近期作答表现进行针对性出题，从题库中抽取与这些内容相关的题目。画像尚未形成时，系统从可用题库记录中随机抽取题目，首次使用者也能直接开始考试。
+
+试卷固定包含十五道单选题和五道简答题。单选题保留题库中的选项、标准答案和解析，交卷后可直接完成答案比对。简答题由已选单选题中的知识点、题干、标准答案和解析提供事实依据。系统逐题向讯飞星火 \texttt{xsparkx2flash} 提交上下文，请求模型生成概念阐释、病例诊断或单选知识改写等类型的提问，同时生成参考答案与评分要点。Agent 将题库解析转化为适合主观作答的专业问题。
+
+交卷时，单选题依据题库标准答案计算得分。简答题连同学生作答、参考答案、评分要点和证据片段再次提交给 Agent。模型给出题目得分、文字反馈和待补充要点，结果页同步呈现参考答案、评分要点与解析内容，便于学习者回看自己的作答。
+
+考试页面在开始前请求浏览器摄像头权限。三十分钟计时在考试开始后启动，摄像头视频开启时才允许提交试卷。完成评阅后，单选题与简答题的得分、错题解析和缺失要点会写入学习记录，供画像更新与后续复习推荐使用。图\ref{fig:comprehensive-exam-workflow}展示了考试工具从个性化选题到评卷反馈的处理过程。
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\linewidth}{!}{%
+  \begin{tikzpicture}[node distance=.46cm and .42cm]
+    \node[agentinput] (profile) {学习画像\\薄弱知识点与掌握记录};
+    \node[agentinput, below=.85cm of profile] (bank) {题库与知识库\\单选题及解析证据};
+    \node[agentcore, right=of profile, yshift=-.42cm] (paper) {综合考试工具 Agent\\十五道单选题与五道简答题};
+    \node[agentprocess, right=of paper, yshift=.55cm] (spark) {讯飞星火 \texttt{xsparkx2flash}\\简答题命题与结构化评阅};
+    \node[agentprocess, below=.85cm of spark] (camera) {浏览器摄像头\\权限、预览与轨道检测};
+    \node[agentoutput, right=of spark, yshift=-.55cm] (result) {考试结果\\得分、解析与缺失要点};
+    \node[agentmemory, below=1.0cm of result] (memory) {学习记录回写：题目表现、掌握变化与后续复习内容};
+    \draw[agentarrow] (profile) -- (paper);
+    \draw[agentarrow] (bank.east) -| (paper.south);
+    \draw[agentarrow] (paper) -- (spark);
+    \draw[agentarrow] (paper.south east) |- (camera.west);
+    \draw[agentarrow] (spark) -- (result);
+    \draw[agentarrow] (camera.east) -| (result.south);
+    \draw[agentarrow] (result.south) -- (memory.north);
+    \draw[agentfeedback] (memory.west) -| (profile.south);
+  \end{tikzpicture}}
+  \caption{综合考试工具 Agent 的命题、考试与评卷流程}
+  \label{fig:comprehensive-exam-workflow}
+\end{figure}
 
 \section{总控调度器设计}
 
@@ -375,31 +519,55 @@ skill "知识点学习" {
 \end{lstlisting}
 
 \section{MCP 工具与专业知识增强}
+\label{sec:mcp-knowledge-tools}
 
-MCP 工具层把专业检索和术语理解引入多 Agent 学习体系。口腔医学知识库检索、口腔医学术语解析、PubMed 检索和 Elsevier 检索共同扩展课程学习和专题探索的信息广度。课程规划能够从主题资料中组织学习内容，QA 能够围绕当前问题深化解释，病理问答和文献阅读 Agent 也能进入更丰富的专业资料语境。
+\subsection{协议接入与任务编排}
 
-知识库检索连接教材知识与当前学习主题，术语解析帮助学习者理解专业表达，PubMed 与 Elsevier 则为前沿研究学习提供权威资料入口。检索结果以结构化内容进入后续学习活动，课程知识、专题讨论和研究阅读因而能够形成更紧密的联系。检索增强医疗人工智能研究表明，专业资料与生成式系统协同能够增强复杂健康教育任务的信息支撑\cite{collaco2026ft_rag}。OralSage 通过专业工具、学习会话和多智能体协作，把这一能力转化为口腔医学学习中的持续价值。
+前沿文献功能以中文主题、时间窗口和返回数量为输入。前沿文献页面将请求提交至 \texttt{/api/literature/search}，后端返回可直接渲染的 JSON 结果。智能问答中的文献需求进入 Router Job，服务端保留任务状态，并通过 \texttt{/api/router/jobs/\{job\_id\}/stream} 推送 SSE 事件。总控调度器从对话内容中提取检索主题、时间约束和结果数量，再将文献任务交给 MCP Client。页面检索和对话检索共享术语解析、数据源适配、清洗排序和结果生成逻辑。
+
+MCP Server 以 Streamable HTTP 方式挂载在 FastAPI 服务内。客户端先以 \texttt{initialize} 建立会话，再以 \texttt{tools/list} 读取工具名称、功能说明和参数 Schema，随后通过 \texttt{tools/call} 发起结构化调用。工具参数由 Python 类型注解生成 Schema，调度器能够依据公开契约选择工具、组织参数并记录调用结果。该设计将专业检索能力组织为清晰的服务边界，使总控调度器能够在文献请求进入后直接调用对应工具。
+
+\subsection{可发现工具与检索实现}
+
+MCP Server 对外公开四项可发现工具，工具职责与处理过程如下。
+
+\begin{enumerate}
+  \item \texttt{knowledge\_base\_search}：工具从本地口腔医学知识库检索相关证据片段，并为每条结果生成与查询主题对应的相关性说明。课程规划、专题问答和病例研读可以复用该结果，获得与当前问题直接关联的专业资料。
+  \item \texttt{resolve\_oral\_terms}：工具依据口腔医学术语规则识别疾病、治疗目标和时间表达，将中文主题组织为英文检索词与推荐时间窗口。检索编排据此形成带有口腔医学约束的查询表达式，例如 \texttt{query AND (oral OR dentistry OR dental OR "oral medicine")}，使宽泛主题能够落入明确的文献检索范围。
+  \item \texttt{search\_pubmed\_oral\_medicine}：工具通过 ESearch 获取 PMID，使用 ESummary 读取题录信息，再以 EFetch 取得完整摘要。该三段式适配过程将 PubMed 返回内容整理为统一记录，为前沿文献检索提供题名、期刊、作者和摘要等核心研究信息。
+  \item \texttt{search\_elsevier\_oral\_medicine}：工具调用 Elsevier Scopus Search API，采用 \texttt{TITLE-ABS-KEY} 检索式获得标题和摘要层面的候选记录。适配器以年份范围请求数据，再按照发布日期执行精确时间窗口过滤，并映射 DOI、期刊和链接等研究信息，扩展了口腔医学前沿资料的覆盖范围。
+\end{enumerate}
 
 \begin{figure}[H]
   \centering
   \resizebox{\linewidth}{!}{%
   \begin{tikzpicture}[>=stealth]
-    \node[agentinput] (agents) at (0,0) {学习与工具 Agent\\规划、答疑、病理与文献服务};
-    \node[agentcore] (mcp) at (3.5,0) {MCP 工具层\\主题检索与结构化资料};
-    \node[agentprocess] (kb) at (6.9,1.35) {知识库检索\\主题资料与相关性说明};
-    \node[agentprocess] (term) at (10.2,1.35) {术语解析\\口腔医学概念理解};
-    \node[agentprocess] (pubmed) at (6.9,-1.35) {PubMed 检索\\口腔医学前沿文献};
-    \node[agentprocess] (elsevier) at (10.2,-1.35) {Elsevier 检索\\口腔医学研究资料};
-    \node[agentmemory, text width=2.9cm] (return) at (13.5,0) {结构化资料返回\\查询主题、资料数量与内容摘要};
-    \draw[agentarrow] (agents) -- (mcp);
-    \draw[agentarrow] (mcp.east) -- (kb.west);
-    \draw[agentarrow] (mcp.east) -- (pubmed.west);
-    \draw[agentarrow] (kb) -- (term);
-    \draw[agentarrow] (pubmed) -- (elsevier);
-    \draw[agentarrow] (term.east) -- (return.north west);
-    \draw[agentarrow] (elsevier.east) -- (return.south west);
-    \draw[agentfeedback] (return.south) to[out=-130,in=-30] (agents.south);
+    \node[agentinput] (page) at (0,1.8) {文献页面\\HTTP JSON 请求};
+    \node[agentprocess] (service) at (3.5,1.8) {文献检索服务\\主题、时间与数量参数};
+    \node[agentinput] (chat) at (0,-1.2) {智能问答\\Router Job 与 SSE};
+    \node[agentcore] (router) at (3.5,-1.2) {总控调度器\\文献意图与参数提取};
+    \node[agentcore] (client) at (7,-1.2) {MCP Client\\initialize、tools/list、tools/call};
+    \node[agentcore] (server) at (10.5,-1.2) {MCP Server\\四项可发现工具};
+    \node[agentprocess] (term) at (14,1.75) {需求解析\\中文主题到英文术语\\布尔检索式构建};
+    \node[agentprocess] (kb) at (14,3.55) {知识库检索\\本地专业证据};
+    \node[agentprocess] (pubmed) at (14,-1.75) {PubMed 适配器\\ESearch、ESummary、EFetch};
+    \node[agentprocess] (scopus) at (17.5,-1.75) {Scopus 适配器\\TITLE-ABS-KEY 与时间过滤};
+    \node[agentmemory, text width=3.2cm] (article) at (21,0) {统一 Article\\去重、相关度排序与跨源合并};
+    \node[agentoutput, text width=2.6cm] (result) at (24.2,0) {文献结果\\综述、翻译与来源链接};
+    \draw[agentarrow] (page) -- (service);
+    \draw[agentarrow] (chat) -- (router);
+    \draw[agentarrow] (router) -- (client);
+    \draw[agentarrow] (client) -- (server);
+    \draw[agentarrow] (service.east) to[out=0,in=180] (term.west);
+    \draw[agentarrow] (server.east) to[out=25,in=180] (term.west);
+    \draw[agentarrow] (server.east) to[out=52,in=180] (kb.west);
+    \draw[agentarrow] (term.south) -- (pubmed.north);
+    \draw[agentarrow] (term.south east) -- (scopus.north west);
+    \draw[agentarrow] (kb.east) to[out=0,in=145] (article.north west);
+    \draw[agentarrow] (pubmed.east) to[out=0,in=-150] (article.south west);
+    \draw[agentarrow] (scopus.east) to[out=0,in=-120] (article.south);
+    \draw[agentarrow] (article) -- (result);
   \end{tikzpicture}}
-  \caption{MCP 工具层对口腔医学学习与专题探索的支持}
+  \caption{前沿文献检索的 MCP 调用、数据源适配与结果生成链路}
   \label{fig:mcp-tool-layer}
 \end{figure}
