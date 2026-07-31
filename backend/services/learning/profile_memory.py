@@ -2250,6 +2250,8 @@ def _compact_event(event: dict[str, Any]) -> dict[str, Any]:
             "is_correct",
             "score",
             "mastery_delta",
+            "knowledge_tracing_model",
+            "knowledge_tracing_updates_count",
             "question_scope",
             "evidence_status",
             "related_kg_node_ids",

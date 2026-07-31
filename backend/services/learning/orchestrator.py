@@ -30,6 +30,7 @@ from .handout_cache import (
     save_handout_cache_ready,
 )
 from .lecture_script import build_and_save_lecture_script, build_and_save_tutor_lecture_script
+from .knowledge_tracing import profile_mastery_patch_from_states, update_bkt_state
 from .tutor_cache import (
     get_tutor_cache,
     save_tutor_cache_failed,
@@ -2710,6 +2711,7 @@ class LearningOrchestrator:
 
         # --- persist mastery updates ----------------------------------------
         mastery_updates: list[dict[str, Any]] = []
+        knowledge_trace_updates: list[dict[str, Any]] = []
         kg_node_ids: list[str] = question.get("kg_node_ids", [])
         evidence = {
             "question_id": question.get("id"),
@@ -2721,17 +2723,76 @@ class LearningOrchestrator:
         }
 
         if kg_node_ids:
+            current_mastery_by_kg = self.memory.get_mastery_by_kg_node(
+                user_id,
+                session_id,
+            )
             for kg_id in kg_node_ids:
                 concept = current_node_title or question.get("outline_node_id", "")
+                kt_state: dict[str, Any] | None = None
+                try:
+                    previous_kt_state = self.memory.get_knowledge_trace_state(
+                        user_id,
+                        kg_id,
+                    )
+                    kt_candidate = update_bkt_state(
+                        previous_kt_state,
+                        kg_node_id=kg_id,
+                        skill_label=concept or kg_id,
+                        is_correct=bool(assessment["is_correct"]),
+                        score=assessment.get("score"),
+                        source="assessment",
+                        source_ref=str(question.get("id") or ""),
+                    )
+                    kt_state = self.memory.save_knowledge_trace_state(
+                        user_id,
+                        kg_id,
+                        kt_candidate,
+                    )
+                    knowledge_trace_updates.append(kt_state)
+                except Exception:
+                    kt_state = None
+
+                if kt_state:
+                    previous_mastery = current_mastery_by_kg.get(kg_id)
+                    previous_score = (
+                        float(previous_mastery.get("mastery_score", 0.3))
+                        if isinstance(previous_mastery, dict)
+                        else 0.3
+                    )
+                    previous_confidence = (
+                        float(previous_mastery.get("confidence", 0.3))
+                        if isinstance(previous_mastery, dict)
+                        else 0.3
+                    )
+                    mastery_delta = float(kt_state.get("p_mastery", previous_score)) - previous_score
+                    confidence_delta = float(kt_state.get("confidence", previous_confidence)) - previous_confidence
+                    mastery_evidence = {
+                        **evidence,
+                        "knowledge_tracing": {
+                            "model": kt_state.get("trace", {}).get("model", "bkt_kg_node_v1"),
+                            "p_mastery": kt_state.get("p_mastery"),
+                            "uncertainty": kt_state.get("uncertainty"),
+                            "confidence": kt_state.get("confidence"),
+                            "evidence_count": kt_state.get("evidence_count"),
+                        },
+                    }
+                else:
+                    mastery_delta = assessment["mastery_delta"]
+                    confidence_delta = 0.05
+                    mastery_evidence = evidence
+
                 m_rec = self.memory.upsert_mastery(
                     user_id=user_id,
                     session_id=session_id,
                     concept_name=concept,
-                    mastery_delta=assessment["mastery_delta"],
+                    mastery_delta=mastery_delta,
                     kg_node_id=kg_id,
-                    evidence=evidence,
+                    evidence=mastery_evidence,
+                    confidence_delta=confidence_delta,
                 )
                 mastery_updates.append(m_rec)
+                current_mastery_by_kg[kg_id] = m_rec
         else:
             # Fallback: at least one mastery record per answer
             concept = current_node_title or question.get("outline_node_id", "")
@@ -2744,6 +2805,30 @@ class LearningOrchestrator:
                 evidence=evidence,
             )
             mastery_updates.append(m_rec)
+
+        if knowledge_trace_updates:
+            try:
+                profile_before_kt = self.memory.get_or_create_profile(user_id)
+                mastery_map = profile_before_kt.get("mastery_by_kg_node")
+                if not isinstance(mastery_map, dict):
+                    mastery_map = {}
+                mastery_map = {
+                    **mastery_map,
+                    **profile_mastery_patch_from_states(knowledge_trace_updates),
+                }
+                profile_after_kt = merge_profile(
+                    profile_before_kt,
+                    {
+                        "mastery_by_kg_node": mastery_map,
+                        "confidence": max(
+                            float(profile_before_kt.get("confidence", 0.2)),
+                            max(float(s.get("confidence", 0.0)) for s in knowledge_trace_updates),
+                        ),
+                    },
+                )
+                self.memory.save_profile(user_id, profile_after_kt)
+            except Exception:
+                pass
 
         # --- wrong-answer: store context + update profile --------------------
         if not assessment["is_correct"]:
@@ -2798,6 +2883,10 @@ class LearningOrchestrator:
                 "fallback_rule_based": assessment.get("fallback_rule_based", True),
                 "content_status": assessment.get("content_status", "rule_based"),
                 "mastery_updates_count": len(mastery_updates),
+                "knowledge_tracing_model": (
+                    "bkt_kg_node_v1" if knowledge_trace_updates else None
+                ),
+                "knowledge_tracing_updates_count": len(knowledge_trace_updates),
             },
         )
 
@@ -2875,6 +2964,7 @@ class LearningOrchestrator:
             "advanced": advanced,
             "lesson_completed": lesson_completed,
             "mastery_updates": mastery_updates,
+            "knowledge_tracing_updates": knowledge_trace_updates,
             "learner_memory_update": learner_memory_update,
             "progress_memory_update": progress_memory_update,
             "stage_exam": stage_exam,
