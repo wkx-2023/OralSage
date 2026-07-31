@@ -1408,7 +1408,13 @@ async def comprehensive_exam_generate(req: ComprehensiveExamGenerateRequest, req
 async def comprehensive_exam_submit(exam_id: str, req: ComprehensiveExamSubmitRequest, request: Request) -> JSONResponse:
     user_id = _effective_learning_user_id(request, req.user_id)
     try:
-        exam = await asyncio.to_thread(submit_comprehensive_exam, exam_id, user_id, [item.model_dump() for item in req.answers])
+        exam = await asyncio.to_thread(
+            submit_comprehensive_exam,
+            exam_id,
+            user_id,
+            [item.model_dump() for item in req.answers],
+            memory=learning_orchestrator.memory,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

@@ -15,6 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .adaptive_assessment import (
+    annotate_questions,
+    build_adaptive_submission_report,
+    calibrate_submission_items,
+)
 from .assessment import assess_answer
 from .handout_cache import get_handout_cache
 from .memory import LearningMemory
@@ -159,6 +164,12 @@ def generate_topic_quiz(
         warnings.append(
             f"Only {available_count} verified question-bank questions are available for the requested topic."
         )
+    mastery_map = memory.get_mastery_by_kg_node(str(session.get("user_id") or ""), session_id)
+    questions = annotate_questions(
+        questions,
+        mastery_map,
+        surface="topic_quiz",
+    )
 
     exam = {
         "schema_version": "learning.topic_quiz.v1",
@@ -178,6 +189,11 @@ def generate_topic_quiz(
             "requested_question_count": requested_count,
             "section_count": 1,
             "submitted": False,
+            "adaptive_assessment": {
+                "schema_version": "adaptive_assessment.summary.v1",
+                "strategy": "mastery_to_bloom_to_irt_target",
+                "bloom_levels": sorted({item.get("bloom_level") for item in questions if item.get("bloom_level")}),
+            },
         },
         "warnings": warnings,
         "error": None if questions else "No verified question-bank questions matched the requested topic.",
@@ -250,6 +266,12 @@ def generate_stage_exam(
 
     if not questions:
         raise ValueError("No valid stage exam questions could be generated")
+    mastery_map = memory.get_mastery_by_kg_node(str(session.get("user_id") or ""), session_id)
+    questions = annotate_questions(
+        questions,
+        mastery_map,
+        surface="stage_exam",
+    )
 
     exam = {
         "schema_version": "learning.stage_exam.v1",
@@ -273,6 +295,11 @@ def generate_stage_exam(
             "question_count": len(questions),
             "section_count": sum(1 for count in section_count.values() if count > 0),
             "submitted": False,
+            "adaptive_assessment": {
+                "schema_version": "adaptive_assessment.summary.v1",
+                "strategy": "mastery_to_bloom_to_irt_target",
+                "bloom_levels": sorted({item.get("bloom_level") for item in questions if item.get("bloom_level")}),
+            },
         },
         "warnings": warnings,
     }
@@ -455,6 +482,32 @@ def submit_stage_exam(
         "mastery_updates_count": len(mastery_updates),
         "results": results,
     }
+    calibration_results = [
+        {
+            "question_id": item.get("id"),
+            "score": item.get("assessment", {}).get("score", 0.0),
+            "max_score": 1.0,
+            "is_correct": item.get("assessment", {}).get("is_correct", False),
+        }
+        for item in results
+    ]
+    item_stats = calibrate_submission_items(
+        memory,
+        user_id=user_id,
+        surface="stage_exam",
+        questions=[item for item in exam.get("questions", []) or [] if isinstance(item, dict)],
+        results=calibration_results,
+    )
+    question_by_id = {
+        str(item.get("id") or ""): item
+        for item in exam.get("questions", []) or []
+        if isinstance(item, dict)
+    }
+    submission["adaptive_assessment"] = build_adaptive_submission_report(
+        results=calibration_results,
+        question_by_id=question_by_id,
+        item_stats=item_stats,
+    )
     exam["status"] = "submitted"
     exam["updated_at"] = _now()
     exam["submission"] = submission
@@ -481,6 +534,7 @@ def submit_stage_exam(
             "weak_kg_node_ids": sorted(wrong_kg_node_ids),
             "question_count": len(results),
             "correct_count": submission["correct_count"],
+            "adaptive_assessment": submission["adaptive_assessment"],
             "remediation": submission["remediation"],
         },
     )

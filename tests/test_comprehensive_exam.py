@@ -106,6 +106,23 @@ def test_question_kind_alias_and_direct_item_json_are_normalized() -> None:
     assert question[0]["question_kind"] == "单选改写"
     assert question[0]["source_id"] == "evidence_1"
 
+def test_short_answer_rubric_string_is_normalized_to_points() -> None:
+    question = comprehensive_exam._validate_single_short_answer_rows(
+        [{
+            "prompt": "Explain the clinical decision points for this evidence.",
+            "question_kind": "概念",
+            "reference_answer": "The answer should cover mechanism, clinical signs, and diagnosis.",
+            "rubric": "1. cover mechanism; 2. cover clinical signs; 3. cover diagnosis",
+        }],
+        "evidence_1",
+    )
+
+    assert question[0]["rubric"] == [
+        "cover mechanism",
+        "cover clinical signs",
+        "cover diagnosis",
+    ]
+
 
 def test_json_rows_accepts_single_item_envelope_variants() -> None:
     item = {

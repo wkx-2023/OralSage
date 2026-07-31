@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import copy
+import math
 import sqlite3
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -135,6 +136,32 @@ CREATE TABLE IF NOT EXISTS answer_records (
     created_at        TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS assessment_item_stats (
+    item_key                  TEXT PRIMARY KEY,
+    surface                   TEXT NOT NULL,
+    source_question_id         TEXT,
+    kg_node_ids_json           TEXT NOT NULL,
+    bloom_level                TEXT,
+    target_difficulty          REAL NOT NULL DEFAULT 0.5,
+    exposure_count             INTEGER NOT NULL DEFAULT 0,
+    correct_count              INTEGER NOT NULL DEFAULT 0,
+    incorrect_count            INTEGER NOT NULL DEFAULT 0,
+    score_sum                  REAL NOT NULL DEFAULT 0.0,
+    score_square_sum           REAL NOT NULL DEFAULT 0.0,
+    theta_sum                  REAL NOT NULL DEFAULT 0.0,
+    correct_theta_sum          REAL NOT NULL DEFAULT 0.0,
+    incorrect_theta_sum        REAL NOT NULL DEFAULT 0.0,
+    correct_rate               REAL NOT NULL DEFAULT 0.0,
+    difficulty_b               REAL NOT NULL DEFAULT 0.0,
+    discrimination_a           REAL NOT NULL DEFAULT 1.0,
+    quality_status             TEXT NOT NULL DEFAULT 'observing',
+    last_user_id               TEXT,
+    updated_at                 TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_assessment_item_stats_surface
+ON assessment_item_stats (surface, updated_at);
+
 CREATE TABLE IF NOT EXISTS learner_memory (
     user_id           TEXT NOT NULL,
     slot              TEXT NOT NULL,
@@ -228,6 +255,57 @@ def _json_list(value: Any) -> list[str]:
             seen.add(text)
             result.append(text)
     return result
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return default
+    if math.isnan(result) or math.isinf(result):
+        return default
+    return result
+
+
+def _logit(probability: float) -> float:
+    p = max(1e-4, min(1.0 - 1e-4, float(probability)))
+    return math.log(p / (1.0 - p))
+
+
+def _estimate_discrimination(
+    *,
+    correct_theta_sum: float,
+    correct_count: int,
+    incorrect_theta_sum: float,
+    incorrect_count: int,
+    exposure_count: int,
+) -> float:
+    if correct_count > 0 and incorrect_count > 0:
+        correct_mean = correct_theta_sum / correct_count
+        incorrect_mean = incorrect_theta_sum / incorrect_count
+        return round(max(0.15, min(2.5, 0.75 + abs(correct_mean - incorrect_mean) * 0.65)), 3)
+    if exposure_count < 6:
+        return 1.0
+    return 0.65
+
+
+def _assessment_quality_status(
+    *,
+    exposure_count: int,
+    correct_rate: float,
+    discrimination_a: float,
+) -> str:
+    if exposure_count < 5:
+        return "observing"
+    if correct_rate >= 0.85:
+        return "too_easy"
+    if correct_rate <= 0.15:
+        return "too_hard"
+    if discrimination_a >= 0.8:
+        return "high_discrimination"
+    if discrimination_a < 0.45:
+        return "low_discrimination"
+    return "usable"
 
 
 _PROFILE_HISTORY_KEYS = (
@@ -1358,6 +1436,163 @@ class LearningMemory:
             item["grading"] = json.loads(item.pop("grading_json", "{}"))
             result.append(item)
         return result
+
+    # -- adaptive assessment / IRT item calibration --------------------
+
+    def update_assessment_item_stat(
+        self,
+        *,
+        item_key: str,
+        surface: str,
+        question: dict[str, Any],
+        user_id: str,
+        is_correct: bool,
+        score_ratio: float,
+        learner_theta: float,
+    ) -> dict[str, Any]:
+        """Update Bloom/IRT-compatible item statistics from one response."""
+        key = str(item_key or "").strip()
+        if not key:
+            raise ValueError("item_key is required")
+        surface_name = str(surface or "assessment").strip()[:80] or "assessment"
+        metadata = question.get("adaptive_assessment") if isinstance(question.get("adaptive_assessment"), dict) else {}
+        kg_node_ids = _json_list(question.get("kg_node_ids") or metadata.get("kg_node_ids") or [])
+        source_question_id = str(
+            question.get("source_question_id")
+            or (
+                question.get("question_bank", {}).get("question_id")
+                if isinstance(question.get("question_bank"), dict)
+                else ""
+            )
+            or ""
+        ).strip()[:180]
+        bloom_level = str(question.get("bloom_level") or metadata.get("bloom_level") or "").strip()[:40]
+        target_difficulty = max(
+            0.0,
+            min(1.0, _safe_float(question.get("target_difficulty") or metadata.get("target_difficulty"), 0.5)),
+        )
+        score_value = max(0.0, min(1.0, _safe_float(score_ratio, 0.0)))
+        theta_value = max(-3.0, min(3.0, _safe_float(learner_theta, 0.0)))
+        now = _now()
+        row = self._conn.execute(
+            "SELECT * FROM assessment_item_stats WHERE item_key = ?",
+            (key,),
+        ).fetchone()
+        if row is None:
+            old = {
+                "exposure_count": 0,
+                "correct_count": 0,
+                "incorrect_count": 0,
+                "score_sum": 0.0,
+                "score_square_sum": 0.0,
+                "theta_sum": 0.0,
+                "correct_theta_sum": 0.0,
+                "incorrect_theta_sum": 0.0,
+            }
+        else:
+            old = dict(row)
+
+        exposure_count = int(old.get("exposure_count", 0)) + 1
+        correct_count = int(old.get("correct_count", 0)) + (1 if is_correct else 0)
+        incorrect_count = int(old.get("incorrect_count", 0)) + (0 if is_correct else 1)
+        score_sum = float(old.get("score_sum", 0.0)) + score_value
+        score_square_sum = float(old.get("score_square_sum", 0.0)) + score_value * score_value
+        theta_sum = float(old.get("theta_sum", 0.0)) + theta_value
+        correct_theta_sum = float(old.get("correct_theta_sum", 0.0)) + (theta_value if is_correct else 0.0)
+        incorrect_theta_sum = float(old.get("incorrect_theta_sum", 0.0)) + (0.0 if is_correct else theta_value)
+        smoothed_correct_rate = (correct_count + 1.0) / (exposure_count + 2.0)
+        mean_theta = theta_sum / max(1, exposure_count)
+        difficulty_b = max(-3.0, min(3.0, mean_theta - _logit(smoothed_correct_rate)))
+        discrimination_a = _estimate_discrimination(
+            correct_theta_sum=correct_theta_sum,
+            correct_count=correct_count,
+            incorrect_theta_sum=incorrect_theta_sum,
+            incorrect_count=incorrect_count,
+            exposure_count=exposure_count,
+        )
+        quality_status = _assessment_quality_status(
+            exposure_count=exposure_count,
+            correct_rate=correct_count / max(1, exposure_count),
+            discrimination_a=discrimination_a,
+        )
+        params = (
+            key,
+            surface_name,
+            source_question_id or None,
+            json.dumps(kg_node_ids, ensure_ascii=False),
+            bloom_level or None,
+            target_difficulty,
+            exposure_count,
+            correct_count,
+            incorrect_count,
+            score_sum,
+            score_square_sum,
+            theta_sum,
+            correct_theta_sum,
+            incorrect_theta_sum,
+            correct_count / max(1, exposure_count),
+            difficulty_b,
+            discrimination_a,
+            quality_status,
+            user_id,
+            now,
+        )
+        self._conn.execute(
+            """INSERT OR REPLACE INTO assessment_item_stats
+               (item_key, surface, source_question_id, kg_node_ids_json,
+                bloom_level, target_difficulty, exposure_count, correct_count,
+                incorrect_count, score_sum, score_square_sum, theta_sum,
+                correct_theta_sum, incorrect_theta_sum, correct_rate,
+                difficulty_b, discrimination_a, quality_status, last_user_id,
+                updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            params,
+        )
+        self._conn.commit()
+        return self.get_assessment_item_stat(key) or {}
+
+    def get_assessment_item_stat(self, item_key: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM assessment_item_stats WHERE item_key = ?",
+            (str(item_key or "").strip(),),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._assessment_item_stat_row_to_dict(row)
+
+    def list_assessment_item_stats(
+        self,
+        *,
+        surface: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 1000))
+        params: list[Any] = []
+        clause = ""
+        if surface:
+            clause = "WHERE surface = ?"
+            params.append(str(surface).strip())
+        params.append(limit)
+        rows = self._conn.execute(
+            f"""SELECT * FROM assessment_item_stats
+                {clause}
+                ORDER BY updated_at DESC
+                LIMIT ?""",
+            params,
+        ).fetchall()
+        return [self._assessment_item_stat_row_to_dict(row) for row in rows]
+
+    def _assessment_item_stat_row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        try:
+            item["kg_node_ids"] = json.loads(item.pop("kg_node_ids_json", "[]"))
+        except json.JSONDecodeError:
+            item["kg_node_ids"] = []
+        for key in ("target_difficulty", "correct_rate", "difficulty_b", "discrimination_a"):
+            item[key] = round(float(item.get(key, 0.0)), 3)
+        for key in ("score_sum", "score_square_sum", "theta_sum", "correct_theta_sum", "incorrect_theta_sum"):
+            item[key] = round(float(item.get(key, 0.0)), 4)
+        return item
 
     # -- knowledge tracing ---------------------------------------------
 

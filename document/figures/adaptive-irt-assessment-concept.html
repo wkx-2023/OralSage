@@ -1,0 +1,799 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adaptive Bloom-IRT Assessment Concept</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --ink: #182033;
+      --text: #4a5368;
+      --muted: #7b849a;
+      --line: #dfe4ee;
+      --violet: #6f58c4;
+      --blue: #2563eb;
+      --cyan: #0891b2;
+      --green: #0f9f6e;
+      --amber: #d97706;
+      --red: #dc3a54;
+      --shadow: 0 18px 48px rgba(28, 35, 58, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(180deg, #fbfcff 0%, var(--bg) 42%, #eef3f9 100%);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif;
+    }
+
+    .page {
+      width: min(1440px, 100%);
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    .shell {
+      min-height: calc(100vh - 56px);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      border: 1px solid rgba(117, 129, 157, 0.24);
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: var(--shadow);
+    }
+
+    .topbar {
+      min-height: 76px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: center;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+    }
+
+    .eyebrow {
+      margin: 0 0 5px;
+      color: var(--violet);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 25px;
+      line-height: 1.24;
+      letter-spacing: 0;
+    }
+
+    .top-summary {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 9px;
+    }
+
+    .metric-pill {
+      min-width: 118px;
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .metric-pill span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+    }
+
+    .metric-pill strong {
+      display: block;
+      margin-top: 4px;
+      font-family: "IBM Plex Sans", "Microsoft YaHei", sans-serif;
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 270px minmax(0, 1fr) 330px;
+      gap: 0;
+    }
+
+    .side,
+    .main,
+    .right {
+      min-height: 0;
+      overflow: auto;
+      padding: 22px;
+    }
+
+    .side,
+    .right {
+      background: #fbfcff;
+    }
+
+    .side {
+      border-right: 1px solid var(--line);
+    }
+
+    .right {
+      border-left: 1px solid var(--line);
+    }
+
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .section-title h2,
+    .section-title h3 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    .section-title span {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .strategy-card,
+    .question-card,
+    .panel-card,
+    .diagnosis-card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .strategy-card {
+      padding: 15px;
+      margin-bottom: 14px;
+    }
+
+    .strategy-card h3 {
+      margin: 0 0 7px;
+      font-size: 14px;
+    }
+
+    .strategy-card p {
+      margin: 0;
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .coverage-list {
+      display: grid;
+      gap: 9px;
+      margin-top: 15px;
+    }
+
+    .coverage-item {
+      padding: 10px 11px;
+      border: 1px solid #e5e9f2;
+      background: #fff;
+    }
+
+    .coverage-item .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 7px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .coverage-item .row span:last-child {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .bar {
+      height: 7px;
+      overflow: hidden;
+      background: #edf1f7;
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      background: var(--violet);
+    }
+
+    .bar.is-low i { background: var(--red); }
+    .bar.is-mid i { background: var(--amber); }
+    .bar.is-high i { background: var(--green); }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 18px;
+      background: #fff;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .flow-step {
+      position: relative;
+      min-height: 92px;
+      padding: 14px 13px;
+      border: 1px solid var(--line);
+      background: #fbfcff;
+    }
+
+    .flow-step::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -10px;
+      width: 10px;
+      border-top: 2px solid #cdd5e4;
+    }
+
+    .flow-step:last-child::after { display: none; }
+
+    .flow-step strong {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 13px;
+    }
+
+    .flow-step span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .question-card {
+      padding: 21px;
+    }
+
+    .question-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 25px;
+      padding: 0 9px;
+      color: #fff;
+      background: var(--violet);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .tag.blue { background: var(--blue); }
+    .tag.cyan { background: var(--cyan); }
+    .tag.amber { background: var(--amber); }
+    .tag.soft {
+      color: var(--violet);
+      border: 1px solid #d8d1ec;
+      background: #f4f1ff;
+    }
+
+    .question-index {
+      color: var(--muted);
+      font-family: "IBM Plex Sans", Arial, sans-serif;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .stem {
+      margin: 0 0 18px;
+      color: var(--ink);
+      font-size: 19px;
+      font-weight: 800;
+      line-height: 1.75;
+    }
+
+    .choices {
+      display: grid;
+      gap: 10px;
+    }
+
+    .choice {
+      display: grid;
+      grid-template-columns: 30px 1fr auto;
+      gap: 11px;
+      align-items: center;
+      min-height: 48px;
+      padding: 9px 12px;
+      border: 1px solid #e2e7f1;
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .choice b {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #d4dbea;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .choice.is-selected {
+      border-color: #9f8de0;
+      background: #f7f4ff;
+      color: var(--ink);
+    }
+
+    .choice.is-selected b {
+      border-color: var(--violet);
+      background: var(--violet);
+      color: #fff;
+    }
+
+    .choice small {
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .diagnosis-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 16px;
+    }
+
+    .diagnosis-card {
+      padding: 17px;
+      min-height: 214px;
+    }
+
+    .axis-chart {
+      height: 150px;
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 9px;
+      align-items: end;
+      padding-top: 10px;
+    }
+
+    .axis-bar {
+      display: grid;
+      gap: 7px;
+      align-items: end;
+      text-align: center;
+    }
+
+    .axis-bar i {
+      display: block;
+      min-height: 12px;
+      background: linear-gradient(180deg, #7c6bd2, #2f66d5);
+    }
+
+    .axis-bar span {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+    }
+
+    .theta-box {
+      display: grid;
+      grid-template-columns: 128px 1fr;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .theta-ring {
+      width: 128px;
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      background: conic-gradient(var(--green) 0 67%, #e7ecf4 67% 100%);
+      border-radius: 50%;
+    }
+
+    .theta-ring div {
+      width: 88px;
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #fff;
+      color: var(--ink);
+      font-family: "IBM Plex Sans", Arial, sans-serif;
+      font-size: 25px;
+      font-weight: 900;
+    }
+
+    .theta-copy p {
+      margin: 0 0 10px;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .mini-stat {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .mini-stat div {
+      padding: 9px;
+      border: 1px solid #e5e9f2;
+      background: #fbfcff;
+    }
+
+    .mini-stat span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .mini-stat strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 16px;
+    }
+
+    .panel-card {
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    .irt-equation {
+      margin: 0;
+      padding: 14px;
+      background: #f3f6fb;
+      color: var(--ink);
+      font-family: "Cambria Math", "Times New Roman", serif;
+      font-size: 16px;
+      text-align: center;
+    }
+
+    .quality-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .quality-item {
+      padding: 12px;
+      border: 1px solid #e5e9f2;
+      background: #fff;
+    }
+
+    .quality-item header {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .quality-item h4 {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .quality-item header span {
+      color: var(--green);
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .calibration-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .calibration-row div {
+      padding: 8px;
+      background: #f7f9fc;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .calibration-row strong {
+      display: block;
+      margin-top: 4px;
+      color: var(--ink);
+      font-size: 15px;
+    }
+
+    .risk-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .risk {
+      display: grid;
+      grid-template-columns: 9px 1fr auto;
+      gap: 9px;
+      align-items: center;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .risk i {
+      width: 9px;
+      height: 9px;
+      background: var(--green);
+    }
+
+    .risk.warn i { background: var(--amber); }
+    .risk.bad i { background: var(--red); }
+    .risk span:last-child {
+      color: var(--muted);
+      font-family: "IBM Plex Sans", Arial, sans-serif;
+    }
+
+    .footer-note {
+      margin-top: 16px;
+      padding: 14px;
+      border-left: 4px solid var(--blue);
+      background: #f1f6ff;
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    @media (max-width: 1100px) {
+      .workspace {
+        grid-template-columns: 240px minmax(0, 1fr);
+      }
+      .right {
+        grid-column: 1 / -1;
+        border-left: 0;
+        border-top: 1px solid var(--line);
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .panel-card { margin: 0; }
+    }
+
+    @media (max-width: 780px) {
+      .page { padding: 0; }
+      .shell { min-height: 100vh; border: 0; }
+      .topbar,
+      .workspace,
+      .diagnosis-grid,
+      .flow,
+      .right {
+        display: block;
+      }
+      .top-summary { justify-content: flex-start; margin-top: 14px; }
+      .side,
+      .main,
+      .right {
+        border: 0;
+        border-top: 1px solid var(--line);
+      }
+      .flow-step { margin-bottom: 10px; }
+      .flow-step::after { display: none; }
+      .diagnosis-card,
+      .panel-card { margin-bottom: 14px; }
+      .theta-box { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="shell" aria-label="基于 Bloom-IRT 的自适应测评概念图">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Adaptive Assessment Engine</p>
+          <h1>基于 Bloom-IRT 双层测评模型的自适应题目生成与难度校准</h1>
+        </div>
+        <div class="top-summary" aria-label="测评摘要">
+          <div class="metric-pill"><span>能力估计 θ</span><strong>0.67</strong></div>
+          <div class="metric-pill"><span>平均难度 b</span><strong>0.58</strong></div>
+          <div class="metric-pill"><span>平均区分度 a</span><strong>0.81</strong></div>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <aside class="side" aria-label="自适应出题策略">
+          <div class="section-title">
+            <h2>自适应策略</h2>
+            <span>考前生成</span>
+          </div>
+
+          <article class="strategy-card">
+            <h3>画像驱动组卷</h3>
+            <p>读取 mastery_by_kg_node、BKT 后验掌握度和历史答题表现，动态确定每个知识点的题目数量、目标难度与 Bloom 层级。</p>
+          </article>
+
+          <article class="strategy-card">
+            <h3>Bloom 映射规则</h3>
+            <p>低掌握度生成记忆/理解题，中掌握度生成应用/分析题，高掌握度生成评价/创造型病例综合题。</p>
+          </article>
+
+          <div class="coverage-list">
+            <div class="coverage-item">
+              <div class="row"><span>牙周炎鉴别诊断</span><span>0.36</span></div>
+              <div class="bar is-low"><i style="width:36%"></i></div>
+            </div>
+            <div class="coverage-item">
+              <div class="row"><span>牙槽骨吸收机制</span><span>0.52</span></div>
+              <div class="bar is-mid"><i style="width:52%"></i></div>
+            </div>
+            <div class="coverage-item">
+              <div class="row"><span>龋病治疗原则</span><span>0.74</span></div>
+              <div class="bar is-high"><i style="width:74%"></i></div>
+            </div>
+          </div>
+        </aside>
+
+        <section class="main" aria-label="综合考试答题与诊断">
+          <section class="flow" aria-label="闭环流程">
+            <div class="flow-step">
+              <strong>认知画像</strong>
+              <span>BKT/掌握度/薄弱知识点输入</span>
+            </div>
+            <div class="flow-step">
+              <strong>Bloom 分层</strong>
+              <span>记忆、理解、应用、分析、评价、创造</span>
+            </div>
+            <div class="flow-step">
+              <strong>LLM 出题</strong>
+              <span>绑定 KG node 与目标难度</span>
+            </div>
+            <div class="flow-step">
+              <strong>IRT 校准</strong>
+              <span>估计难度 b 与区分度 a</span>
+            </div>
+            <div class="flow-step">
+              <strong>反馈画像</strong>
+              <span>更新计划、复习与下一次组卷</span>
+            </div>
+          </section>
+
+          <article class="question-card" aria-label="题目展示">
+            <div class="question-head">
+              <div class="tag-row">
+                <span class="tag">分析</span>
+                <span class="tag blue">难度 0.68</span>
+                <span class="tag cyan">KG：牙周炎</span>
+                <span class="tag soft">区分中高掌握学生</span>
+              </div>
+              <span class="question-index">Q08 / 20</span>
+            </div>
+
+            <p class="stem">患者牙龈反复出血，探诊深度 6mm，影像提示牙槽骨水平吸收。若要求判断其主要病理机制，下列哪项最能解释该表现？</p>
+
+            <div class="choices">
+              <div class="choice"><b>A</b><span>单纯牙釉质脱矿导致牙体硬组织缺损</span><small>记忆干扰项</small></div>
+              <div class="choice is-selected"><b>B</b><span>菌斑生物膜诱导炎症反应，引发附着丧失与牙槽骨吸收</span><small>目标答案</small></div>
+              <div class="choice"><b>C</b><span>唾液缓冲能力增强造成牙周袋加深</span><small>低区分度项</small></div>
+              <div class="choice"><b>D</b><span>牙髓坏死直接导致全口牙龈退缩</span><small>概念混淆项</small></div>
+            </div>
+          </article>
+
+          <section class="diagnosis-grid" aria-label="测评诊断">
+            <article class="diagnosis-card">
+              <div class="section-title">
+                <h3>Bloom 层级表现</h3>
+                <span>交卷后</span>
+              </div>
+              <div class="axis-chart" aria-label="Bloom 得分柱状图">
+                <div class="axis-bar"><i style="height:88%"></i><span>记忆<br>88%</span></div>
+                <div class="axis-bar"><i style="height:78%"></i><span>理解<br>78%</span></div>
+                <div class="axis-bar"><i style="height:66%"></i><span>应用<br>66%</span></div>
+                <div class="axis-bar"><i style="height:49%"></i><span>分析<br>49%</span></div>
+                <div class="axis-bar"><i style="height:42%"></i><span>评价<br>42%</span></div>
+                <div class="axis-bar"><i style="height:35%"></i><span>创造<br>35%</span></div>
+              </div>
+            </article>
+
+            <article class="diagnosis-card">
+              <div class="section-title">
+                <h3>能力参数</h3>
+                <span>IRT 估计</span>
+              </div>
+              <div class="theta-box">
+                <div class="theta-ring"><div>θ 0.67</div></div>
+                <div class="theta-copy">
+                  <p>系统根据答题正确率、题目难度和区分度联合估计学习者能力，并回写学习画像。</p>
+                  <div class="mini-stat">
+                    <div><span>知识覆盖</span><strong>91%</strong></div>
+                    <div><span>诊断置信度</span><strong>0.84</strong></div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </section>
+        </section>
+
+        <aside class="right" aria-label="IRT 题目质量校准">
+          <article class="panel-card">
+            <div class="section-title">
+              <h2>IRT 校准</h2>
+              <span>事后评估</span>
+            </div>
+            <p class="irt-equation">P(X=1 | θ,a,b)=1/(1+e<sup>-a(θ-b)</sup>)</p>
+            <div class="footer-note">θ 表示学习者能力，b 表示题目难度，a 表示题目区分度。答题数据越多，参数估计越稳定。</div>
+          </article>
+
+          <article class="panel-card">
+            <div class="section-title">
+              <h2>题目质量</h2>
+              <span>校准结果</span>
+            </div>
+            <div class="quality-list">
+              <div class="quality-item">
+                <header>
+                  <h4>Q08 牙周炎机制分析</h4>
+                  <span>高质量区分题</span>
+                </header>
+                <div class="calibration-row">
+                  <div>难度 b<strong>0.71</strong></div>
+                  <div>区分度 a<strong>0.86</strong></div>
+                  <div>正确率<strong>43%</strong></div>
+                </div>
+              </div>
+
+              <div class="quality-item">
+                <header>
+                  <h4>Q03 龋病基础概念</h4>
+                  <span style="color:var(--amber)">偏易</span>
+                </header>
+                <div class="calibration-row">
+                  <div>难度 b<strong>0.22</strong></div>
+                  <div>区分度 a<strong>0.41</strong></div>
+                  <div>正确率<strong>87%</strong></div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel-card">
+            <div class="section-title">
+              <h2>系统建议</h2>
+              <span>自动回流</span>
+            </div>
+            <div class="risk-list">
+              <div class="risk warn"><i></i><span>分析层级表现低于预期</span><span>-18%</span></div>
+              <div class="risk bad"><i></i><span>牙槽骨吸收机制需强化</span><span>高风险</span></div>
+              <div class="risk"><i></i><span>Q08 可保留为高区分题</span><span>通过</span></div>
+              <div class="risk warn"><i></i><span>Q03 建议升级为应用题</span><span>重写</span></div>
+            </div>
+          </article>
+        </aside>
+      </section>
+    </section>
+  </main>
+</body>
+</html>
