@@ -119,6 +119,7 @@ from .services.learning.study_plan import (
     recommend_study_plan,
     update_study_plan_item,
 )
+from .services.learning.student_twin import build_student_twin_simulation
 from .services.learning.stage_exam import (
     generate_stage_exam,
     public_stage_exam,
@@ -298,6 +299,8 @@ def capabilities() -> dict[str, Any]:
             "learning_router_placeholder",
             "learning_agent_mvp",
             "learning_study_plan",
+            "learning_student_twin",
+            "learning_knowledge_tracing",
             "learning_learner_assessment",
             "learning_stage_exam",
             "clinical_speaking",
@@ -351,6 +354,8 @@ def capabilities() -> dict[str, Any]:
             "/api/learning/profile/{user_id}",
             "/api/learning/profile/slice",
             "/api/learning/memory/consolidate",
+            "/api/learning/student-twin/{user_id}",
+            "/api/learning/knowledge-tracing/{user_id}",
             "/api/learning/plan/{user_id}/month",
             "/api/learning/plan/{user_id}/day/{plan_date}",
             "/api/learning/plan/recommend",
@@ -1571,6 +1576,71 @@ async def learning_memory_consolidate(
             "module": "learning",
             "action": "memory_consolidate",
             "result": result,
+        }
+    )
+
+
+@app.get("/api/learning/student-twin/{user_id}")
+async def learning_student_twin(
+    user_id: str,
+    request: Request,
+    plan_date: str | None = None,
+    available_minutes: int | None = None,
+    max_bottlenecks: int = 5,
+) -> JSONResponse:
+    """Return a deterministic StudentTwinAgent learning-path simulation."""
+    user_id = _effective_learning_user_id(request, user_id)
+    try:
+        result = build_student_twin_simulation(
+            learning_orchestrator.memory,
+            user_id=user_id,
+            plan_date=plan_date,
+            available_minutes=available_minutes,
+            max_bottlenecks=max_bottlenecks,
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            {
+                "ok": False,
+                "module": "learning",
+                "action": "student_twin",
+                "result": {"error": str(exc)},
+            },
+            status_code=400,
+        )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "student_twin",
+            "result": result,
+        }
+    )
+
+
+@app.get("/api/learning/knowledge-tracing/{user_id}")
+async def learning_knowledge_tracing(
+    user_id: str,
+    request: Request,
+    limit: int = 200,
+) -> JSONResponse:
+    """Return BKT/DKT-compatible KG-node cognitive states for a learner."""
+    user_id = _effective_learning_user_id(request, user_id)
+    states = learning_orchestrator.memory.list_knowledge_trace_states(
+        user_id,
+        limit=limit,
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "module": "learning",
+            "action": "knowledge_tracing",
+            "result": {
+                "user_id": user_id,
+                "schema_version": "knowledge_tracing.bkt.v1",
+                "model": "bkt_kg_node_v1",
+                "states": states,
+            },
         }
     )
 
