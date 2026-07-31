@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from .retrieval import LiteratureRetrievalError, merge_articles, search_elsevier_oral_medicine, search_pubmed_oral_medicine
 from .summarizer import build_review, translate_article
@@ -180,6 +180,7 @@ async def run_literature_search(
     limit: int = 5,
     *,
     include_chat_translations: bool = False,
+    tool_caller: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     query = query.strip()
     if not query:
@@ -194,7 +195,16 @@ async def run_literature_search(
             "errors": ["query is required"],
         }
 
-    terms = run_terms(query, months)
+    if tool_caller:
+        term_result = await tool_caller(
+            "resolve_oral_terms",
+            {"query": query, "months": months},
+        )
+        terms = term_result.get("result") if isinstance(term_result, dict) else None
+        if not isinstance(terms, dict):
+            raise RuntimeError("MCP resolve_oral_terms returned an invalid result")
+    else:
+        terms = run_terms(query, months)
     keywords = str(terms.get("recommended_keywords") or query)
     search_months = int(terms.get("recommended_months") or months or 12)
     search_limit = max(1, min(int(limit or 5), 30))
@@ -205,7 +215,14 @@ async def run_literature_search(
     elsevier_articles: list[dict[str, Any]] = []
 
     try:
-        pubmed_articles = await search_pubmed_oral_medicine(keywords, search_months, search_limit)
+        if tool_caller:
+            pubmed_result = await tool_caller(
+                "search_pubmed_oral_medicine",
+                {"query": keywords, "months": search_months, "limit": search_limit},
+            )
+            pubmed_articles = pubmed_result.get("articles", [])
+        else:
+            pubmed_articles = await search_pubmed_oral_medicine(keywords, search_months, search_limit)
         if pubmed_articles:
             sources.append("PubMed")
     except LiteratureRetrievalError as exc:
@@ -215,13 +232,24 @@ async def run_literature_search(
 
     if len(pubmed_articles) < search_limit:
         try:
-            elsevier_articles = await search_elsevier_oral_medicine(
-                keywords,
-                search_months,
-                search_limit - len(pubmed_articles),
-            )
+            if tool_caller:
+                elsevier_result = await tool_caller(
+                    "search_elsevier_oral_medicine",
+                    {
+                        "query": keywords,
+                        "months": search_months,
+                        "limit": search_limit - len(pubmed_articles),
+                    },
+                )
+                elsevier_articles = elsevier_result.get("articles", [])
+            else:
+                elsevier_articles = await search_elsevier_oral_medicine(
+                    keywords,
+                    search_months,
+                    search_limit - len(pubmed_articles),
+                )
             if elsevier_articles:
-                sources.append("Elsevier")
+                sources.append("Scopus")
         except LiteratureRetrievalError as exc:
             errors.append(f"Elsevier skipped/failed: {exc}")
         except Exception as exc:

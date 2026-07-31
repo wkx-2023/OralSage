@@ -1,0 +1,77 @@
+INFO:     Started server process [22668]
+INFO:     Waiting for application startup.
+[07/31/26 15:00:30] INFO     StreamableHTTP      streamable_http_manager.py:128
+                             session manager                                   
+                             started                                           
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8011 (Press CTRL+C to quit)
+[07/31/26 15:00:58] INFO     Created new         streamable_http_manager.py:255
+                             transport with                                    
+                             session ID:                                       
+                             ce987219f73744339dd                               
+                             906fed1d456d2                                     
+                    INFO     Processing request of type           server.py:727
+                             ListToolsRequest                                  
+                    INFO     Terminating session:        streamable_http.py:785
+                             ce987219f73744339dd906fed1d                       
+                             456d2                                             
+                    INFO     Created new         streamable_http_manager.py:255
+                             transport with                                    
+                             session ID:                                       
+                             0bc855d341e74c08b7a                               
+                             e0fe6a6605b3e                                     
+                    INFO     Processing request of type           server.py:727
+                             CallToolRequest                                   
+[07/31/26 15:01:04] INFO     Processing request of type           server.py:727
+                             ListToolsRequest                                  
+                    INFO     Terminating session:        streamable_http.py:785
+                             0bc855d341e74c08b7ae0fe6a66                       
+                             05b3e                                             
+                    INFO     Created new         streamable_http_manager.py:255
+                             transport with                                    
+                             session ID:                                       
+                             ce0226eef17542b8961                               
+                             e3f7c94a56c7e                                     
+                    INFO     Processing request of type           server.py:727
+                             CallToolRequest                                   
+[07/31/26 15:01:07] INFO     Processing request of type           server.py:727
+                             ListToolsRequest                                  
+                    INFO     Terminating session:        streamable_http.py:785
+                             ce0226eef17542b8961e3f7c94a                       
+                             56c7e                                             
+                    INFO     Created new         streamable_http_manager.py:255
+                             transport with                                    
+                             session ID:                                       
+                             341b46dfcf334f7b9b1                               
+                             ed8e6b3eb1390                                     
+                    INFO     Processing request of type           server.py:727
+                             CallToolRequest                                   
+                    INFO     Processing request of type           server.py:727
+                             ListToolsRequest                                  
+                    INFO     Terminating session:        streamable_http.py:785
+                             341b46dfcf334f7b9b1ed8e6b3e                       
+                             b1390                                             
+[07/31/26 15:01:08] INFO     Created new         streamable_http_manager.py:255
+                             transport with                                    
+                             session ID:                                       
+                             cbea7fbc6e30433e969                               
+                             4281bac70334f                                     
+                    INFO     Processing request of type           server.py:727
+                             CallToolRequest                                   
+                    INFO     Processing request of type           server.py:727
+                             ListToolsRequest                                  
+                    INFO     Terminating session:        streamable_http.py:785
+                             cbea7fbc6e30433e9694281bac7                       
+                             0334f                                             
+                    INFO     Created new         streamable_http_manager.py:255
+                             transport with                                    
+                             session ID:                                       
+                             351132282db547b286e                               
+                             cb852c2668d0c                                     
+                    INFO     Processing request of type           server.py:727
+                             CallToolRequest                                   
+[07/31/26 15:01:14] INFO     Processing request of type           server.py:727
+                             ListToolsRequest                                  
+                    INFO     Terminating session:        streamable_http.py:785
+                             351132282db547b286ecb852c26                       
+                             68d0c                                             

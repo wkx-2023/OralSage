@@ -77,6 +77,7 @@ from .services.knowledge_graph import (
     get_graph_summary,
 )
 from .services.literature import run_article_translation, run_literature_search, run_terms
+from .services.mcp_server import mcp_asgi_app, oral_sage_mcp
 from .services.mcp_tools import invoke_local_mcp_tool
 from .services.pathology import run_pathology_ask
 from .services.record_workflow import correct_asr, extract_fields, generate_record, run_workflow
@@ -149,6 +150,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Standard MCP Streamable HTTP endpoint. Legacy /mcp/tools/* routes remain
+# registered below for backwards compatibility with existing local callers.
+app.mount("/mcp/server", mcp_asgi_app())
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -2943,6 +2947,15 @@ async def _weixin_auto_push_job(*, action: str, env_name: str, default_time: str
 
 
 @app.on_event("startup")
+async def _start_mcp_session_manager() -> None:
+    # FastAPI does not run the mounted Starlette app's lifespan automatically.
+    # FastMCP needs this task group for Streamable HTTP sessions.
+    context = oral_sage_mcp.session_manager.run()
+    await context.__aenter__()
+    app.state.mcp_session_context = context
+
+
+@app.on_event("startup")
 async def _start_weixin_auto_push_jobs() -> None:
     if not _env_enabled("ORALSAGE_WEIXIN_AUTO_PUSH_ENABLED", True):
         app.state.weixin_auto_push_tasks = []
@@ -2963,6 +2976,13 @@ async def _start_weixin_auto_push_jobs() -> None:
             )
         ),
     ]
+
+
+@app.on_event("shutdown")
+async def _stop_mcp_session_manager() -> None:
+    context = getattr(app.state, "mcp_session_context", None)
+    if context is not None:
+        await context.__aexit__(None, None, None)
 
 
 @app.on_event("shutdown")

@@ -99,6 +99,11 @@
       }
       if (isTableSeparator(trimmed)) return;
       closeTable();
+      if (/^#\s+/.test(trimmed)) {
+        closeList();
+        html.push(`<h3>${inline(trimmed.replace(/^#\s+/, ''))}</h3>`);
+        return;
+      }
       if (/^#{2,3}\s+/.test(trimmed)) {
         closeList();
         html.push(`<h4>${inline(trimmed.replace(/^#{2,3}\s+/, ''))}</h4>`);
@@ -200,15 +205,14 @@
     const link = paper.link
       ? `<a class="lit-detail-link primary" href="${escape(paper.link)}" target="_blank" rel="noreferrer">\u6253\u5f00\u539f\u6587</a>`
       : '';
-    const translatedTitle = translation?.title_zh || (loading ? '\u6b63\u5728\u8c03\u7528 Qwen \u7ffb\u8bd1\u6807\u9898...' : '\u7b49\u5f85\u7ffb\u8bd1');
-    const translatedSummary = translation?.summary_zh || (loading ? '\u6b63\u5728\u8c03\u7528 Qwen \u7ffb\u8bd1\u6458\u8981...' : '\u70b9\u51fb\u6587\u732e\u540e\u81ea\u52a8\u7ffb\u8bd1');
+    const translatedTitle = translation?.title_zh || (loading ? '\u6b63\u5728\u7ffb\u8bd1\u6807\u9898...' : '\u7b49\u5f85\u7ffb\u8bd1');
+    const translatedSummary = translation?.summary_zh || (loading ? '\u6b63\u5728\u7ffb\u8bd1\u6458\u8981...' : '\u70b9\u51fb\u6587\u732e\u540e\u81ea\u52a8\u7ffb\u8bd1');
     const points = Array.isArray(translation?.key_points) ? translation.key_points : [];
 
     box.innerHTML = `
       <div class="lit-detail-badges">
         <span class="lit-badge">${escape(paper.source || 'Unknown source')}</span>
         <span class="lit-badge soft">${escape(paper.year || paper.publish_date || 'Unknown date')}</span>
-        <span class="lit-badge soft">Qwen ${translation?.source === 'llm' ? '\u5df2\u7ffb\u8bd1' : '\u5f85\u7ffb\u8bd1'}</span>
       </div>
       <h2 class="lit-detail-title">${escape(paper.title || 'No title')}</h2>
       <div class="lit-detail-authors">${escape(authors(paper))}</div>
@@ -337,7 +341,7 @@
     const limit = Number(value('lit-limit') || 5);
     setStatus(`\u68c0\u7d22\u4e2d\uff1a${query}`, '\u8bf7\u6c42 PubMed / Elsevier');
     $('lit-run')?.setAttribute('disabled', 'disabled');
-    $('lit-review').textContent = '\u6b63\u5728\u8c03\u7528 Qwen \u751f\u6210\u6587\u732e\u7efc\u8ff0...';
+    $('lit-review').textContent = '\u6b63\u5728\u751f\u6210\u6587\u732e\u7efc\u8ff0...';
     setIndexView('list');
 
     try {

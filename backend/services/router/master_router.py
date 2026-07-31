@@ -46,7 +46,7 @@ from backend.services.learning.skills import (
     learning_skill_catalog,
     run_learn_knowledge_point,
 )
-from backend.services.literature.agent import run_literature_search
+from backend.services.mcp_client import run_literature_search_via_mcp
 from backend.services.qa.direct_qa import answer_direct_question
 
 logger = logging.getLogger(__name__)
@@ -1044,7 +1044,9 @@ class MasterRouter:
     ) -> None:
         self.learning_orchestrator = learning_orchestrator
         self._classifier = classifier
-        self._literature_service = literature_service or run_literature_search
+        # The standard path uses the MCP client. It retains a direct-service
+        # fallback inside the client for startup and transport failures.
+        self._literature_service = literature_service or run_literature_search_via_mcp
         self._study_plan_service = study_plan_service or recommend_study_plan
         self._plan_matcher = plan_matcher
         self._direct_qa_service = direct_qa_service or answer_direct_question

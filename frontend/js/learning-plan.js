@@ -582,10 +582,18 @@
     let series = Array.isArray(forecast?.series) ? forecast.series : [];
     const horizon = Number(forecast?.horizon_days || 3);
     const target = Number(forecast?.target_retention || 0.9);
+    const forecastColors = {
+      review_plus_practice: '#5D66D0',
+      spaced_review_focus: '#A961C4',
+      continue_new_lesson: '#6E88E5',
+    };
+    const fallbackColors = ['#B488E8', '#E58BC6', '#A6CEE3'];
+    const colorForSeries = (item, index) => (
+      forecastColors[String(item?.path_id || '')] || fallbackColors[index % fallbackColors.length]
+    );
     if (!series.length && Array.isArray(paths) && paths.length) {
       const twin = state.studentTwinSummaryDate === state.selectedDate ? state.studentTwinSummary : null;
       const startMastery = Number(twin?.state?.overall_mastery || 0.62);
-      const colors = ['#8b97a8', '#2563eb', '#0f766e', '#6d5bd0'];
       series = paths.slice(0, 4).map((path, index) => {
         const gain = Number(path?.mastery_gain || 0.06);
         const riskDrop = Number(path?.risk_reduction || 0.05);
@@ -599,12 +607,16 @@
         return {
           path_id: path?.path_id || `path-${index}`,
           label: pathLabel(path, `路径 ${String.fromCharCode(65 + index)}`),
-          color: colors[index % colors.length],
+          color: colorForSeries(path, index),
           recommended: Boolean(path?.recommended),
           points,
         };
       });
     }
+    series = series.map((item, index) => ({
+      ...item,
+      color: colorForSeries(item, index),
+    }));
     if (title) {
       title.innerHTML = `
         <span>未来 ${escapeHtml(String(horizon))} 天预计综合掌握度</span>
@@ -643,15 +655,15 @@
         </pattern>
       </defs>
       <rect x="0" y="0" width="${width}" height="${height}" fill="url(#twin-grid-dynamic)"></rect>
-      <line x1="${left}" y1="${bottom}" x2="${right}" y2="${bottom}" stroke="#a9b4c2" stroke-width="1.2"></line>
-      <line x1="${left}" y1="${top}" x2="${left}" y2="${bottom}" stroke="#a9b4c2" stroke-width="1.2"></line>
+      <line x1="${left}" y1="${bottom}" x2="${right}" y2="${bottom}" stroke="#b9afd4" stroke-width="1.2"></line>
+      <line x1="${left}" y1="${top}" x2="${left}" y2="${bottom}" stroke="#b9afd4" stroke-width="1.2"></line>
       ${lineParts}
-      <line x1="${left}" y1="${targetY}" x2="${right}" y2="${targetY}" stroke="#b7791f" stroke-width="1.5" stroke-dasharray="7 7"></line>
-      <text x="38" y="204" font-size="12" fill="#627083">今天</text>
-      <text x="230" y="204" font-size="12" fill="#627083">明天</text>
-      <text x="420" y="204" font-size="12" fill="#627083">第 2 天</text>
-      <text x="552" y="204" font-size="12" fill="#627083">第 3 天</text>
-      <text x="520" y="34" font-size="12" fill="#2563eb" font-weight="700">推荐路径最优</text>
+      <line x1="${left}" y1="${targetY}" x2="${right}" y2="${targetY}" stroke="#C48E9B" stroke-width="1.5" stroke-dasharray="7 7"></line>
+      <text x="38" y="204" font-size="12" fill="#857DB0">今天</text>
+      <text x="230" y="204" font-size="12" fill="#857DB0">明天</text>
+      <text x="420" y="204" font-size="12" fill="#857DB0">第 2 天</text>
+      <text x="552" y="204" font-size="12" fill="#857DB0">第 3 天</text>
+      <text x="520" y="34" font-size="12" fill="#5D66D0" font-weight="700">推荐路径最优</text>
     `;
     legend.innerHTML = series.map((item) => `
       <span><i style="background:${escapeHtml(item.color || '#6d5bd0')}"></i>${escapeHtml(item.label || pathLabel(paths.find((path) => path.path_id === item.path_id), '路径'))}</span>
@@ -746,8 +758,8 @@
       })) : []);
     stepsNode.innerHTML = steps.slice(0, 3).map((step) => `
       <div class="twin-step">
-        <div class="twin-minutes">${escapeHtml(String(step.minutes || 10))}m</div>
-        <div>
+        <span class="twin-minutes">${escapeHtml(String(step.minutes || 10))}m</span>
+        <div class="twin-step-copy">
           <h4>${escapeHtml(step.title || '数字孪生学习任务')}</h4>
         </div>
       </div>

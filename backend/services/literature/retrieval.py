@@ -306,7 +306,14 @@ def _request_text(url: str, params: dict[str, Any] | None = None, headers: dict[
     try:
         with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
             return response.read().decode("utf-8", errors="replace")
-    except (HTTPError, URLError, TimeoutError) as exc:
+    except HTTPError as exc:
+        # Scopus exposes useful contract errors only in its response body.
+        # Preserve a bounded copy so callers can distinguish invalid input
+        # from authentication or availability failures without exposing keys.
+        detail = exc.read().decode("utf-8", errors="replace")[:1000].strip()
+        message = f"{exc}; {detail}" if detail else str(exc)
+        raise LiteratureRetrievalError(message) from exc
+    except (URLError, TimeoutError) as exc:
         raise LiteratureRetrievalError(str(exc)) from exc
 
 
@@ -417,6 +424,24 @@ def _scopus_query(query: str) -> str:
     return f"TITLE-ABS-KEY(({query}) AND ({oral_filter}))"
 
 
+def _scopus_year_filter(start_date, end_date) -> str:
+    """Return the year expression accepted by the Scopus Search API."""
+    if start_date.year == end_date.year:
+        return str(end_date.year)
+    return f"{start_date.year}-{end_date.year}"
+
+
+def _scopus_entry_is_in_window(publish_date: str, start_date) -> bool:
+    """Apply the exact rolling window after Scopus' year-granularity filter."""
+    if not publish_date:
+        return True
+    try:
+        return datetime.fromisoformat(publish_date[:10]).date() >= start_date
+    except ValueError:
+        # Do not discard records merely because Scopus supplied a partial date.
+        return True
+
+
 def _fetch_elsevier_articles_sync(
     query: str,
     months: int,
@@ -428,7 +453,8 @@ def _fetch_elsevier_articles_sync(
     if not key:
         raise LiteratureRetrievalError("ELSEVIER_API_KEY is not configured")
 
-    start_date = datetime.now(timezone.utc).date() - timedelta(days=months * 30)
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=months * 30)
     headers = {
         "Accept": "application/json",
         "X-ELS-APIKey": key,
@@ -442,7 +468,9 @@ def _fetch_elsevier_articles_sync(
         ELSEVIER_SEARCH_URL,
         {
             "query": _scopus_query(query),
-            "date": start_date.strftime("%Y-%m-%d"),
+            # The Scopus Search API rejects ISO dates. Request the covering
+            # years, then filter precise publication dates below.
+            "date": _scopus_year_filter(start_date, end_date),
             "sort": "coverDate",
             "count": str(_candidate_limit(limit)),
         },
@@ -459,6 +487,8 @@ def _fetch_elsevier_articles_sync(
                 break
 
         publish_date = entry.get("prism:coverDate") or ""
+        if not _scopus_entry_is_in_window(publish_date, start_date):
+            continue
         year_match = re.search(r"\b(19|20)\d{2}\b", publish_date)
 
         articles.append(
@@ -471,7 +501,7 @@ def _fetch_elsevier_articles_sync(
                 summary=entry.get("dc:description") or "Abstract not available",
                 link=link,
                 doi=entry.get("prism:doi") or entry.get("dc:identifier"),
-                source="Elsevier",
+                source="Scopus",
                 year=year_match.group() if year_match else None,
             )
         )
