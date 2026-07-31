@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999995 (MiKTeX 24.1) (preloaded format=xelatex 2025.4.12)  30 JUL 2026 12:12
+This is XeTeX, Version 3.141592653-2.6-0.999995 (MiKTeX 24.1) (preloaded format=xelatex 2025.4.12)  31 JUL 2026 14:42
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1507,256 +1507,319 @@ LaTeX Font Warning: Font shape `U/rsfs/m/n' in size <10.53937> not available
 \tf@toc=\write5
 \openout5 = `main.toc'.
 
- [5] (sections/01-overview.tex [6
+ [5] [6
 
-]
+] (sections/01-overview.tex [7]
 Chapter 1.
-[7
+[8
 
-] [8] [9]) (sections/02-system-design.tex [10]
+] [9] [10]) (sections/02-system-design.tex [11]
 Chapter 2.
 File: figures/overall-architecture.pdf Graphic file (type pdf)
 <use figures/overall-architecture.pdf>
-[11
+[12
 
-]) (sections/03-agent-collaboration.tex [12] [13]
+] [13]) (sections/03-agent-collaboration.tex [14]
 Chapter 3.
 File: figures/Collaboration-between-learning-resources-and-agents.pdf Graphic f
 ile (type pdf)
 <use figures/Collaboration-between-learning-resources-and-agents.pdf>
-[14
+[15
 
-] [15] [16] [17]
+] [16] [17] [18]
 Underfull \hbox (badness 10000) in paragraph at lines 238--238
 []|\TU/TimesNewRoman(0)/m/n/10.53937 Resource Factory
  []
 
-[18] [19]
+[19] [20]
 Package hyperref Info: bookmark level for unknown algorithm defaults to 0 on in
-put line 308.
- [20]
+put line 310.
+ [21]
 Package hyperref Info: bookmark level for unknown lstlisting defaults to 0 on i
-nput line 361.
- [21]) (sections/04-image-analysis-agent.tex [22]
+nput line 363.
+ [22]) (sections/03a-digital-consultation.tex [23]
 Chapter 4.
+File: figures/ui-clinical-speaking.png Graphic file (type bmp)
+<figures/ui-clinical-speaking.png>
+[24
+
+] [25] [26] [27]
+Underfull \hbox (badness 1127) in paragraph at lines 112--112
+[]|\TU/SimSun(1)/m/n/10.53937 为 课 程 讲 解 生 成 可 反 复 收 听 的 音 频，|
+ []
+
+) (sections/04-image-analysis-agent.tex [28] [29]
+Chapter 5.
 File: figures/oralpath-fig17-multimodal-data.png Graphic file (type bmp)
 <figures/oralpath-fig17-multimodal-data.png>
-[23
+[30
 
-] [24]
+] [31]
 File: figures/oralpath-fig18-qwen-vl-design.png Graphic file (type bmp)
 <figures/oralpath-fig18-qwen-vl-design.png>
- [25]
+ [32]
 File: figures/oralpath-fig19-training-logic.png Graphic file (type bmp)
 <figures/oralpath-fig19-training-logic.png>
- [26]
+ [33]
 File: figures/oralpath-fig20-training-flow.png Graphic file (type bmp)
 <figures/oralpath-fig20-training-flow.png>
- [27]
+ [34]
 File: figures/oralpath-fig21-lora-scheme.png Graphic file (type bmp)
 <figures/oralpath-fig21-lora-scheme.png>
- [28]
+ [35]
 File: figures/oralpath-fig22-innovation-strategy.png Graphic file (type bmp)
 <figures/oralpath-fig22-innovation-strategy.png>
- [29] [30]
+ [36] [37]
 File: figures/oralpath-fig23-evaluation-strategy.png Graphic file (type bmp)
 <figures/oralpath-fig23-evaluation-strategy.png>
 File: figures/oralpath-fig24-summary-example.png Graphic file (type bmp)
 <figures/oralpath-fig24-summary-example.png>
- [31] [32]
+ [38] [39]
 File: figures/oralpath-fig25-detection-example.png Graphic file (type bmp)
 <figures/oralpath-fig25-detection-example.png>
- [33] [34])
-(sections/05-user-model-planning.tex [35]
-Chapter 5.
+ [40] [41])
+(sections/05-user-model-planning.tex [42]
+Chapter 6.
 File: figures/profile-overall-architecture.pdf Graphic file (type pdf)
 <use figures/profile-overall-architecture.pdf>
-[36
-
-] [37]
-File: figures/trace-forest.pdf Graphic file (type pdf)
-<use figures/trace-forest.pdf>
- [38] [39]
-File: figures/KG-knowledge-trace.pdf Graphic file (type pdf)
-<use figures/KG-knowledge-trace.pdf>
- [40]
-File: figures/profile-feedback-loop.pdf Graphic file (type pdf)
-<use figures/profile-feedback-loop.pdf>
- [41]) (sections/06-spaced-repetition-scheduling.tex
-[42]
-Chapter 6.
 [43
 
-] [44] [45] [46]
+] [44]
+File: figures/trace-forest.pdf Graphic file (type pdf)
+<use figures/trace-forest.pdf>
+ [45] [46]
+File: figures/KG-knowledge-trace.pdf Graphic file (type pdf)
+<use figures/KG-knowledge-trace.pdf>
+ [47]
+File: figures/profile-feedback-loop.pdf Graphic file (type pdf)
+<use figures/profile-feedback-loop.pdf>
+ [48]) (sections/06-spaced-repetition-scheduling.tex
+[49]
+Chapter 7.
+[50
+
+] [51] [52] [53]
 Overfull \hbox (34.42871pt too wide) detected at line 219
 [] \OMS/cmsy/m/n/10.53937 ! [] ! [] ! [] ! []\OML/cmm/m/it/10.53937 :
  []
 
-[47]) (sections/07-resource-generation.tex [48]
-Chapter 7.
+[54]) (sections/07-resource-generation.tex [55]
+Chapter 8.
 File: figures/profile-resource-generation.pdf Graphic file (type pdf)
 <use figures/profile-resource-generation.pdf>
-[49
+[56
 
 ]
 File: figures/personalized-path-generation.pdf Graphic file (type pdf)
 <use figures/personalized-path-generation.pdf>
- [50] [51] [52]
+ [57] [58] [59]
 File: figures/resource-ppt-preview.png Graphic file (type bmp)
 <figures/resource-ppt-preview.png>
- [53] [54]) (sections/08-knowledge-base.tex [55]
-Chapter 8.
+ [60] [61]) (sections/08-knowledge-base.tex [62]
+Chapter 9.
 File: figures/kb-data-process.pdf Graphic file (type pdf)
 <use figures/kb-data-process.pdf>
-[56
+[63
 
-] [57] [58] [59] [60] [61] [62] [63] [64]
+] [64] [65] [66] [67] [68] [69] [70] [71]
 File: figures/kb-architecture.pdf Graphic file (type pdf)
 <use figures/kb-architecture.pdf>
- [65]
+ [72]
 File: figures/kb-layered-architecture.pdf Graphic file (type pdf)
 <use figures/kb-layered-architecture.pdf>
- [66] [67]
+ [73] [74]
 File: figures/kb-search-process.pdf Graphic file (type pdf)
 <use figures/kb-search-process.pdf>
- [68] [69] [70]
-[71]) (sections/09-system-implementation.tex [72]
-Chapter 9.
+ [75] [76] [77]
+[78]) (sections/09-system-implementation.tex [79]
+Chapter 10.
 
-Underfull \hbox (badness 10000) in paragraph at lines 20--20
+Underfull \hbox (badness 10000) in paragraph at lines 21--21
 []|\TU/TimesNewRoman(0)/m/n/10.53937 Orchestrator\TU/SimSun(1)/m/n/10.53937 、| 
 \TU/TimesNewRoman(0)/m/n/10.53937 Planner\TU/SimSun(1)/m/n/10.53937 、|
  []
 
 
-Underfull \hbox (badness 5189) in paragraph at lines 20--20
+Underfull \hbox (badness 5189) in paragraph at lines 21--21
 \TU/TimesNewRoman(0)/m/n/10.53937 Resource Factory\TU/SimSun(1)/m/n/10.53937 、|
  \TU/TimesNewRoman(0)/m/n/10.53937 Tu-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 20--20
+Underfull \hbox (badness 10000) in paragraph at lines 21--21
 \TU/TimesNewRoman(0)/m/n/10.53937 tor\TU/SimSun(1)/m/n/10.53937 、| \TU/TimesNew
 Roman(0)/m/n/10.53937 QA\TU/SimSun(1)/m/n/10.53937 、| \TU/TimesNewRoman(0)/m/n/
 10.53937 Assessment\TU/SimSun(1)/m/n/10.53937 、|
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 20--20
+Underfull \hbox (badness 10000) in paragraph at lines 21--21
+[]|\TU/SimSun(1)/m/n/10.53937 患 者 \TU/TimesNewRoman(0)/m/n/10.53937 Agent\TU/Si
+mSun(1)/m/n/10.53937 、|  判 官
+ []
+
+
+Underfull \hbox (badness 2302) in paragraph at lines 21--21
+\TU/TimesNewRoman(0)/m/n/10.53937 Agent\TU/SimSun(1)/m/n/10.53937 、|  状 态 机、|  
+数 字
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 21--21
 []|\TU/TimesNewRoman(0)/m/n/10.53937 KAG\TU/SimSun(1)/m/n/10.53937 、| \TU/Times
 NewRoman(0)/m/n/10.53937 KG\TU/SimSun(1)/m/n/10.53937 、|  题 库、|
  []
 
-[73
+[80
 
-]
-Underfull \hbox (badness 4621) in paragraph at lines 95--96
+] [81]
+Underfull \hbox (badness 4621) in paragraph at lines 103--104
 []|\TU/TimesNewRoman(0)/m/n/9.03374 POST /api/learning/assessment/sub-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 105--106
+Underfull \hbox (badness 10000) in paragraph at lines 113--114
 []|\TU/TimesNewRoman(0)/m/n/9.03374 POST /api/learning/session/s-
  []
 
 
-Underfull \hbox (badness 2343) in paragraph at lines 110--111
+Underfull \hbox (badness 2343) in paragraph at lines 118--119
 []|\TU/TimesNewRoman(0)/m/n/9.03374 GET /api/learning/session/{session_
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 129--130
+Underfull \hbox (badness 10000) in paragraph at lines 137--138
 []|\TU/SimSun(1)/m/n/9.03374 获 取 与 生 成 阶
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 130--131
+Underfull \hbox (badness 10000) in paragraph at lines 138--139
 []|\TU/TimesNewRoman(0)/m/n/9.03374 GET/POST /api/learning/ses-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 135--136
+Underfull \hbox (badness 10000) in paragraph at lines 143--144
 []|\TU/TimesNewRoman(0)/m/n/9.03374 POST /api/learning/ses-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 155--156
+Underfull \hbox (badness 10000) in paragraph at lines 163--164
 []|\TU/TimesNewRoman(0)/m/n/9.03374 GET /api/learning/plan/{user_
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 160--161
+Underfull \hbox (badness 10000) in paragraph at lines 168--169
 []|\TU/TimesNewRoman(0)/m/n/9.03374 POST/DELETE /api/learning/-
  []
 
 
-Underfull \hbox (badness 2343) in paragraph at lines 165--166
+Underfull \hbox (badness 2343) in paragraph at lines 173--174
 []|\TU/TimesNewRoman(0)/m/n/9.03374 GET /api/learning/session/{session_
  []
 
 
-Underfull \hbox (badness 2343) in paragraph at lines 170--171
+Underfull \hbox (badness 2343) in paragraph at lines 178--179
 []|\TU/TimesNewRoman(0)/m/n/9.03374 GET /api/learning/session/{session_
  []
 
 
-Underfull \hbox (badness 2343) in paragraph at lines 175--176
+Underfull \hbox (badness 2343) in paragraph at lines 183--184
 []|\TU/TimesNewRoman(0)/m/n/9.03374 GET /api/learning/session/{session_
  []
 
 
-Underfull \hbox (badness 2343) in paragraph at lines 180--181
+Underfull \hbox (badness 2343) in paragraph at lines 188--189
 []|\TU/TimesNewRoman(0)/m/n/9.03374 GET /api/learning/session/{session_
  []
 
-[74] [75]
+
+Underfull \hbox (badness 10000) in paragraph at lines 192--193
+[]|\TU/SimSun(1)/m/n/9.03374 数 字 问 诊 就 绪
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 198--199
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 GET/POST /api/clinical-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 203--204
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 POST /api/clinical-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 208--209
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 POST /api/clinical-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 208--209
+\TU/TimesNewRoman(0)/m/n/9.03374 speaking/sessions/{session_
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 213--214
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 POST /api/clinical-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 213--214
+\TU/TimesNewRoman(0)/m/n/9.03374 speaking/sessions/{session_
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 217--218
+[]|\TU/SimSun(1)/m/n/9.03374 获 取 语 音 听 写
+ []
+
+[82] [83]
 File: figures/ui-home.png Graphic file (type bmp)
 <figures/ui-home.png>
- [76]
+ [84]
 File: figures/ui-teaching-result.png Graphic file (type bmp)
 <figures/ui-teaching-result.png>
- [77]
+ [85]
 File: figures/ui-qa-result.png Graphic file (type bmp)
 <figures/ui-qa-result.png>
 File: figures/ui-study-plan-chat.png Graphic file (type bmp)
 <figures/ui-study-plan-chat.png>
- [78]
+ [86]
 File: figures/ui-learning-plan.png Graphic file (type bmp)
 <figures/ui-learning-plan.png>
- [79]
+ [87]
 File: figures/ui-literature-result.png Graphic file (type bmp)
 <figures/ui-literature-result.png>
 File: figures/ui-learning-profile.png Graphic file (type bmp)
 <figures/ui-learning-profile.png>
- [80]
+ [88]
 File: figures/ui-learning-plan.png Graphic file (type bmp)
 <figures/ui-learning-plan.png>
- [81]
+ [89] [90]
 (D:\miktex\tex/latex/listings\lstlang1.sty
 File: lstlang1.sty 2023/02/27 1.9 listings language file
 )
 (D:\miktex\tex/latex/listings\lstlang1.sty
 File: lstlang1.sty 2023/02/27 1.9 listings language file
-) [82] [83]
-Underfull \hbox (badness 2401) in paragraph at lines 432--432
+) [91]
+Underfull \hbox (badness 2401) in paragraph at lines 474--474
 []|\TU/TimesNewRoman(0)/m/n/9.03374 package.json \TU/SimSun(1)/m/n/9.03374 声 明
  []
 
-[84]) (sections/10-testing-evaluation.tex [85]
-Chapter 10.
-[86
-
-] [87] [88] [89] [90]) (sections/11-innovation-value.tex [91]
+[92]) (sections/10-testing-evaluation.tex [93]
 Chapter 11.
-[92
+[94
 
-] [93]
-Underfull \hbox (badness 3118) in paragraph at lines 100--100
+] [95] [96] [97] [98]) (sections/11-innovation-value.tex [99]
+Chapter 12.
+[100
+
+] [101] [102]
+Underfull \hbox (badness 3118) in paragraph at lines 110--110
 []|\TU/SimSun(1)/m/n/10.53937 同 一 课 程 节 点 下 组 织 讲 义、|  讲 解、|
  []
 
-[94]) (sections/12-deployment-demo.tex [95]
-Chapter 12.
+) (sections/12-deployment-demo.tex [103]
+Chapter 13.
 
 Underfull \hbox (badness 10000) in paragraph at lines 24--24
 []|\TU/TimesNewRoman(0)/m/n/10.53937 Windows 10/11 \TU/SimSun(1)/m/n/10.53937 或
@@ -1764,55 +1827,100 @@ Underfull \hbox (badness 10000) in paragraph at lines 24--24
  []
 
 
+Underfull \hbox (badness 10000) in paragraph at lines 44--44
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 CLINICAL_SPEAKING_LLM_BASE_
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 45--45
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 CLINICAL_SPEAKING_LLM_
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 46--46
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 CLINICAL_SPEAKING_LLM_API_
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 48--48
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 XF_IAT_API_KEY / XF_IAT_API_
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 50--50
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 XF_IAT_LANGUAGE / XF_IAT_
+ []
+
+
 Underfull \hbox (badness 10000) in paragraph at lines 51--51
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 XF_IAT_DOMAIN / XF_IAT_VAD_
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 53--53
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 XF_AVATAR_API_KEY / XF_
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 54--54
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 wss://avatar.cn-huadong-1.xf-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 55--55
+[]|\TU/TimesNewRoman(0)/m/n/9.03374 XF_AVATAR_PROTOCOL / XF_
+ []
+
+[104
+
+]
+Underfull \hbox (badness 10000) in paragraph at lines 85--85
 []|\TU/TimesNewRoman(0)/m/n/10.53937 LEARNING_LLM_BASE_
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 51--51
+Underfull \hbox (badness 10000) in paragraph at lines 85--85
 []|\TU/TimesNewRoman(0)/m/n/10.53937 https://spark-api-open.xf-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 51--51
+Underfull \hbox (badness 10000) in paragraph at lines 85--85
 []|\TU/TimesNewRoman(0)/m/n/10.53937 https://api-dx.xf-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 51--51
+Underfull \hbox (badness 10000) in paragraph at lines 85--85
 \TU/TimesNewRoman(0)/m/n/10.53937 yun.com/v1/private/dts_
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 51--51
+Underfull \hbox (badness 10000) in paragraph at lines 85--85
 []|\TU/TimesNewRoman(0)/m/n/10.53937 https://api-dx.xf-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 51--51
+Underfull \hbox (badness 10000) in paragraph at lines 85--85
 \TU/TimesNewRoman(0)/m/n/10.53937 yun.com/v1/private/dts_
  []
 
-[96
-
-]) (sections/13-conclusion.tex
-Underfull \hbox (badness 1308) in paragraph at lines 77--1
+[105]) (sections/13-conclusion.tex
+Underfull \hbox (badness 1308) in paragraph at lines 111--1
 []\TU/SimSun(1)/m/n/10.53937 服 务 默 认 监 听 \TU/TimesNewRoman(0)/m/n/10.53937 127.
 0.0.1:8000\TU/SimSun(1)/m/n/10.53937 ，|  前 端 首 页 地 址 为 \TU/TimesNewRoman(0)/m/n
 /10.53937 http://127.0.0.1:8000/\TU/SimSun(1)/m/n/10.53937 ，|  接 口 文 档 地 址 为
  []
 
-[97]
-Chapter 13.
-[98
+[106]
+Chapter 14.
+[107
 
-] [99]) (sections/appendix-a.tex [100] [101
+] [108]) (sections/appendix-a.tex [109] [110
 
-]) [102] (main.bbl [103
+]) [111] (main.bbl [112
 
 
-] [104])
-[105] (main.aux)
+]
+[113]) [114] (main.aux)
  ***********
 LaTeX2e <2023-11-01> patch level 1
 L3 programming layer <2022/08/05>
@@ -1823,15 +1931,15 @@ LaTeX Font Warning: Size substitutions with differences
 (Font)              up to 0.41063pt have occurred.
 
 Package rerunfilecheck Info: File `main.out' has not changed.
-(rerunfilecheck)             Checksum: 92FA230B274BEA683EDA1F9947CD5D48;19497.
+(rerunfilecheck)             Checksum: 9B203CF90F07A935E76DC32CD8E0761F;20844.
  ) 
 Here is how much of TeX's memory you used:
- 50062 strings out of 409617
- 1237925 string characters out of 5781118
- 2015191 words of memory out of 5000000
- 71343 multiletter control sequences out of 15000+600000
+ 50163 strings out of 409617
+ 1241618 string characters out of 5781118
+ 2013191 words of memory out of 5000000
+ 71440 multiletter control sequences out of 15000+600000
  572824 words of font info for 160 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
- 93i,13n,99p,727b,2329s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 93i,13n,99p,727b,1175s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on main.pdf (106 pages).
+Output written on main.xdv (115 pages, 2039680 bytes).

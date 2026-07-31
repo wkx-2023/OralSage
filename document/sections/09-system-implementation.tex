@@ -14,6 +14,7 @@
     前端 & HTML/CSS/JavaScript & 实现学习入口、画像、学习页、资源展示和计划页等。 \\
     后端 & Python、FastAPI、Pydantic、Uvicorn & 提供 API、参数校验、静态资源和流式进度接口。 \\
     智能体 & Orchestrator、Planner、Resource Factory、Tutor、QA、Assessment、Memory/User Model & 实现学习规划、资源生成、答疑、测评和记忆更新。 \\
+    临床训练 & 患者 Agent、判官 Agent、状态机、数字人 SDK & 支持数字人问诊、自然语言诊断理解、五域表达考核和画像反馈。 \\
     知识库 & KAG、KG、题库、BM25、BGE-M3/FAISS & 支撑证据检索、路径规划和测评。 \\
     多模态资源 & PPT/slides、TTS 音频、思维导图、阶段卷 & 支撑多类型个性化学习资源生成。 \\
     \bottomrule
@@ -32,6 +33,10 @@ LEARNING_LLM_MODEL=4.0Ultra
 LEARNING_LLM_API_KEY=<APIPassword>
 \end{lstlisting}
 
+数字问诊使用讯飞星火 \texttt{xsparkx2flash} 推理服务处理病例选题映射、患者多轮交流、自然语言诊断识别、考核题目构建与分项评分。临床训练服务通过专用配置连接推理接口，并要求模型名称与 \texttt{xsparkx2flash} 一致。结构化输出经过字段、事实编号与证据引用检查后进入状态机，使讯飞星火的中文语义理解能够可靠承接患者和判官两个角色。
+
+语音输入采用讯飞流式语音听写 WebSocket，后端生成短时签名地址供浏览器建立会话，访问密钥始终保留在服务端。听写结果经过医学术语整理后提交给患者 Agent，口腔疾病名称和临床专有词能够以更适合后续推理的文本形式进入问诊。数字人部分使用讯飞实时互动 SDK 和 \texttt{xrtc} 协议，透明渲染层展示患者形象，Agent 回复通过 \texttt{x4\_lingxiaoqi\_oral} 发音人播报，形成语音输入、语义理解和患者表达连续衔接的交互体验。
+
 课程讲稿和 Tutor 内容的语音资源采用讯飞长文本语音合成 API。后端先调用 \texttt{dts\_create} 创建合成任务，再通过 \texttt{dts\_query} 查询任务状态并下载生成的音频文件。部署版本使用中文发音人 \texttt{x4\_mingge}，输出 MP3 音频，服务端保存音频文件并向前端返回资源路径。该方式适合课程讲义和连续讲解等较长文本，不在浏览器端直接保存或暴露讯飞鉴权信息。
 
 \begin{table}[H]
@@ -44,6 +49,9 @@ LEARNING_LLM_API_KEY=<APIPassword>
     \midrule
     iFlyCode 智能编程助手 & 开发辅助工具 & 代码生成、代码检查、单元测试和调试，不参与运行时请求 \\
     星火 4.0 Ultra API & \texttt{/v1/chat/completions} & Planner、Resource Factory、Tutor、QA、Assessment 和学习状态分析 \\
+    星火 \texttt{xsparkx2flash} & 推理服务 HTTP 接口 & 数字问诊选题、患者交互、诊断理解、判官出题与评分 \\
+    流式语音听写 & \texttt{/v2/iat} WebSocket & 实时转写学生口述并衔接医学术语整理 \\
+    实时数字人 & 实时互动 WebSocket 与浏览器 SDK & 展示并播报患者和判官回复 \\
     长文本语音合成 API & \texttt{dts\_create}/\texttt{dts\_query} & 将课程讲稿和 Tutor 内容生成 MP3 音频 \\
     \bottomrule
   \end{tabularx}
@@ -180,7 +188,37 @@ OralSage 后端基于 FastAPI 构建，围绕学习测评、课程会话、教�
   & \texttt{GET /api/learning/session/\{session\_id\}/audio-manifest}
   & 会话标识
   & 分节语音资源及其文件清单 \\
-\end{longtable}
+
+  数字问诊就绪检查
+  & \texttt{GET /api/clinical-speaking/readiness}
+  & 无
+  & 星火、语音听写、数字人和病例训练条件 \\
+
+  数字问诊会话
+  & \texttt{GET/POST /api/clinical-speaking/sessions}
+  & 用户标识、请求编号
+  & 历史会话列表或新建的个性化病例会话 \\
+
+  提交问诊轮次
+  & \texttt{POST /api/clinical-speaking/sessions/\{session\_id\}/turns}
+  & 用户文本、输入方式、请求编号
+  & 患者回复、意图理解和当前阶段 \\
+
+  确认诊断
+  & \texttt{POST /api/clinical-speaking/sessions/\{session\_id\}/diagnosis}
+  & 诊断确认、请求编号
+  & 判官接管结果和首道考核问题 \\
+
+  提交考核回答
+  & \texttt{POST /api/clinical-speaking/sessions/\{session\_id\}/exam-answers}
+  & 问题编号、回答文本、请求编号
+  & 分项分数、批评意见、下一问题或训练总结 \\
+
+  获取语音听写配置
+  & \texttt{GET /api/clinical-speaking/iat-config}
+  & 无
+  & 短时签名地址和公开听写参数 \\
+  \end{longtable}
 }
 
 普通接口采用统一的 JSON 响应结构。响应中的 \texttt{ok} 表示本次调用是否成功，\texttt{module} 标识所属业务模块，\texttt{action} 表示实际执行动作，\texttt{result} 保存学习会话、课程资源、画像或计划任务等业务数据。以主题学习启动接口为例，其基础响应结构如下：
@@ -224,11 +262,11 @@ OralSage 后端基于 FastAPI 构建，围绕学习测评、课程会话、教�
   \end{tabularx}
 \end{table}
 
-通过上述接口，前端可以围绕同一用户和学习会话依次完成初始测评、主题课程启动、讲解与答疑、练习测评、画像更新、计划推荐和多模态资源获取。后端接口不仅承担页面数据传输，也将多智能体调度、学习状态更新和资源生成过程连接为统一的学习服务链路。
+通过上述接口，前端可以围绕同一用户和学习会话依次完成初始测评、主题课程启动、讲解与答疑、练习测评、画像更新、计划推荐和多模态资源获取。数字问诊接口另行维护患者会话和临床考核状态，并把诊断与评分事件写入同一学习画像。两类学习过程共享用户身份和专业知识空间，页面可以呈现连续积累的个人学习变化。
 
 \section{前端页面设计}
 
-OralSage 前端采用统一导航与任务工作台相结合的页面组织方式。首页集中呈现智能问答、知识库、知识图谱、学习画像、学习计划和专业工具等核心入口，使学习者能够从同一工作台进入不同学习任务。对于需要自然语言交互的高频功能，系统将主题学习、学习计划生成、文献检索和口腔医学答疑统一接入总控对话页面，并根据用户表达进入相应的任务流程，减少学习者在多个功能页面之间反复切换。
+OralSage 前端采用统一导航组织核心学习页面，顺序为总控学习入口、智能问答、问诊模拟、学习计划、学习画像和知识图谱。首页保留智能问答、问诊模拟、知识图谱、学习画像、学习计划和专业工具等主要入口，知识库查看移入工具箱并以独立页面打开。主题学习、学习计划生成和课程交互仍从总控对话页面进入，数字问诊拥有单独页面，使实时数字人、历史会话与连续问诊获得更完整的展示空间。
 
 \begin{figure}[H]
   \centering
@@ -247,6 +285,8 @@ OralSage 前端采用统一导航与任务工作台相结合的页面组织方�
 \end{figure}
 
 在课程学习过程中，学习者可以针对当前讲解内容提出补充问题。系统保留当前学习主题、章节和对话上下文，对问题进行关联回答，避免学习者重新描述背景。当学习者对练习题或自测结果存在疑问时，也可以继续追问题目考点、选项依据和相关知识点，从而形成“讲解—提问—解释—检验”的学习闭环。除课程内答疑外，系统还支持直接输入口腔医学问题进行独立问答，以满足临时知识查询和概念澄清需求。
+
+问诊模拟页面采用左侧历史记录、中央透明数字人和右侧连续对话区域。学生发送文字或完成语音转写后，医生消息立即进入会话，患者 Agent 的回答由数字人同步播报。正确诊断触发判官接管，后续问题和评分继续出现在同一对话中，页面无需切换到独立考核区。数字人下方只保留当前阶段提示，输入区会随文本内容自动调整高度，减少临床交流中的操作干扰。
 
 \begin{figure}[H]
   \centering
@@ -309,7 +349,7 @@ OralSage 采用“SQLite 持久化学习状态、文件系统保存知识资源�
 
 \begin{itemize}
   \item \texttt{backend/}：包含 FastAPI 接口、请求模型、学习编排器、知识检索、答疑、测评、学习画像和学习计划等后端模块；
-  \item \texttt{frontend/}：包含首页、智能问答、学习画像、学习计划、知识库和知识图谱等页面，以及对应的 JavaScript 交互逻辑和 CSS 样式；
+  \item \texttt{frontend/}：包含首页、智能问答、问诊模拟、学习画像、学习计划、知识库和知识图谱等页面，以及对应的 JavaScript 交互逻辑和 CSS 样式。
   \item \texttt{data/}：保存知识库文件、检索索引、学习数据库、学习会话资源和微信桥接数据；
   \item \texttt{models/}：保存本地嵌入模型和其他推理模型资源；
   \item \texttt{scripts/}：用于知识库构建、文本切分、索引生成、数据校验和实验性流程运行；
@@ -318,6 +358,8 @@ OralSage 采用“SQLite 持久化学习状态、文件系统保存知识资源�
 \end{itemize}
 
 学习状态和学习画像统一保存在 \texttt{data/learning/learning.sqlite3} 中。数据库以用户和学习会话为主线组织数据，主要包括用户表、用户画像表、学习会话表、课程大纲表、生成资源表、学习事件表、掌握度记录表、答题记录表、学习记忆表、学习摘要表和学习计划任务表。用户画像通过 \texttt{user\_id} 与用户和学习事件关联，学习会话通过 \texttt{session\_id} 关联课程主题、当前大纲节点、讲解过程、答疑记录、练习结果和生成资源，知识掌握度则通过 \texttt{kg\_node\_id} 与知识图谱节点关联。
+
+数字问诊会话保存在 \texttt{data/learning/clinical\_speaking.sqlite3} 中，数据库记录患者对话、状态机阶段、诊断候选、判官题目、分项评分和已处理请求编号。经过确认的诊断与评分结果通过专用事件编号写入 \texttt{learning.sqlite3}，临床训练服务可以独立恢复会话，学习画像也能持续汇总课程与问诊两类学习行为。
 
 对于课程生成过程中产生的文件，系统以学习会话编号作为资源目录的组织单位，基本路径为：
 

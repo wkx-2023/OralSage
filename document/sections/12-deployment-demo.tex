@@ -3,7 +3,7 @@
 
 \section{运行环境要求}
 
-OralSage 采用前后端一体化的本地 Web 服务部署方式，FastAPI 同时提供业务接口和前端静态页面。项目已在 Windows 11、Python 3.11.9 环境完成开发和测试，也可部署在具备 Python 3.11 运行环境的 Linux 服务器。基础演示不强制要求独立 GPU；本地嵌入模型和知识索引可以使用 CPU 加载，文本生成和长文本语音合成通过讯飞云端接口完成。
+OralSage 采用前后端一体化的本地 Web 服务部署方式，FastAPI 同时提供业务接口和前端静态页面。项目已在 Windows 11、Python 3.11.9 环境完成开发和测试，也可部署在具备 Python 3.11 运行环境的 Linux 服务器。基础演示不强制要求独立 GPU，本地嵌入模型和知识索引可以使用 CPU 加载，课程文本生成、数字问诊推理、流式语音听写、实时数字人和长文本语音合成通过讯飞云端接口完成。
 
 \begin{table}[H]
   \centering
@@ -18,11 +18,45 @@ OralSage 采用前后端一体化的本地 Web 服务部署方式，FastAPI 同�
     处理器与内存 & 四核 CPU、16 GB 内存 & 可满足本地知识索引、SQLite 学习状态和演示资源的加载需要。 \\
     GPU & 非必需 & 本地演示可采用 CPU 检索；如扩展本地视觉或大模型推理，可按模型规模配置 GPU。 \\
     磁盘空间 & 至少 10 GB 可用空间 & 当前数据与本地模型资源约占 6.5 GB，并需预留课程资源和日志空间。 \\
-    网络 & 可访问讯飞开放平台 & 用于调用讯飞星火 4.0 Ultra 和长文本语音合成服务。 \\
+    网络 & 可访问讯飞开放平台 & 用于调用星火 4.0 Ultra、\texttt{xsparkx2flash}、流式语音听写、实时数字人和长文本语音合成服务。 \\
     浏览器 & Chrome、Edge 等现代浏览器 & 访问由 FastAPI 托管的前端页面，无需单独启动前端开发服务器。 \\
     \bottomrule
   \end{tabularx}
 \end{table}
+
+数字问诊使用独立的讯飞推理、语音和数字人配置。部署服务器需要能够访问星火推理 HTTP 服务、\texttt{wss://iat-api.xfyun.cn/v2/iat} 与 \texttt{wss://avatar.cn-huadong-1.xf-yun.com/v1/interact}。浏览器通过 OralSage 后端取得短时签名地址和公开会话参数，长期访问凭据不会下发到前端。
+
+{\small
+\renewcommand{\arraystretch}{1.12}
+\begin{longtable}{p{0.34\linewidth}p{0.25\linewidth}p{0.32\linewidth}}
+  \caption{数字问诊讯飞配置项}\label{tab:clinical-xfyun-deployment-config}\\
+  \toprule
+  配置项 & 示例值或格式 & 用途 \\
+  \midrule
+  \endfirsthead
+  \multicolumn{3}{c}{续表~\thetable}\\
+  \toprule
+  配置项 & 示例值或格式 & 用途 \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{CLINICAL\_SPEAKING\_LLM\_BASE\_URL} & 讯飞推理服务 HTTP 地址 & 患者与判官 Agent 的请求入口 \\
+  \texttt{CLINICAL\_SPEAKING\_LLM\_MODEL} & \texttt{xsparkx2flash} & 数字问诊专用星火模型 \\
+  \texttt{CLINICAL\_SPEAKING\_LLM\_API\_KEY} & 服务端密钥 & 星火推理服务访问凭据 \\
+  \texttt{XF\_IAT\_APP\_ID} & 服务端应用标识 & 流式语音听写应用身份 \\
+  \texttt{XF\_IAT\_API\_KEY} / \texttt{XF\_IAT\_API\_SECRET} & 服务端密钥 & 听写 WebSocket 签名 \\
+  \texttt{XF\_IAT\_SERVER\_URL} & \texttt{wss://iat-api.xfyun.cn/v2/iat} & 流式语音听写地址 \\
+  \texttt{XF\_IAT\_LANGUAGE} / \texttt{XF\_IAT\_ACCENT} & \texttt{zh\_cn} / \texttt{mandarin} & 中文普通话听写参数 \\
+  \texttt{XF\_IAT\_DOMAIN} / \texttt{XF\_IAT\_VAD\_EOS} & \texttt{iat} / \texttt{10000} & 听写领域与末尾停顿时长 \\
+  \texttt{XF\_AVATAR\_APP\_ID} / \texttt{XF\_AVATAR\_SCENE\_ID} & 服务端应用与场景标识 & 实时数字人应用身份 \\
+  \texttt{XF\_AVATAR\_API\_KEY} / \texttt{XF\_AVATAR\_API\_SECRET} & 服务端密钥 & 实时互动 WebSocket 签名 \\
+  \texttt{XF\_AVATAR\_SERVER\_URL} & \texttt{wss://avatar.cn-huadong-1.xf-yun.com/v1/interact} & 实时数字人互动地址 \\
+  \texttt{XF\_AVATAR\_PROTOCOL} / \texttt{XF\_AVATAR\_ID} & \texttt{xrtc} / \texttt{138805001} & 互动协议与患者形象 \\
+  \texttt{XF\_AVATAR\_VCN} & \texttt{x4\_lingxiaoqi\_oral} & 患者与判官播报发音人 \\
+  \texttt{XF\_AVATAR\_SDK\_URL} & 浏览器 SDK 地址 & 加载讯飞实时数字人客户端 \\
+\end{longtable}
+}
 
 后端主要依赖 FastAPI 0.136.1、Uvicorn 0.46.0、Pydantic 2.13.3、LangGraph 1.1.9、NumPy 2.4.6、PyYAML 6.0.2、pypdf 6.4.1 和 openpyxl 3.1.5，具体版本统一记录在 \texttt{backend/requirements.txt} 中。部署服务器保存 KAG 知识库、向量索引、学习会话和生成资源，浏览器只访问 OralSage 自身的前端与后端接口，讯飞 API 密钥不会下发到浏览器。
 
@@ -59,9 +93,9 @@ OralSage 采用前后端一体化的本地 Web 服务部署方式，FastAPI 同�
   \item 获取项目源码、知识库、题库和模型资源。
   \item 创建 Python 虚拟环境并安装依赖。
   \item 根据示例配置文件填写运行参数。
-  \item 校验知识库、题库和索引文件是否完整。
+  \item 校验知识库、题库、病例训练数据和索引文件是否完整。
   \item 启动后端服务并访问前端页面。
-  \item 调用健康检查接口并运行核心演示流程。
+  \item 调用健康检查与数字问诊就绪检查接口并运行核心演示流程。
 \end{enumerate}
 
 在项目根目录执行以下命令即可启动本地演示服务：
